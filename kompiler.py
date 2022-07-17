@@ -1,3 +1,4 @@
+import ast
 from enum import Enum
 from sys import argv, stdout, stderr
 import os
@@ -12,7 +13,7 @@ def main():
     if src_name == '--help':
         print('usage: krimson <source_file> <destination_file>')
 
-    source = '''int var = 69'''
+    source = '''string var = 69'''
 
     if src_name is not None:
         if os.path.isfile(src_name):
@@ -35,6 +36,15 @@ def main():
         for err in lexer.errors:
             print(err, file=stderr)
         exit(1)
+
+    parser = Parser(source, lexer.tokens, dest_name)
+    parser.parse()
+
+    if len(parser.errors) > 0:
+        for err in lexer.errors:
+            print(err, file=stderr)
+        exit(1)
+
     return
 
 
@@ -45,10 +55,6 @@ def main():
 bases = 'oOxXbBdD'
 
 op_precedence = {}
-
-#########################################
-# Classes
-#########################################
 
 
 class TT(Enum):
@@ -241,6 +247,8 @@ class E(Enum):
     name_expected = 'Name expected'
     literal_expected = 'Literal expected'
     invalid_literal = 'Invalid literal'
+    invalid_char = 'Invalid character'
+    miss_close_sym = 'Missing single quote {}'
 
     def __repr__(self) -> str:
         return self.value
@@ -266,6 +274,37 @@ class Error:
         return string
 
 
+#########################################
+# AST
+#########################################
+
+
+class Expression:
+    def __init__(self, value):
+        self.value = value
+        return
+
+    def __repr__(self):
+        return self.value
+
+
+class BinOp(Expression):
+    def __init__(self, op: Token, left: Token, right):
+        super().__init__(self)
+        self.left_child = left
+        self.right_child = right
+        self.op = op
+        return
+
+    def __repr__(self):
+        return f'{self.left_child} {self.op.type} {self.right_child}'
+
+
+#########################################
+# Lexer
+#########################################
+
+
 class Lexer:
     def __init__(self, program: str, file_name: str):
         self.pr = program + '      \n'  # avoids checking self.has_next() tons of times
@@ -277,13 +316,14 @@ class Lexer:
         self.end = 1
         self.tokens = []
         self.errors = []
+        self.warnings = []
 
         self.peak = self.pr[self.i]
         self.start_index = self.i
         self.start = self.end
         return
 
-    def tokenize(self):
+    def tokenize(self) -> None:
         while self.has_next():
             while self.has_next() and self.peak.isspace():
                 self.advance()
@@ -306,7 +346,7 @@ class Lexer:
             self.make_token()
         return
 
-    def make_token(self):
+    def make_token(self) -> None:
         if self.peak in symbols:
             self.make_symbol()
 
@@ -315,9 +355,16 @@ class Lexer:
 
         elif self.peak.isalpha():
             self.make_word()
+
+        elif self.peak == '"':
+            self.make_string()
+
+        elif self.peak == "'":
+            self.make_char()
+
         return
 
-    def make_symbol(self):
+    def make_symbol(self) -> None:
         if self.peak == '<':
             self.advance()
             if self.peak == '<':
@@ -452,7 +499,7 @@ class Lexer:
                 self.error(E.invalid_literal)
         return
 
-    def make_word(self):
+    def make_word(self) -> None:
         if not (self.peak.isalpha() or self.peak == '_'):
             self.error(E.name_expected)
             return
@@ -468,6 +515,38 @@ class Lexer:
                 self.token(TT.dot)
                 self.make_word()
         self.token(TT.word, word)
+        return
+
+    def make_string(self) -> None:
+        string = self.peak
+        self.advance()
+        while self.has_next() and self.peak != '"' and self.peak != '\n':
+            string += self.peak
+            self.advance()
+
+        if self.peak == '\n':
+            self.error(E.miss_close_sym, '"')
+        string += '"'
+        self.token(TT.string, string)
+        self.advance()
+        return
+
+    def make_char(self) -> None:
+        char = self.peak
+        self.advance()
+        while self.has_next() and self.peak != "'" and self.peak != '\n':
+            char += self.peak
+            self.advance()
+
+        if self.peak == '\n':
+            self.error(E.miss_close_sym, "'")
+        char += "'"
+        char = ast.literal_eval(char)
+        if len(char) != 1:
+            self.error(E.invalid_literal)
+        else:
+            self.token(TT.string, char)
+        self.advance()
         return
 
     def inline_comment(self) -> None:
@@ -500,7 +579,12 @@ class Lexer:
         self.reset_tok_pos()
         return
 
-    def reset_tok_pos(self):
+    def warning(self, error: E, *args) -> None:
+        self.errors.append(Error(error, self.start, self.end, self.n, self.file_name, self.lines[self.n - 1], args))
+        self.reset_tok_pos()
+        return
+
+    def reset_tok_pos(self) -> None:
         self.start = self.end
         self.start_index = self.i + 1
         return
@@ -518,14 +602,65 @@ class Lexer:
         return self.i + i < self.len
 
 
+#########################################
+# Parser
+#########################################
+
+
 class Parser:
     def __init__(self, program: str, toks: List[Token], file_name: str):
         self.toks = toks
         self.len = len(toks)
         self.i = 0
+        self.peak = self.toks[self.i]
         self.lines = program.split('\n')
         self.file_name = file_name
+        self.output: List[Expression] = []
         self.errors = []
+        return
+
+    def parse(self):
+        while self.has_next():
+            self.make_expression()
+        return
+
+    def make_expression(self):
+        toks = self.shunting_yard()
+        astree = self.make_ast(toks)
+        self.output.append(astree)
+        return
+
+    def shunting_yard(self) -> List[Token]:
+        queue: List[Token] = []
+        stack = []
+        while self.has_next():
+            type = self.peak.type
+            if type == TT.lpa:
+                stack.append(self.peak)
+
+            elif type in op_precedence:
+                while len(stack) > 0 and op_precedence[type] > op_precedence[stack[-1].type]:
+                    queue.append(stack.pop())
+                stack.append(self.peak)
+
+            elif type == TT.rpa:
+                while len(stack) > 0 and stack[-1].type != TT.lpa:
+                    queue.append(stack.pop())
+                if len(stack) > 0:
+                    stack.pop()
+                else:
+                    break   # we found the matching close parenthesis
+            else:
+                queue.append(self.peak)
+            self.advance()
+
+        while len(stack) > 0:
+            queue.append(stack.pop())
+        return queue
+
+    def make_ast(self, queue) -> Expression:
+        stack = []
+
         return
     
     def error(self, error: E, tok: Token, *args):
@@ -534,12 +669,11 @@ class Parser:
 
     def advance(self, i=1):
         self.i += i
+        if self.has_next():
+            self.peak = self.toks[self.i]
 
     def has_next(self, i=0):
         return self.i + i < self.len
-
-    def peak(self):
-        return self.toks[self.i]
 
 
 if __name__ == "__main__":
