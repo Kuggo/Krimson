@@ -13,7 +13,7 @@ def main():
     if src_name == '--help':
         print('usage: krimson <source_file> <destination_file>')
 
-    source = '''string var = 69'''
+    source = '''1+1*1'''
 
     if src_name is not None:
         if os.path.isfile(src_name):
@@ -39,7 +39,7 @@ def main():
 
     parser = Parser(source, lexer.tokens, dest_name)
     parser.parse()
-
+    print(parser.output)
     if len(parser.errors) > 0:
         for err in lexer.errors:
             print(err, file=stderr)
@@ -53,8 +53,6 @@ def main():
 #########################################
 
 bases = 'oOxXbBdD'
-
-op_precedence = {}
 
 
 class TT(Enum):
@@ -93,9 +91,10 @@ class TT(Enum):
     # bitwise
     shl = '<<'
     shr = '>>'
-    ushl = '>>>'
+    ushr = '>>>'
     b_and = '&'
     b_or = '|'
+    b_xor = '^'
     b_not = '~'
 
     # variable assignment
@@ -105,12 +104,14 @@ class TT(Enum):
     assign_sub = '-='
     assign_mlt = '*='
     assign_div = '/='
+    assign_mod = '%='
 
     assign_shl = '<<='
     assign_shr = '>>='
-    assign_ushl = '>>>='
+    assign_ushr = '>>>='
     assign_b_and = '&='
     assign_b_or = '|='
+    assign_b_xor = '^='
     assign_b_not = '~='
 
     # primitive types
@@ -224,6 +225,54 @@ symbols = {
     ':': TT.colon,
 }
 
+op_precedence = {
+    # left to right
+    TT.inc: 1,
+    TT.dec: 1,
+    TT.lpa: 1,
+    TT.lbr: 1,
+    TT.dot: 1,
+    # right to left
+    TT.not_: 2,
+    TT.b_not: 2,
+    # unary plus and minus go here on 2
+    # type cast should be here too but ill make it the same as function call above
+
+    # left to right
+    TT.mlt: 3,
+    TT.div: 3,
+    TT.mod: 3,
+    TT.add: 4,
+    TT.sub: 4,
+    TT.ushr: 5,
+    TT.shr: 5,
+    TT.shl: 5,
+    TT.gt: 6,
+    TT.gte: 6,
+    TT.lt: 6,
+    TT.lte: 6,
+    TT.dif: 7,
+    TT.equ: 7,
+    TT.b_and: 8,
+    TT.b_xor: 9,
+    TT.b_or: 10,
+    TT.and_: 11,
+    TT.or_: 12,
+    # right to left
+    TT.assign: 14,
+    TT.assign_shl: 14,
+    TT.assign_ushr: 14,
+    TT.assign_shr: 14,
+    TT.assign_add: 14,
+    TT.assign_sub: 14,
+    TT.assign_div: 14,
+    TT.assign_mlt: 14,
+    TT.assign_b_and: 14,
+    TT.assign_b_or: 14,
+    TT.assign_b_not: 14,
+    TT.assign_mod: 14,
+}
+
 
 class Token:
     def __init__(self, type: TT, start_index, start_char, end_char, line, value=None):
@@ -279,17 +328,17 @@ class Error:
 #########################################
 
 
-class Expression:
+class Node:
     def __init__(self, value):
         self.value = value
         return
 
     def __repr__(self):
-        return self.value
+        return self.value.__repr__()
 
 
-class BinOp(Expression):
-    def __init__(self, op: Token, left: Token, right):
+class BinOpNode(Node):
+    def __init__(self, op: Token, left: Node, right: Node):
         super().__init__(self)
         self.left_child = left
         self.right_child = right
@@ -389,9 +438,9 @@ class Lexer:
                     self.advance()
                     if self.peak == '=':
                         self.advance()
-                        self.token(TT.assign_ushl)
+                        self.token(TT.assign_ushr)
                     else:
-                        self.token(TT.ushl)
+                        self.token(TT.ushr)
                 elif self.peak == '=':
                     self.advance()
                     self.token(TT.assign_shl)
@@ -441,6 +490,14 @@ class Lexer:
             else:
                 self.token(TT.b_or)
 
+        elif self.peak == '^':
+            self.advance()
+            if self.peak == '=':
+                self.advance()
+                self.token(TT.assign_b_xor)
+            else:
+                self.token(TT.b_xor)
+
         elif self.peak == '+':
             self.advance()
             if self.peak == '+':
@@ -462,6 +519,30 @@ class Lexer:
                 self.token(TT.assign_sub)
             else:
                 self.token(TT.sub)
+
+        elif self.peak == '*':
+            self.advance()
+            if self.peak == '=':
+                self.advance()
+                self.token(TT.assign_mlt)
+            else:
+                self.token(TT.mlt)
+
+        elif self.peak == '/':
+            self.advance()
+            if self.peak == '=':
+                self.advance()
+                self.token(TT.assign_div)
+            else:
+                self.token(TT.div)
+
+        elif self.peak == '%':
+            self.advance()
+            if self.peak == '=':
+                self.advance()
+                self.token(TT.assign_mod)
+            else:
+                self.token(TT.mod)
 
         else:
             symbol = self.peak
@@ -615,7 +696,7 @@ class Parser:
         self.peak = self.toks[self.i]
         self.lines = program.split('\n')
         self.file_name = file_name
-        self.output: List[Expression] = []
+        self.output: List[Node] = []
         self.errors = []
         return
 
@@ -658,10 +739,16 @@ class Parser:
             queue.append(stack.pop())
         return queue
 
-    def make_ast(self, queue) -> Expression:
-        stack = []
-
-        return
+    def make_ast(self, queue) -> Node:
+        stack: List[Node] = []
+        for tok in queue:
+            if tok.type in op_precedence:
+                node_b = stack.pop()
+                node_a = stack.pop()
+                stack.append(BinOpNode(tok, node_a, node_b))
+            else:
+                stack.append(Node(tok))
+        return stack.pop()
     
     def error(self, error: E, tok: Token, *args):
         self.errors.append(Error(error, tok.start, tok.end, tok.line, self.file_name, self.lines[tok.line], args))
