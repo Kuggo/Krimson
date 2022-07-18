@@ -13,7 +13,7 @@ def main():
     if src_name == '--help':
         print('usage: krimson <source_file> <destination_file>')
 
-    source = '''1+1*1'''
+    source = '''int var = 69 * 420++'''
 
     if src_name is not None:
         if os.path.isfile(src_name):
@@ -81,7 +81,8 @@ class TT(Enum):
 
     # arithmetic
     add = '+'
-    sub = '-'
+    sub = '- '
+    neg = '-'
     mlt = '*'
     div = '/'
     mod = '%'
@@ -124,6 +125,8 @@ class TT(Enum):
     char = 'char'
 
     func = 'func'
+    func_call = 'func()'
+    address = '[]'
 
     # primitive data structures
     string = 'string'
@@ -225,53 +228,58 @@ symbols = {
     ':': TT.colon,
 }
 
-op_precedence = {
+op_table = {
     # left to right
-    TT.inc: 1,
-    TT.dec: 1,
-    TT.lpa: 1,
-    TT.lbr: 1,
-    TT.dot: 1,
+    TT.inc: (1, True),
+    TT.dec: (1, True),
+    TT.func_call: (20, True),
+    TT.dot: (1, True),
     # right to left
-    TT.not_: 2,
-    TT.b_not: 2,
+    TT.not_: (2, False),
+    TT.b_not: (2, False),
+    TT.neg: (2, False),
     # unary plus and minus go here on 2
     # type cast should be here too but ill make it the same as function call above
 
     # left to right
-    TT.mlt: 3,
-    TT.div: 3,
-    TT.mod: 3,
-    TT.add: 4,
-    TT.sub: 4,
-    TT.ushr: 5,
-    TT.shr: 5,
-    TT.shl: 5,
-    TT.gt: 6,
-    TT.gte: 6,
-    TT.lt: 6,
-    TT.lte: 6,
-    TT.dif: 7,
-    TT.equ: 7,
-    TT.b_and: 8,
-    TT.b_xor: 9,
-    TT.b_or: 10,
-    TT.and_: 11,
-    TT.or_: 12,
+    TT.mlt: (3, True),
+    TT.div: (3, True),
+    TT.mod: (3, True),
+    TT.add: (4, True),
+    TT.sub: (4, True),
+    TT.ushr: (5, True),
+    TT.shr: (5, True),
+    TT.shl: (5, True),
+    TT.gt: (6, True),
+    TT.gte: (6, True),
+    TT.lt: (6, True),
+    TT.lte: (6, True),
+    TT.dif: (7, True),
+    TT.equ: (7, True),
+    TT.b_and: (8, True),
+    TT.b_xor: (9, True),
+    TT.b_or: (10, True),
+    TT.and_: (11, True),
+    TT.or_: (12, True),
     # right to left
-    TT.assign: 14,
-    TT.assign_shl: 14,
-    TT.assign_ushr: 14,
-    TT.assign_shr: 14,
-    TT.assign_add: 14,
-    TT.assign_sub: 14,
-    TT.assign_div: 14,
-    TT.assign_mlt: 14,
-    TT.assign_b_and: 14,
-    TT.assign_b_or: 14,
-    TT.assign_b_not: 14,
-    TT.assign_mod: 14,
+    TT.assign: (14, False),
+    TT.assign_shl: (14, False),
+    TT.assign_ushr: (14, False),
+    TT.assign_shr: (14, False),
+    TT.assign_add: (14, False),
+    TT.assign_sub: (14, False),
+    TT.assign_div: (14, False),
+    TT.assign_mlt: (14, False),
+    TT.assign_b_and: (14, False),
+    TT.assign_b_or: (14, False),
+    TT.assign_b_not: (14, False),
+    TT.assign_mod: (14, False),
+    TT.lpa: (20, True),
+    TT.address: (19, True),
+    TT.rbr: (19, True),
 }
+
+unary_ops = {TT.inc, TT.dec, TT.not_, TT.b_not, TT.neg}
 
 
 class Token:
@@ -337,6 +345,20 @@ class Node:
         return self.value.__repr__()
 
 
+class UnOpNode(Node):
+    def __init__(self, op: Token, child: Node):
+        super().__init__(self)
+        self.op = op
+        self.child = child
+        return
+
+    def __repr__(self):
+        if self.op.type in op_table and op_table[self.op.type][1]:
+            return f'<{self.child} {self.op.type}>'
+        else:
+            return f'<{self.op.type} {self.child}>'
+
+
 class BinOpNode(Node):
     def __init__(self, op: Token, left: Node, right: Node):
         super().__init__(self)
@@ -346,7 +368,7 @@ class BinOpNode(Node):
         return
 
     def __repr__(self):
-        return f'{self.left_child} {self.op.type} {self.right_child}'
+        return f'<{self.left_child} {self.op.type} {self.right_child}>'
 
 
 #########################################
@@ -368,6 +390,7 @@ class Lexer:
         self.warnings = []
 
         self.peak = self.pr[self.i]
+        self.last_tok = None
         self.start_index = self.i
         self.start = self.end
         return
@@ -507,7 +530,10 @@ class Lexer:
                 self.advance()
                 self.token(TT.assign_add)
             else:
-                self.token(TT.add)
+                if self.last_tok.type in op_table:  # its unary plus, thus can be ignored
+                    pass
+                else:
+                    self.token(TT.add)
 
         elif self.peak == '-':
             self.advance()
@@ -518,7 +544,10 @@ class Lexer:
                 self.advance()
                 self.token(TT.assign_sub)
             else:
-                self.token(TT.sub)
+                if self.last_tok is None or self.last_tok.type in op_table:  # its unary minus
+                    self.token(TT.neg)
+                else:
+                    self.token(TT.sub)
 
         elif self.peak == '*':
             self.advance()
@@ -653,6 +682,7 @@ class Lexer:
         tok = Token(tt, self.start_index, self.start, self.end-1, self.n, value)
         self.tokens.append(tok)
         self.reset_tok_pos()
+        self.last_tok = tok
         return tok
 
     def error(self, error: E, *args) -> None:
@@ -694,6 +724,7 @@ class Parser:
         self.len = len(toks)
         self.i = 0
         self.peak = self.toks[self.i]
+        self.last = None
         self.lines = program.split('\n')
         self.file_name = file_name
         self.output: List[Node] = []
@@ -717,18 +748,38 @@ class Parser:
         while self.has_next():
             type = self.peak.type
             if type == TT.lpa:
+                if self.last.type == TT.word:
+                    self.peak.type = TT.func_call
                 stack.append(self.peak)
 
-            elif type in op_precedence:
-                while len(stack) > 0 and op_precedence[type] > op_precedence[stack[-1].type]:
+            elif type == TT.lbr:
+                if self.last.type == TT.word:
+                    self.peak.type = TT.address
+                    stack.append(self.peak)
+                else:   # its an array then
+
+                    pass
+
+            elif type == TT.rbr:
+                while len(stack) > 0 and stack[-1].type != TT.address:
+                    queue.append(stack.pop())
+                if len(stack) > 0:
+                    queue.append(stack.pop())
+
+            elif type in op_table:
+                while len(stack) > 0 and (op_table[type][0] > op_table[stack[-1].type][0] or
+                                          op_table[type][0] == op_table[stack[-1].type][0] and op_table[type][1]):
                     queue.append(stack.pop())
                 stack.append(self.peak)
 
             elif type == TT.rpa:
-                while len(stack) > 0 and stack[-1].type != TT.lpa:
+                while len(stack) > 0 and stack[-1].type != TT.lpa and stack[-1].type != TT.func_call:
                     queue.append(stack.pop())
                 if len(stack) > 0:
-                    stack.pop()
+                    if stack[-1].type == TT.func_call:
+                        queue.append(stack.pop())
+                    else:
+                        stack.pop()
                 else:
                     break   # we found the matching close parenthesis
             else:
@@ -742,10 +793,14 @@ class Parser:
     def make_ast(self, queue) -> Node:
         stack: List[Node] = []
         for tok in queue:
-            if tok.type in op_precedence:
-                node_b = stack.pop()
-                node_a = stack.pop()
-                stack.append(BinOpNode(tok, node_a, node_b))
+            if tok.type in op_table:
+                if tok.type in unary_ops:
+                    node_a = stack.pop()
+                    stack.append(UnOpNode(tok, node_a))
+                else:
+                    node_b = stack.pop()
+                    node_a = stack.pop()
+                    stack.append(BinOpNode(tok, node_a, node_b))
             else:
                 stack.append(Node(tok))
         return stack.pop()
@@ -756,6 +811,7 @@ class Parser:
 
     def advance(self, i=1):
         self.i += i
+        self.last = self.peak
         if self.has_next():
             self.peak = self.toks[self.i]
 
