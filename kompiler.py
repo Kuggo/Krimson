@@ -13,7 +13,7 @@ def main():
     if src_name == '--help':
         print('usage: krimson <source_file> <destination_file>')
 
-    source = '''int var = 69 * 420++'''
+    source = '''int var = 69'''
 
     if src_name is not None:
         if os.path.isfile(src_name):
@@ -204,6 +204,8 @@ keywords = {
     'urcl': TT.urcl,
 }
 
+types = {TT.bool_, TT.int_, TT.uint, TT.fixed, TT.ufixed, TT.float_, TT.char, TT.func, TT.string, TT.array, TT.object_}
+
 symbols = {
     '(': TT.lpa,
     ')': TT.rpa,
@@ -306,6 +308,8 @@ class E(Enum):
     invalid_literal = 'Invalid literal'
     invalid_char = 'Invalid character'
     miss_close_sym = 'Missing single quote {}'
+
+    identifier_expected = 'Identifier expected'
 
     def __repr__(self) -> str:
         return self.value
@@ -624,7 +628,11 @@ class Lexer:
                     self.token(TT.word, word)
                 self.token(TT.dot)
                 self.make_word()
-        self.token(TT.word, word)
+
+        if word in keywords:
+            self.token(keywords[word], keywords[word].value)
+        else:
+            self.token(TT.word, word)
         return
 
     def make_string(self) -> None:
@@ -731,21 +739,87 @@ class Parser:
         self.errors = []
         return
 
-    def parse(self):
+    def parse(self) -> None:
         while self.has_next():
-            self.make_expression()
+            type = self.peak.type
+            if type == TT.comment:
+                self.advance()
+                continue
+
+            if type in types and self.peak.value == type.value:
+                self.assign_var()
+
+            elif type == TT.func:
+                self.func_def()
+
+            elif type == TT.if_:
+
+                pass
+
+            elif type == TT.elif_:
+
+                pass
+
+            elif type == TT.else_:
+
+                pass
+
+            elif type == TT.switch:
+
+                pass
+
+            elif type == TT.case:
+
+                pass
+
+            elif type == TT.default:
+
+                pass
+
+            elif type == TT.exit_:
+
+                pass
+
+            elif type == TT.skip:
+
+                pass
+
+            elif type == TT.for_:
+
+                pass
+
+            elif type == TT.while_:
+
+                pass
+
+            elif type == TT.do_:
+
+                pass
+
+            elif type == TT.return_:
+
+                pass
+
+            elif type == TT.goto:
+
+                pass
+
+            elif type == TT.urcl:
+
+                pass
+
+            else:
+                self.make_expression()
         return
 
-    def make_expression(self):
+    def make_expression(self) -> Node:
         toks = self.shunting_yard()
-        astree = self.make_ast(toks)
-        self.output.append(astree)
-        return
+        return self.make_ast(toks)
 
     def shunting_yard(self) -> List[Token]:
         queue: List[Token] = []
         stack = []
-        while self.has_next():
+        while self.has_next() and self.peak.type != TT.comma and self.peak.type != TT.semi_col:
             type = self.peak.type
             if type == TT.lpa:
                 if self.last.type == TT.word:
@@ -781,6 +855,7 @@ class Parser:
                     else:
                         stack.pop()
                 else:
+                    self.advance()
                     break   # we found the matching close parenthesis
             else:
                 queue.append(self.peak)
@@ -804,18 +879,33 @@ class Parser:
             else:
                 stack.append(Node(tok))
         return stack.pop()
-    
-    def error(self, error: E, tok: Token, *args):
+
+    def assign_var(self) -> None:
+        tt = self.peak.type
+        self.advance()
+        if self.peak.type != TT.word:
+            self.error(E.identifier_expected, self.peak)
+            return
+        expression = self.make_expression()
+        if type(expression.value) != Token:
+            self.output.append(expression)
+        return
+
+    def func_def(self) -> None:
+
+        return
+
+    def error(self, error: E, tok: Token, *args) -> None:
         self.errors.append(Error(error, tok.start, tok.end, tok.line, self.file_name, self.lines[tok.line], args))
         return
 
-    def advance(self, i=1):
+    def advance(self, i=1) -> None:
         self.i += i
         self.last = self.peak
         if self.has_next():
             self.peak = self.toks[self.i]
 
-    def has_next(self, i=0):
+    def has_next(self, i=0) -> bool:
         return self.i + i < self.len
 
 
