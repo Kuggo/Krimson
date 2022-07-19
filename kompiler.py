@@ -13,7 +13,7 @@ def main():
     if src_name == '--help':
         print('usage: krimson <source_file> <destination_file>')
 
-    source = '''int var = 69'''
+    source = '''func null fx() {int e = 0}'''
 
     if src_name is not None:
         if os.path.isfile(src_name):
@@ -38,9 +38,10 @@ def main():
         exit(1)
 
     parser = Parser(source, lexer.tokens, dest_name)
-    parser.parse()
-    print(parser.output)
-    if len(parser.errors) > 0:
+    try:
+        parser.parse()
+        print(parser.output)
+    except ErrorException:
         for err in lexer.errors:
             print(err, file=stderr)
         exit(1)
@@ -49,13 +50,19 @@ def main():
 
 
 #########################################
-# Global Variables
+# Exceptions
 #########################################
 
-bases = 'oOxXbBdD'
+class ErrorException(Exception):
+    pass
 
 
 class TT(Enum):
+    end_of_file = 'eof'
+
+    f_declair = 'f_declair'
+    declair = 'declair'
+
     word = 'word'
 
     # pairs
@@ -305,8 +312,11 @@ class E(Enum):
 
     name_expected = 'Name expected'
     literal_expected = 'Literal expected'
+    symbol_expected = '{} expected'
+    expression_expected = 'Expression expected'
     invalid_literal = 'Invalid literal'
     invalid_char = 'Invalid character'
+    invalid_ret_type = 'Invalid return type'
     miss_close_sym = 'Missing single quote {}'
 
     identifier_expected = 'Identifier expected'
@@ -375,6 +385,46 @@ class BinOpNode(Node):
         return f'<{self.left_child} {self.op.type} {self.right_child}>'
 
 
+class VarDeclarationNode(Node):
+    def __init__(self, type: Token, name: Token, value: Node = None):
+        super().__init__(self)
+        self.type = type
+        self.name = name
+        self.value = value
+        return
+
+    def __repr__(self):
+        if self.value is None:
+            return f'<{self.type} {self.name} = {self.value}>'
+        else:
+            return f'<{self.type} {self.name} = {self.value.value.right_child.value}>'
+
+
+class FuncDeclarationNode(Node):
+    def __init__(self, type: Token, name: Token, args: List[VarDeclarationNode] = None, body: List[Node] = None):
+        super().__init__(self)
+        self.type = type
+        self.name = name
+        if args is None:
+            self.args = []
+        else:
+            self.args = args
+
+        if body is None:
+            self.body = []
+        else:
+            self.body = body
+        return
+
+    def __repr__(self):
+        args = str(self.args).replace('[', '(')
+        args = args.replace(']', ')')
+        string = f'<{self.type} {self.name} {args} ' + '{'
+        for node in self.body:
+            string += str(node) + ';'
+        string += '}>'
+        return string
+
 #########################################
 # Lexer
 #########################################
@@ -409,6 +459,7 @@ class Lexer:
             if self.peak == '/':
                 self.advance()
                 if self.has_next() and self.peak == '/':    # double slash means inline comment
+                    self.advance()
                     self.inline_comment()
                 elif self.has_next() and self.peak == '*':
                     self.multi_line_comment()
@@ -739,87 +790,102 @@ class Parser:
         self.errors = []
         return
 
-    def parse(self) -> None:
-        while self.has_next():
-            type = self.peak.type
-            if type == TT.comment:
+    def parse(self):
+        self.toks.append(Token(TT.end_of_file, None, None, None, None))
+        self.output += self.parse_body(TT.end_of_file)
+        self.len += 1
+
+    def parse_body(self, end_tt: TT) -> List[Node]:
+        body = []
+        while self.has_next() and self.peak.type != end_tt:
+            t = self.peak.type
+            if t == TT.comment:
                 self.advance()
                 continue
 
-            if type in types and self.peak.value == type.value:
-                self.assign_var()
+            if t in types and self.peak.value == t.value and not (t == TT.func):
+                body.append(self.assign_var())
 
-            elif type == TT.func:
-                self.func_def()
+            elif t == TT.func:
+                body.append(self.func_def())
 
-            elif type == TT.if_:
-
-                pass
-
-            elif type == TT.elif_:
+            elif t == TT.if_:
 
                 pass
 
-            elif type == TT.else_:
+            elif t == TT.elif_:
 
                 pass
 
-            elif type == TT.switch:
+            elif t == TT.else_:
 
                 pass
 
-            elif type == TT.case:
+            elif t == TT.switch:
 
                 pass
 
-            elif type == TT.default:
+            elif t == TT.case:
 
                 pass
 
-            elif type == TT.exit_:
+            elif t == TT.default:
 
                 pass
 
-            elif type == TT.skip:
+            elif t == TT.exit_:
 
                 pass
 
-            elif type == TT.for_:
+            elif t == TT.skip:
 
                 pass
 
-            elif type == TT.while_:
+            elif t == TT.for_:
 
                 pass
 
-            elif type == TT.do_:
+            elif t == TT.while_:
 
                 pass
 
-            elif type == TT.return_:
+            elif t == TT.do_:
 
                 pass
 
-            elif type == TT.goto:
+            elif t == TT.return_:
 
                 pass
 
-            elif type == TT.urcl:
+            elif t == TT.goto:
+
+                pass
+
+            elif t == TT.urcl:
 
                 pass
 
             else:
                 self.make_expression()
-        return
+        return body
 
     def make_expression(self) -> Node:
         toks = self.shunting_yard()
         return self.make_ast(toks)
 
+    def next_expression(self) -> List[Node]:
+        if self.peak.type == TT.lcbr:
+            self.advance()
+            expression = self.parse_body(TT.rcbr)
+            self.advance()
+            return expression
+        else:
+            return [self.make_expression()]
+
     def shunting_yard(self) -> List[Token]:
         queue: List[Token] = []
         stack = []
-        while self.has_next() and self.peak.type != TT.comma and self.peak.type != TT.semi_col:
+        while self.has_next() and self.peak.type not in {TT.comma, TT.semi_col, TT.rcbr}:
             type = self.peak.type
             if type == TT.lpa:
                 if self.last.type == TT.word:
@@ -830,8 +896,8 @@ class Parser:
                 if self.last.type == TT.word:
                     self.peak.type = TT.address
                     stack.append(self.peak)
-                else:   # its an array then
-
+                else:   # it's an array then
+                    # TODO
                     pass
 
             elif type == TT.rbr:
@@ -855,7 +921,7 @@ class Parser:
                     else:
                         stack.pop()
                 else:
-                    self.advance()
+                    # self.advance()
                     break   # we found the matching close parenthesis
             else:
                 queue.append(self.peak)
@@ -878,30 +944,65 @@ class Parser:
                     stack.append(BinOpNode(tok, node_a, node_b))
             else:
                 stack.append(Node(tok))
-        return stack.pop()
+        if len(stack) > 0:
+            return stack.pop()
+        else:
+            self.error(E.expression_expected, self.peak)
+            return Node(None)
 
-    def assign_var(self) -> None:
-        tt = self.peak.type
+    def assign_var(self) -> VarDeclarationNode:
+        var_type = self.peak
         self.advance()
         if self.peak.type != TT.word:
             self.error(E.identifier_expected, self.peak)
-            return
+            raise ErrorException
+
+        name = self.peak
         expression = self.make_expression()
         if type(expression.value) != Token:
-            self.output.append(expression)
-        return
+            declair_node = VarDeclarationNode(var_type, name, expression)
+        else:
+            declair_node = VarDeclarationNode(var_type, name)
+        return declair_node
 
-    def func_def(self) -> None:
+    def func_def(self) -> Node:
+        self.advance()
+        ret_type = self.peak
+        if ret_type.type != TT.null and ret_type not in types:
+            self.error(E.invalid_ret_type, self.peak)
+            raise ErrorException
 
-        return
+        self.advance()
+        func_name = self.peak
+        if func_name.type != TT.word:
+            self.error(E.identifier_expected, self.peak)
+            raise ErrorException
+
+        self.advance()
+        if self.peak.type != TT.lpa:
+            self.error(E.symbol_expected, self.peak, '(')
+            raise ErrorException
+
+        self.advance()
+        args = []
+        while self.peak.type != TT.rpa:
+            args.append(self.assign_var())
+            if self.peak.type == TT.comma:
+                self.advance()
+
+        self.advance()
+        body = self.next_expression()
+        return FuncDeclarationNode(ret_type, func_name, args, body)
 
     def error(self, error: E, tok: Token, *args) -> None:
-        self.errors.append(Error(error, tok.start, tok.end, tok.line, self.file_name, self.lines[tok.line], args))
+        self.errors.append(Error(error, tok.start, tok.end, tok.line, self.file_name, self.lines[tok.line-1], args))
         return
 
     def advance(self, i=1) -> None:
         self.i += i
         self.last = self.peak
+        while self.has_next() and self.toks[self.i].type == TT.comment:
+            self.i += 1
         if self.has_next():
             self.peak = self.toks[self.i]
 
