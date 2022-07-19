@@ -13,10 +13,7 @@ def main():
     if src_name == '--help':
         print('usage: krimson <source_file> <destination_file>')
 
-    source = '''if e == 69 {}
-    elif (e == 42) {}
-    elif (e == 0) {}
-    else'''
+    source = '''switch 69: {}'''
 
     if src_name is not None:
         if os.path.isfile(src_name):
@@ -45,23 +42,14 @@ def main():
     try:
         parser.parse()
         print(parser.output)
-    except ErrorException:
-        for err in parser.errors:
-            print(err, file=stderr)
+    except ErrorException as e:
+        print(e.error, file=stderr)
         exit(1)
     return
 
 
-#########################################
-# Exceptions
-#########################################
-
-class ErrorException(Exception):
-    pass
-
-
 class TT(Enum):
-    end_of_file = 'eof'
+    eof = 'eof'
 
     f_declair = 'f_declair'
     declair = 'declair'
@@ -351,6 +339,16 @@ class Error:
 
 
 #########################################
+# Exceptions
+#########################################
+
+class ErrorException(Exception):
+    def __init__(self, error: Error):
+        self.error = error
+        return
+
+
+#########################################
 # AST
 #########################################
 
@@ -545,6 +543,26 @@ class DoWhileNode(Node):
         for node in self.body:
             string += str(node) + ';'
         string += '}' + f' while ({self.condition})>'
+        return string
+
+
+class SwitchNode(Node):
+    def __init__(self, switch_val: Node, body: List[Node] = None):
+        super().__init__(self)
+        self.switch_val = switch_val
+        if body is None:
+            self.body = []
+        else:
+            self.body = body
+            for b in body:
+                b.parent = self.parent
+        return
+
+    def __repr__(self):
+        string = f'<switch ({self.switch_val}) ' + '{'
+        for node in self.body:
+            string += str(node) + ';'
+        string += '}>'
         return string
 
 
@@ -903,20 +921,18 @@ class Lexer:
 class Parser:
     def __init__(self, program: str, toks: List[Token], file_name: str):
         self.toks = toks
-        self.len = len(toks)
+        self.toks.append(Token(TT.eof, None, None, None, None))
+        self.len = len(self.toks)
         self.i = 0
         self.peak = self.toks[self.i]
         self.last = None
         self.lines = program.split('\n')
         self.file_name = file_name
         self.output: List[Node] = []
-        self.errors = []
         return
 
     def parse(self):
-        self.toks.append(Token(TT.end_of_file, None, None, None, None))
-        self.output += self.parse_body(TT.end_of_file)
-        self.len += 1
+        self.output += self.parse_body(TT.eof)
 
     def parse_body(self, end_tt: TT) -> List[Node]:
         body: List[Node] = []
@@ -942,8 +958,7 @@ class Parser:
                 self.error(E.if_expected, self.peak)
 
             elif t == TT.switch:
-
-                pass
+                body.append(self.make_switch())
 
             elif t == TT.case:
 
@@ -991,7 +1006,10 @@ class Parser:
 
     def make_expression(self) -> Node:
         toks = self.shunting_yard()
-        return self.make_ast(toks)
+        node = self.make_ast(toks)
+        if self.peak.type in {TT.comma, TT.colon, TT.semi_col}:
+            self.advance()
+        return node
 
     def next_expression(self) -> List[Node]:
         if self.peak.type == TT.lcbr:
@@ -1005,7 +1023,7 @@ class Parser:
     def shunting_yard(self) -> List[Token]:
         queue: List[Token] = []
         stack = []
-        while self.has_next() and self.peak.type not in {TT.comma, TT.semi_col, TT.rcbr, TT.lcbr}:
+        while self.has_next() and self.peak.type not in {TT.comma, TT.colon, TT.semi_col, TT.rcbr, TT.lcbr, TT.eof}:
             type = self.peak.type
             if type == TT.lpa:
                 if self.last.type == TT.word:
@@ -1136,11 +1154,16 @@ class Parser:
         body = self.next_expression()
         return ElseNode(body)
 
+    def make_switch(self) -> Node:
+        self.advance()
+        switch_val = self.make_expression()
+        body = self.next_expression()
+        return SwitchNode(switch_val, body)
+
     # utils
 
     def error(self, error: E, tok: Token, *args) -> None:
-        self.errors.append(Error(error, tok.start, tok.end, tok.line, self.file_name, self.lines[tok.line-1], args))
-        raise ErrorException
+        raise ErrorException(Error(error, tok.start, tok.end, tok.line, self.file_name, self.lines[tok.line-1], args))
 
     def advance(self, i=1) -> None:
         self.i += i
