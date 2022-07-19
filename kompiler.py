@@ -13,7 +13,10 @@ def main():
     if src_name == '--help':
         print('usage: krimson <source_file> <destination_file>')
 
-    source = '''func null fx() {int e = 0}'''
+    source = '''if e == 69 {}
+    elif (e == 42) {}
+    elif (e == 0) {}
+    else'''
 
     if src_name is not None:
         if os.path.isfile(src_name):
@@ -22,7 +25,8 @@ def main():
         else:
             print(f'"{src_name}" is not a file', file=stderr)
             exit(1)
-    src_name = 'terminal'
+    else:
+        src_name = 'terminal'
     if dest_name is not None:
         dest = open(dest_name, mode="w")
     else:
@@ -37,15 +41,14 @@ def main():
             print(err, file=stderr)
         exit(1)
 
-    parser = Parser(source, lexer.tokens, dest_name)
+    parser = Parser(source, lexer.tokens, src_name)
     try:
         parser.parse()
         print(parser.output)
     except ErrorException:
-        for err in lexer.errors:
+        for err in parser.errors:
             print(err, file=stderr)
         exit(1)
-
     return
 
 
@@ -155,6 +158,7 @@ class TT(Enum):
     exit_ = 'exit'
     skip = 'skip'
     for_ = 'for'
+    # foreach = 'foreach' # not going to implement yet
     while_ = 'while'
     do_ = 'do'
     return_ = 'return'
@@ -203,6 +207,7 @@ keywords = {
     'exit': TT.exit_,
     'skip': TT.skip,
     'for': TT.for_,
+    # 'foreach': TT.foreach,    # not yet
     'while': TT.while_,
     'do': TT.do_,
     'return': TT.return_,
@@ -318,7 +323,7 @@ class E(Enum):
     invalid_char = 'Invalid character'
     invalid_ret_type = 'Invalid return type'
     miss_close_sym = 'Missing single quote {}'
-
+    if_expected = 'If keyword expected before else/elif'
     identifier_expected = 'Identifier expected'
 
     def __repr__(self) -> str:
@@ -353,6 +358,7 @@ class Error:
 class Node:
     def __init__(self, value):
         self.value = value
+        self.parent = None
         return
 
     def __repr__(self):
@@ -364,6 +370,7 @@ class UnOpNode(Node):
         super().__init__(self)
         self.op = op
         self.child = child
+        self.child.parent = self.parent
         return
 
     def __repr__(self):
@@ -379,6 +386,9 @@ class BinOpNode(Node):
         self.left_child = left
         self.right_child = right
         self.op = op
+
+        self.left_child.parent = self.parent
+        self.right_child.parent = self.parent
         return
 
     def __repr__(self):
@@ -391,6 +401,8 @@ class VarDeclarationNode(Node):
         self.type = type
         self.name = name
         self.value = value
+        if value is not None:
+            value.parent = self.parent
         return
 
     def __repr__(self):
@@ -409,11 +421,15 @@ class FuncDeclarationNode(Node):
             self.args = []
         else:
             self.args = args
+            for arg in args:
+                arg.parent = self
 
         if body is None:
             self.body = []
         else:
             self.body = body
+            for b in body:
+                b.parent = self
         return
 
     def __repr__(self):
@@ -424,6 +440,113 @@ class FuncDeclarationNode(Node):
             string += str(node) + ';'
         string += '}>'
         return string
+
+
+class IfNode(Node):
+    def __init__(self, condition: Node, body: List[Node] = None):
+        super().__init__(self)
+        self.condition = condition
+        if body is None:
+            self.body = []
+        else:
+            self.body = body
+            for b in body:
+                b.parent = self.parent
+        return
+
+    def __repr__(self):
+        string = f'<if ({self.condition}) ' + '{'
+        for node in self.body:
+            string += str(node) + ';'
+        string += '}>'
+        return string
+
+
+class ElseNode(Node):
+    def __init__(self, body: List[Node] = None):
+        super().__init__(self)
+        if body is None:
+            self.body = []
+        else:
+            self.body = body
+            for b in body:
+                b.parent = self.parent
+        return
+
+    def __repr__(self):
+        string = '<else {'
+        for node in self.body:
+            string += str(node) + ';'
+        string += '}>'
+        return string
+
+
+class ForNode(Node):
+    def __init__(self, var: VarDeclarationNode, condition: Node, step: Node, body: List[Node] = None):
+        super().__init__(self)
+        self.var = var
+        self.var.parent = self
+        self.condition = condition
+        self.condition.parent = self
+        self.step = step
+        self.step.parent = self
+        if body is None:
+            self.body = []
+        else:
+            self.body = body
+            for b in body:
+                b.parent = self
+        return
+
+    def __repr__(self):
+        string = f'<for ({self.var};{self.condition};{self.step}) ' + '{'
+        for node in self.body:
+            string += str(node) + ';'
+        string += '}>'
+        return string
+
+
+class WhileNode(Node):
+    def __init__(self, condition: Node, body: List[Node] = None):
+        super().__init__(self)
+        self.condition = condition
+        self.condition.parent = self
+        if body is None:
+            self.body = []
+        else:
+            self.body = body
+            for b in body:
+                b.parent = self
+        return
+
+    def __repr__(self):
+        string = f'<while ({self.condition}) ' + '{'
+        for node in self.body:
+            string += str(node) + ';'
+        string += '}>'
+        return string
+
+
+class DoWhileNode(Node):
+    def __init__(self, condition: Node, body: List[Node] = None):
+        super().__init__(self)
+        self.condition = condition
+        self.condition.parent = self
+        if body is None:
+            self.body = []
+        else:
+            self.body = body
+            for b in body:
+                b.parent = self
+        return
+
+    def __repr__(self):
+        string = '<do {'
+        for node in self.body:
+            string += str(node) + ';'
+        string += '}' + f' while ({self.condition})>'
+        return string
+
 
 #########################################
 # Lexer
@@ -796,7 +919,7 @@ class Parser:
         self.len += 1
 
     def parse_body(self, end_tt: TT) -> List[Node]:
-        body = []
+        body: List[Node] = []
         while self.has_next() and self.peak.type != end_tt:
             t = self.peak.type
             if t == TT.comment:
@@ -810,16 +933,13 @@ class Parser:
                 body.append(self.func_def())
 
             elif t == TT.if_:
-
-                pass
+                body += self.make_if()
 
             elif t == TT.elif_:
-
-                pass
+                self.error(E.if_expected, self.peak)
 
             elif t == TT.else_:
-
-                pass
+                self.error(E.if_expected, self.peak)
 
             elif t == TT.switch:
 
@@ -885,7 +1005,7 @@ class Parser:
     def shunting_yard(self) -> List[Token]:
         queue: List[Token] = []
         stack = []
-        while self.has_next() and self.peak.type not in {TT.comma, TT.semi_col, TT.rcbr}:
+        while self.has_next() and self.peak.type not in {TT.comma, TT.semi_col, TT.rcbr, TT.lcbr}:
             type = self.peak.type
             if type == TT.lpa:
                 if self.last.type == TT.word:
@@ -948,14 +1068,14 @@ class Parser:
             return stack.pop()
         else:
             self.error(E.expression_expected, self.peak)
-            return Node(None)
+
+    # processing keywords
 
     def assign_var(self) -> VarDeclarationNode:
         var_type = self.peak
         self.advance()
         if self.peak.type != TT.word:
             self.error(E.identifier_expected, self.peak)
-            raise ErrorException
 
         name = self.peak
         expression = self.make_expression()
@@ -970,18 +1090,15 @@ class Parser:
         ret_type = self.peak
         if ret_type.type != TT.null and ret_type not in types:
             self.error(E.invalid_ret_type, self.peak)
-            raise ErrorException
 
         self.advance()
         func_name = self.peak
         if func_name.type != TT.word:
             self.error(E.identifier_expected, self.peak)
-            raise ErrorException
 
         self.advance()
         if self.peak.type != TT.lpa:
             self.error(E.symbol_expected, self.peak, '(')
-            raise ErrorException
 
         self.advance()
         args = []
@@ -994,9 +1111,36 @@ class Parser:
         body = self.next_expression()
         return FuncDeclarationNode(ret_type, func_name, args, body)
 
+    def make_if(self) -> List[Node]:
+        self.advance()
+        condition = self.make_expression()
+        body = self.next_expression()
+        if self.peak.type == TT.elif_:
+            return [IfNode(condition, body), self.make_elif()]
+        elif self.peak.type == TT.else_:
+            return [IfNode(condition, body), self.make_else()]
+        return [IfNode(condition, body)]
+
+    def make_elif(self) -> List[Node]:
+        self.advance()
+        condition = self.make_expression()
+        body = self.next_expression()
+        if self.peak.type == TT.elif_:
+            return [ElseNode([IfNode(condition, body)]), self.make_elif()]
+        elif self.peak.type == TT.else_:
+            return [ElseNode([IfNode(condition, body)]), self.make_else()]
+        return [ElseNode([IfNode(condition, body)])]
+
+    def make_else(self):
+        self.advance()
+        body = self.next_expression()
+        return ElseNode(body)
+
+    # utils
+
     def error(self, error: E, tok: Token, *args) -> None:
         self.errors.append(Error(error, tok.start, tok.end, tok.line, self.file_name, self.lines[tok.line-1], args))
-        return
+        raise ErrorException
 
     def advance(self, i=1) -> None:
         self.i += i
