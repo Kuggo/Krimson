@@ -13,8 +13,7 @@ def main():
     if src_name == '--help':
         print('usage: krimson <source_file> <destination_file>')
 
-    source = '''label:
-    goto label'''
+    source = '''object class {int var}'''
 
     if src_name is not None:
         if os.path.isfile(src_name):
@@ -309,6 +308,7 @@ class E(Enum):
     literal_expected = 'Literal expected'
     symbol_expected = '{} expected'
     expression_expected = 'Expression expected'
+    string_expected = 'String expected'
     invalid_literal = 'Invalid literal'
     invalid_char = 'Invalid character'
     invalid_ret_type = 'Invalid return type'
@@ -798,11 +798,27 @@ class FuncDeclarationNode(ScopedNode):
         return
 
     def __repr__(self):
-        args = str(self.args).replace('[', '(')
-        args = args.replace(']', ')')
-        string = f'<{self.type} {self.name} {args} ' + '{'
+        args = str(self.args)[1:-1]
+        string = f'<{self.type} {self.name} ({args}) ' + '{'
         for node in self.body:
-            string += str(node) + ';'
+            string += str(node)
+        string += '}>'
+        return string
+
+
+class ObjectDeclarationNode(ScopedNode):
+    def __init__(self, name: Token, parent_classes: List[Token]):
+        super().__init__(self)
+        self.name = name
+        self.variables = []
+        self.methods = []
+        self.parent_classes = parent_classes
+
+    def __repr__(self):
+        parents = str(self.parent_classes)[1:-1]
+        string = f'{self.name}({parents}) ' + '{'
+        for node in self.body:
+            string += str(node)
         string += '}>'
         return string
 
@@ -931,26 +947,38 @@ class SwitchNode(ScopedNode):
 
 
 class KeywordNode(Node):
-    def __init__(self, value):
+    def __init__(self, value: Token):
         super().__init__(value)
 
 
-class ReturnNode(Node):
+class SingleExpressionNode(Node):
+    def __init__(self, value, word: TT, ):
+        super().__init__(self)
+        self.val = value
+        self.word = word
+
+    def __repr__(self):
+        return f'{self.word.value} {self.val}'
+
+
+class CaseNode(SingleExpressionNode):
+    def __init__(self, value):
+        SingleExpressionNode.__init__(self, value, TT.case)
+
+
+class ReturnNode(SingleExpressionNode):
     def __init__(self, value: Node):
-        super().__init__(self)
-        self.ret_value = value
-
-    def __repr__(self):
-        return f'return {self.ret_value}'
+        SingleExpressionNode.__init__(self, value, TT.return_)
 
 
-class GotoNode(Node):
+class GotoNode(SingleExpressionNode):
     def __init__(self, label: Token):
-        super().__init__(self)
-        self.label = label
+        SingleExpressionNode.__init__(self, label, TT.goto)
 
-    def __repr__(self):
-        return f'goto {self.label}'
+
+class UrclNode(SingleExpressionNode):
+    def __init__(self, string: Token):
+        SingleExpressionNode.__init__(self, string, TT.urcl)
 
 
 #########################################
@@ -1179,7 +1207,7 @@ class Parser:
 
         self.advance()
         args = []
-        while self.peak.type not in {TT.comma, TT.colon, TT.lcbr, TT.rpa}:
+        while self.peak.type != TT.rpa:
             args.append(self.assign_var())
 
         self.advance()
@@ -1191,8 +1219,29 @@ class Parser:
         return node
 
     def make_object(self) -> Node:
-        # TODO
-        return
+        self.advance()
+        if self.peak.type != TT.word:
+            self.error(E.identifier_expected, self.peak)
+        name = self.peak
+        self.advance()
+
+        parent_classes = []
+        if self.peak.type == TT.lpa:
+            while self.peak.type != TT.rpa:
+                if self.peak.type != TT.word:
+                    self.error(E.identifier_expected, self.peak)
+                parent_classes.append(self.peak)
+                self.advance()
+                while self.peak in {TT.comma, TT.colon, TT.semi_col}:
+                    self.advance()
+            self.advance()
+
+        node = ObjectDeclarationNode(name, parent_classes)
+        self.scope.append(node)
+        body = self.next_expressions()
+        self.scope.pop()
+        node.assign_body(body)
+        return node
 
     def make_if(self) -> List[Node]:
         self.advance()
@@ -1231,14 +1280,15 @@ class Parser:
         node.assign_body(body)
         return node
 
-    def make_case(self) -> Node:
-        # TODO
-        return
+    def make_case(self) -> CaseNode:
+        self.advance()
+        case = self.make_expression()
+        return CaseNode(case)
 
     def make_default(self) -> KeywordNode:
+        tok = self.peak
         self.advance()
-        # TODO
-        return
+        return KeywordNode(tok)
 
     def outside_loop(self, switch_count=False) -> bool:
         for node in reversed(self.scope):
@@ -1247,7 +1297,7 @@ class Parser:
                 return False
             if t in {ForNode, WhileNode, DoWhileNode}:
                 return False
-            if t == FuncDeclarationNode:
+            if t in {FuncDeclarationNode, ObjectDeclarationNode}:
                 return True
 
         return True
@@ -1352,11 +1402,16 @@ class Parser:
         label = self.peak
         if label.type != TT.word:
             self.error(E.identifier_expected, self.peak)
+        self.advance()
         return GotoNode(label)
 
-    def make_urcl(self) -> Node:
-        # TODO
-        return
+    def make_urcl(self) -> UrclNode:
+        self.advance()
+        body = self.peak
+        if body != TT.string:
+            self.error(E.string_expected, self.peak)
+        self.advance()
+        return UrclNode(body)
 
     # utils
 
