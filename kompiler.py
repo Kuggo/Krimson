@@ -13,7 +13,7 @@ def main():
     if src_name == '--help':
         print('usage: krimson <source_file> <destination_file>')
 
-    source = '''switch 69: {}'''
+    source = '''for ()'''
 
     if src_name is not None:
         if os.path.isfile(src_name):
@@ -311,8 +311,11 @@ class E(Enum):
     invalid_char = 'Invalid character'
     invalid_ret_type = 'Invalid return type'
     miss_close_sym = 'Missing single quote {}'
-    if_expected = 'If keyword expected before else/elif'
+    if_expected = 'if keyword expected before else/elif'
+    while_expected = 'while keyword expected'
     identifier_expected = 'Identifier expected'
+    exit_not_in_loop = 'exit keyword found outside a loop/switch'
+    skip_not_in_loop = 'skip keyword found outside a loop'
 
     def __repr__(self) -> str:
         return self.value
@@ -363,6 +366,11 @@ class Node:
         return self.value.__repr__()
 
 
+class ValueNode(Node):
+    def __init__(self, value):
+        super().__init__(value)
+
+
 class UnOpNode(Node):
     def __init__(self, op: Token, child: Node):
         super().__init__(self)
@@ -410,8 +418,24 @@ class VarDeclarationNode(Node):
             return f'<{self.type} {self.name} = {self.value.value.right_child.value}>'
 
 
-class FuncDeclarationNode(Node):
-    def __init__(self, type: Token, name: Token, args: List[VarDeclarationNode] = None, body: List[Node] = None):
+class ScopedNode(Node):
+    def __init__(self, value):
+        super().__init__(value)
+        self.body = None
+        return
+
+    def assign_body(self, body: List[Node] = None):
+        if body is None:
+            self.body = []
+        else:
+            self.body = body
+            for b in body:
+                b.parent = self
+        return
+
+
+class FuncDeclarationNode(ScopedNode):
+    def __init__(self, type: Token, name: Token, args: List[VarDeclarationNode] = None):
         super().__init__(self)
         self.type = type
         self.name = name
@@ -421,13 +445,7 @@ class FuncDeclarationNode(Node):
             self.args = args
             for arg in args:
                 arg.parent = self
-
-        if body is None:
-            self.body = []
-        else:
-            self.body = body
-            for b in body:
-                b.parent = self
+        self.body = None
         return
 
     def __repr__(self):
@@ -479,8 +497,8 @@ class ElseNode(Node):
         return string
 
 
-class ForNode(Node):
-    def __init__(self, var: VarDeclarationNode, condition: Node, step: Node, body: List[Node] = None):
+class ForNode(ScopedNode):
+    def __init__(self, var: Node, condition: Node, step: Node):
         super().__init__(self)
         self.var = var
         self.var.parent = self
@@ -488,12 +506,6 @@ class ForNode(Node):
         self.condition.parent = self
         self.step = step
         self.step.parent = self
-        if body is None:
-            self.body = []
-        else:
-            self.body = body
-            for b in body:
-                b.parent = self
         return
 
     def __repr__(self):
@@ -504,17 +516,11 @@ class ForNode(Node):
         return string
 
 
-class WhileNode(Node):
-    def __init__(self, condition: Node, body: List[Node] = None):
+class WhileNode(ScopedNode):
+    def __init__(self, condition: Node):
         super().__init__(self)
         self.condition = condition
         self.condition.parent = self
-        if body is None:
-            self.body = []
-        else:
-            self.body = body
-            for b in body:
-                b.parent = self
         return
 
     def __repr__(self):
@@ -525,17 +531,15 @@ class WhileNode(Node):
         return string
 
 
-class DoWhileNode(Node):
-    def __init__(self, condition: Node, body: List[Node] = None):
+class DoWhileNode(ScopedNode):
+    def __init__(self):
         super().__init__(self)
+        self.condition = None
+        return
+
+    def assign_cnd(self, condition: Node):
         self.condition = condition
         self.condition.parent = self
-        if body is None:
-            self.body = []
-        else:
-            self.body = body
-            for b in body:
-                b.parent = self
         return
 
     def __repr__(self):
@@ -546,16 +550,10 @@ class DoWhileNode(Node):
         return string
 
 
-class SwitchNode(Node):
-    def __init__(self, switch_val: Node, body: List[Node] = None):
+class SwitchNode(ScopedNode):
+    def __init__(self, switch_val: Node):
         super().__init__(self)
         self.switch_val = switch_val
-        if body is None:
-            self.body = []
-        else:
-            self.body = body
-            for b in body:
-                b.parent = self.parent
         return
 
     def __repr__(self):
@@ -564,6 +562,20 @@ class SwitchNode(Node):
             string += str(node) + ';'
         string += '}>'
         return string
+
+
+class KeywordNode(Node):
+    def __init__(self, value):
+        super().__init__(value)
+
+
+class ReturnNode(Node):
+    def __init__(self, value: Node):
+        super().__init__(self)
+        self.ret_value = value
+
+    def __repr__(self):
+        return f'return {self.value}'
 
 
 #########################################
@@ -929,24 +941,28 @@ class Parser:
         self.lines = program.split('\n')
         self.file_name = file_name
         self.output: List[Node] = []
+
+        self.scope: List[Node] = []
         return
 
     def parse(self):
+        if self.peak.type == TT.comment:
+            self.advance()
         self.output += self.parse_body(TT.eof)
 
     def parse_body(self, end_tt: TT) -> List[Node]:
         body: List[Node] = []
         while self.has_next() and self.peak.type != end_tt:
             t = self.peak.type
-            if t == TT.comment:
-                self.advance()
-                continue
 
-            if t in types and self.peak.value == t.value and not (t == TT.func):
+            if t in types and self.peak.value == t.value and not (t in {TT.func, TT.object_}):
                 body.append(self.assign_var())
 
             elif t == TT.func:
                 body.append(self.func_def())
+
+            elif t == TT.object_:
+                body.append(self.make_object())
 
             elif t == TT.if_:
                 body += self.make_if()
@@ -961,44 +977,34 @@ class Parser:
                 body.append(self.make_switch())
 
             elif t == TT.case:
-
-                pass
+                body.append(self.make_case())
 
             elif t == TT.default:
-
-                pass
+                body.append(self.make_default())
 
             elif t == TT.exit_:
-
-                pass
+                body.append(self.make_exit())
 
             elif t == TT.skip:
-
-                pass
+                body.append(self.make_skip())
 
             elif t == TT.for_:
-
-                pass
+                body.append(self.make_for())
 
             elif t == TT.while_:
-
-                pass
+                body.append(self.make_while())
 
             elif t == TT.do_:
-
-                pass
+                body.append(self.make_do_while())
 
             elif t == TT.return_:
-
-                pass
+                body.append(self.make_return())
 
             elif t == TT.goto:
-
-                pass
+                body.append(self.make_goto())
 
             elif t == TT.urcl:
-
-                pass
+                body.append(self.make_urcl())
 
             else:
                 self.make_expression()
@@ -1007,11 +1013,11 @@ class Parser:
     def make_expression(self) -> Node:
         toks = self.shunting_yard()
         node = self.make_ast(toks)
-        if self.peak.type in {TT.comma, TT.colon, TT.semi_col}:
+        if self.peak.type in {TT.comma, TT.colon, TT.semi_col}:     # TT.rpa is not there cause it should not consume it
             self.advance()
         return node
 
-    def next_expression(self) -> List[Node]:
+    def next_expressions(self) -> List[Node]:
         if self.peak.type == TT.lcbr:
             self.advance()
             expression = self.parse_body(TT.rcbr)
@@ -1046,7 +1052,7 @@ class Parser:
 
             elif type in op_table:
                 while len(stack) > 0 and (op_table[type][0] > op_table[stack[-1].type][0] or
-                                          op_table[type][0] == op_table[stack[-1].type][0] and op_table[type][1]):
+                                          (op_table[type][0] == op_table[stack[-1].type][0] and op_table[type][1])):
                     queue.append(stack.pop())
                 stack.append(self.peak)
 
@@ -1058,6 +1064,10 @@ class Parser:
                         queue.append(stack.pop())
                     else:
                         stack.pop()
+                        self.advance()
+                        if len(stack) == 0 and self.peak.type not in op_table:
+                            break
+                        continue
                 else:
                     # self.advance()
                     break   # we found the matching close parenthesis
@@ -1081,7 +1091,7 @@ class Parser:
                     node_a = stack.pop()
                     stack.append(BinOpNode(tok, node_a, node_b))
             else:
-                stack.append(Node(tok))
+                stack.append(ValueNode(tok))
         if len(stack) > 0:
             return stack.pop()
         else:
@@ -1097,7 +1107,7 @@ class Parser:
 
         name = self.peak
         expression = self.make_expression()
-        if type(expression.value) != Token:
+        if type(expression) != ValueNode:
             declair_node = VarDeclarationNode(var_type, name, expression)
         else:
             declair_node = VarDeclarationNode(var_type, name)
@@ -1106,7 +1116,7 @@ class Parser:
     def func_def(self) -> Node:
         self.advance()
         ret_type = self.peak
-        if ret_type.type != TT.null and ret_type not in types:
+        if ret_type.type != TT.null and ret_type.type not in types:
             self.error(E.invalid_ret_type, self.peak)
 
         self.advance()
@@ -1120,19 +1130,25 @@ class Parser:
 
         self.advance()
         args = []
-        while self.peak.type != TT.rpa:
+        while self.peak.type not in {TT.comma, TT.colon, TT.lcbr, TT.rpa}:
             args.append(self.assign_var())
-            if self.peak.type == TT.comma:
-                self.advance()
 
         self.advance()
-        body = self.next_expression()
-        return FuncDeclarationNode(ret_type, func_name, args, body)
+        node = FuncDeclarationNode(ret_type, func_name, args)
+        self.scope.append(node)
+        body = self.next_expressions()
+        self.scope.pop()
+        node.assign_body(body)
+        return node
+
+    def make_object(self) -> Node:
+        # TODO
+        return
 
     def make_if(self) -> List[Node]:
         self.advance()
         condition = self.make_expression()
-        body = self.next_expression()
+        body = self.next_expressions()
         if self.peak.type == TT.elif_:
             return [IfNode(condition, body), self.make_elif()]
         elif self.peak.type == TT.else_:
@@ -1142,7 +1158,7 @@ class Parser:
     def make_elif(self) -> List[Node]:
         self.advance()
         condition = self.make_expression()
-        body = self.next_expression()
+        body = self.next_expressions()
         if self.peak.type == TT.elif_:
             return [ElseNode([IfNode(condition, body)]), self.make_elif()]
         elif self.peak.type == TT.else_:
@@ -1151,14 +1167,118 @@ class Parser:
 
     def make_else(self):
         self.advance()
-        body = self.next_expression()
+        body = self.next_expressions()
         return ElseNode(body)
 
-    def make_switch(self) -> Node:
+    def make_switch(self) -> SwitchNode:
         self.advance()
         switch_val = self.make_expression()
-        body = self.next_expression()
-        return SwitchNode(switch_val, body)
+        node = SwitchNode(switch_val)
+
+        self.scope.append(node)
+        body = self.next_expressions()
+        self.scope.pop()
+
+        node.assign_body(body)
+        return node
+
+    def make_case(self) -> Node:
+        # TODO
+        return
+
+    def make_default(self) -> KeywordNode:
+        self.advance()
+        # TODO
+        return
+
+    def outside_loop(self, switch_count=False) -> bool:
+        for node in reversed(self.scope):
+            t = type(node)
+            if switch_count and t in {ForNode, WhileNode, DoWhileNode, SwitchNode}:
+                return False
+            if t in {ForNode, WhileNode, DoWhileNode}:
+                return False
+            if t == FuncDeclarationNode:
+                return True
+
+        return True
+
+    def make_exit(self) -> KeywordNode:
+        if self.outside_loop(True):
+            self.error(E.exit_not_in_loop, self.peak)
+
+        tok = self.peak
+        self.advance()
+        return KeywordNode(tok)
+
+    def make_skip(self) -> KeywordNode:
+        if self.outside_loop(False):
+            self.error(E.skip_not_in_loop, self.peak)
+
+        tok = self.peak
+        self.advance()
+        return KeywordNode(tok)
+
+    def make_for(self) -> ForNode:
+        self.advance()
+        if self.peak.type == TT.lpa:    # i need to patch this.
+            self.advance()
+        # for cannot handle the parenthesis because its 3 expressions. i can make a method to grab all 3 expressions
+        # if it has a parenthesis, so it will reach the end and it will
+
+        setup = self.make_expression()
+        end_cnd = self.make_expression()
+        step = self.make_expression()
+        node = ForNode(setup, end_cnd, step)
+
+        self.scope.append(node)
+        body = self.next_expressions()
+        self.scope.pop()
+
+        node.assign_body(body)
+        return node
+
+    def make_while(self) -> WhileNode:
+        self.advance()
+        condition = self.make_expression()
+        node = WhileNode(condition)
+
+        self.scope.append(node)
+        body = self.next_expressions()
+        self.scope.pop()
+
+        node.assign_body(body)
+        return node
+
+    def make_do_while(self) -> Node:
+        self.advance()
+        node = DoWhileNode()
+
+        self.scope.append(node)
+        body = self.next_expressions()
+        self.scope.pop()
+
+        node.assign_body(body)
+
+        if self.peak.type != TT.while_:
+            self.error(E.while_expected, self.peak)
+
+        condition = self.make_expression()
+        node.assign_cnd(condition)
+        return node
+
+    def make_return(self) -> ReturnNode:    # TODO bare return not supported yet
+        self.advance()
+        expression = self.make_expression()
+        return ReturnNode(expression)
+
+    def make_goto(self) -> Node:
+        # TODO
+        return
+
+    def make_urcl(self) -> Node:
+        # TODO
+        return
 
     # utils
 
