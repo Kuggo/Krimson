@@ -13,7 +13,8 @@ def main():
     if src_name == '--help':
         print('usage: krimson <source_file> <destination_file>')
 
-    source = '''for ()'''
+    source = '''label:
+    goto label'''
 
     if src_name is not None:
         if os.path.isfile(src_name):
@@ -146,13 +147,14 @@ class TT(Enum):
     exit_ = 'exit'
     skip = 'skip'
     for_ = 'for'
-    # foreach = 'foreach' # not going to implement yet
+    foreach = 'foreach' # not going to implement yet
     while_ = 'while'
     do_ = 'do'
     return_ = 'return'
     goto = 'goto'
 
     urcl = 'urcl'
+    label = 'label'
 
     # comment
     comment = '//'
@@ -195,7 +197,7 @@ keywords = {
     'exit': TT.exit_,
     'skip': TT.skip,
     'for': TT.for_,
-    # 'foreach': TT.foreach,    # not yet
+    'foreach': TT.foreach,    # not yet
     'while': TT.while_,
     'do': TT.do_,
     'return': TT.return_,
@@ -349,233 +351,6 @@ class ErrorException(Exception):
     def __init__(self, error: Error):
         self.error = error
         return
-
-
-#########################################
-# AST
-#########################################
-
-
-class Node:
-    def __init__(self, value):
-        self.value = value
-        self.parent = None
-        return
-
-    def __repr__(self):
-        return self.value.__repr__()
-
-
-class ValueNode(Node):
-    def __init__(self, value):
-        super().__init__(value)
-
-
-class UnOpNode(Node):
-    def __init__(self, op: Token, child: Node):
-        super().__init__(self)
-        self.op = op
-        self.child = child
-        self.child.parent = self.parent
-        return
-
-    def __repr__(self):
-        if self.op.type in op_table and op_table[self.op.type][1]:
-            return f'<{self.child} {self.op.type}>'
-        else:
-            return f'<{self.op.type} {self.child}>'
-
-
-class BinOpNode(Node):
-    def __init__(self, op: Token, left: Node, right: Node):
-        super().__init__(self)
-        self.left_child = left
-        self.right_child = right
-        self.op = op
-
-        self.left_child.parent = self.parent
-        self.right_child.parent = self.parent
-        return
-
-    def __repr__(self):
-        return f'<{self.left_child} {self.op.type} {self.right_child}>'
-
-
-class VarDeclarationNode(Node):
-    def __init__(self, type: Token, name: Token, value: Node = None):
-        super().__init__(self)
-        self.type = type
-        self.name = name
-        self.value = value
-        if value is not None:
-            value.parent = self.parent
-        return
-
-    def __repr__(self):
-        if self.value is None:
-            return f'<{self.type} {self.name} = {self.value}>'
-        else:
-            return f'<{self.type} {self.name} = {self.value.value.right_child.value}>'
-
-
-class ScopedNode(Node):
-    def __init__(self, value):
-        super().__init__(value)
-        self.body = None
-        return
-
-    def assign_body(self, body: List[Node] = None):
-        if body is None:
-            self.body = []
-        else:
-            self.body = body
-            for b in body:
-                b.parent = self
-        return
-
-
-class FuncDeclarationNode(ScopedNode):
-    def __init__(self, type: Token, name: Token, args: List[VarDeclarationNode] = None):
-        super().__init__(self)
-        self.type = type
-        self.name = name
-        if args is None:
-            self.args = []
-        else:
-            self.args = args
-            for arg in args:
-                arg.parent = self
-        self.body = None
-        return
-
-    def __repr__(self):
-        args = str(self.args).replace('[', '(')
-        args = args.replace(']', ')')
-        string = f'<{self.type} {self.name} {args} ' + '{'
-        for node in self.body:
-            string += str(node) + ';'
-        string += '}>'
-        return string
-
-
-class IfNode(Node):
-    def __init__(self, condition: Node, body: List[Node] = None):
-        super().__init__(self)
-        self.condition = condition
-        if body is None:
-            self.body = []
-        else:
-            self.body = body
-            for b in body:
-                b.parent = self.parent
-        return
-
-    def __repr__(self):
-        string = f'<if ({self.condition}) ' + '{'
-        for node in self.body:
-            string += str(node) + ';'
-        string += '}>'
-        return string
-
-
-class ElseNode(Node):
-    def __init__(self, body: List[Node] = None):
-        super().__init__(self)
-        if body is None:
-            self.body = []
-        else:
-            self.body = body
-            for b in body:
-                b.parent = self.parent
-        return
-
-    def __repr__(self):
-        string = '<else {'
-        for node in self.body:
-            string += str(node) + ';'
-        string += '}>'
-        return string
-
-
-class ForNode(ScopedNode):
-    def __init__(self, var: Node, condition: Node, step: Node):
-        super().__init__(self)
-        self.var = var
-        self.var.parent = self
-        self.condition = condition
-        self.condition.parent = self
-        self.step = step
-        self.step.parent = self
-        return
-
-    def __repr__(self):
-        string = f'<for ({self.var};{self.condition};{self.step}) ' + '{'
-        for node in self.body:
-            string += str(node) + ';'
-        string += '}>'
-        return string
-
-
-class WhileNode(ScopedNode):
-    def __init__(self, condition: Node):
-        super().__init__(self)
-        self.condition = condition
-        self.condition.parent = self
-        return
-
-    def __repr__(self):
-        string = f'<while ({self.condition}) ' + '{'
-        for node in self.body:
-            string += str(node) + ';'
-        string += '}>'
-        return string
-
-
-class DoWhileNode(ScopedNode):
-    def __init__(self):
-        super().__init__(self)
-        self.condition = None
-        return
-
-    def assign_cnd(self, condition: Node):
-        self.condition = condition
-        self.condition.parent = self
-        return
-
-    def __repr__(self):
-        string = '<do {'
-        for node in self.body:
-            string += str(node) + ';'
-        string += '}' + f' while ({self.condition})>'
-        return string
-
-
-class SwitchNode(ScopedNode):
-    def __init__(self, switch_val: Node):
-        super().__init__(self)
-        self.switch_val = switch_val
-        return
-
-    def __repr__(self):
-        string = f'<switch ({self.switch_val}) ' + '{'
-        for node in self.body:
-            string += str(node) + ';'
-        string += '}>'
-        return string
-
-
-class KeywordNode(Node):
-    def __init__(self, value):
-        super().__init__(value)
-
-
-class ReturnNode(Node):
-    def __init__(self, value: Node):
-        super().__init__(self)
-        self.ret_value = value
-
-    def __repr__(self):
-        return f'return {self.value}'
 
 
 #########################################
@@ -926,6 +701,267 @@ class Lexer:
 
 
 #########################################
+# AST
+#########################################
+
+
+class Node:
+    def __init__(self, value):
+        self.value = value
+        self.parent = None
+        return
+
+    def __repr__(self):
+        return self.value.__repr__()
+
+
+class ValueNode(Node):
+    def __init__(self, value: Token):
+        super().__init__(value)
+
+
+class UnOpNode(Node):
+    def __init__(self, op: Token, child: Node):
+        super().__init__(self)
+        self.op = op
+        self.child = child
+        self.child.parent = self.parent
+        return
+
+    def __repr__(self):
+        if self.op.type in op_table and op_table[self.op.type][1]:
+            return f'<{self.child} {self.op.type}>'
+        else:
+            return f'<{self.op.type} {self.child}>'
+
+
+class BinOpNode(Node):
+    def __init__(self, op: Token, left: Node, right: Node):
+        super().__init__(self)
+        self.left_child = left
+        self.right_child = right
+        self.op = op
+
+        self.left_child.parent = self.parent
+        self.right_child.parent = self.parent
+        return
+
+    def __repr__(self):
+        return f'<{self.left_child} {self.op.type} {self.right_child}>'
+
+
+class VarDeclarationNode(Node):
+    def __init__(self, type: Token, name: Token, value: Node = None):
+        super().__init__(self)
+        self.type = type
+        self.name = name
+        self.value = value
+        if value is not None:
+            value.parent = self.parent
+        return
+
+    def __repr__(self):
+        if self.value is None:
+            return f'<{self.type} {self.name} = {self.value}>'
+        else:
+            return f'<{self.type} {self.name} = {self.value.value.right_child.value}>'
+
+
+class ScopedNode(Node):
+    def __init__(self, value):
+        super().__init__(value)
+        self.body = None
+        return
+
+    def assign_body(self, body: List[Node] = None):
+        if body is None:
+            self.body = []
+        else:
+            self.body = body
+            for b in body:
+                b.parent = self
+        return
+
+
+class FuncDeclarationNode(ScopedNode):
+    def __init__(self, type: Token, name: Token, args: List[VarDeclarationNode] = None):
+        super().__init__(self)
+        self.type = type
+        self.name = name
+        if args is None:
+            self.args = []
+        else:
+            self.args = args
+            for arg in args:
+                arg.parent = self
+        self.body = None
+        return
+
+    def __repr__(self):
+        args = str(self.args).replace('[', '(')
+        args = args.replace(']', ')')
+        string = f'<{self.type} {self.name} {args} ' + '{'
+        for node in self.body:
+            string += str(node) + ';'
+        string += '}>'
+        return string
+
+
+class IfNode(Node):
+    def __init__(self, condition: Node, body: List[Node] = None):
+        super().__init__(self)
+        self.condition = condition
+        if body is None:
+            self.body = []
+        else:
+            self.body = body
+            for b in body:
+                b.parent = self.parent
+        return
+
+    def __repr__(self):
+        string = f'<if ({self.condition}) ' + '{'
+        for node in self.body:
+            string += str(node) + ';'
+        string += '}>'
+        return string
+
+
+class ElseNode(Node):
+    def __init__(self, body: List[Node] = None):
+        super().__init__(self)
+        if body is None:
+            self.body = []
+        else:
+            self.body = body
+            for b in body:
+                b.parent = self.parent
+        return
+
+    def __repr__(self):
+        string = '<else {'
+        for node in self.body:
+            string += str(node) + ';'
+        string += '}>'
+        return string
+
+
+class ForNode(ScopedNode):
+    def __init__(self, var: Node, condition: Node, step: Node):
+        super().__init__(self)
+        self.var = var
+        self.var.parent = self
+        self.condition = condition
+        self.condition.parent = self
+        self.step = step
+        self.step.parent = self
+        return
+
+    def __repr__(self):
+        string = f'<for ({self.var};{self.condition};{self.step}) ' + '{'
+        for node in self.body:
+            string += str(node) + ';'
+        string += '}>'
+        return string
+
+
+class ForeachNode(ScopedNode):
+    def __init__(self, var: Node, collection: Node):
+        super().__init__(self)
+        self.var = var
+        self.var.parent = self
+        self.collection = collection
+        self.collection.parent = self
+        return
+
+    def __repr__(self):
+        string = f'<for ({self.var}:{self.collection}) ' + '{'
+        for node in self.body:
+            string += str(node) + ';'
+        string += '}>'
+        return string
+
+
+class WhileNode(ScopedNode):
+    def __init__(self, condition: Node):
+        super().__init__(self)
+        self.condition = condition
+        self.condition.parent = self
+        return
+
+    def __repr__(self):
+        string = f'<while ({self.condition}) ' + '{'
+        for node in self.body:
+            string += str(node) + ';'
+        string += '}>'
+        return string
+
+
+class DoWhileNode(ScopedNode):
+    def __init__(self):
+        super().__init__(self)
+        self.condition = None
+        return
+
+    def assign_cnd(self, condition: Node):
+        self.condition = condition
+        self.condition.parent = self
+        return
+
+    def __repr__(self):
+        string = '<do {'
+        for node in self.body:
+            string += str(node) + ';'
+        string += '}' + f' while ({self.condition})>'
+        return string
+
+
+class SwitchNode(ScopedNode):
+    def __init__(self, switch_val: Node):
+        super().__init__(self)
+        self.switch_val = switch_val
+        return
+
+    def __repr__(self):
+        string = f'<switch ({self.switch_val}) ' + '{'
+        for node in self.body:
+            string += str(node) + ';'
+        string += '}>'
+        return string
+
+
+class KeywordNode(Node):
+    def __init__(self, value):
+        super().__init__(value)
+
+
+class ReturnNode(Node):
+    def __init__(self, value: Node):
+        super().__init__(self)
+        self.ret_value = value
+
+    def __repr__(self):
+        return f'return {self.ret_value}'
+
+
+class GotoNode(Node):
+    def __init__(self, label: Token):
+        super().__init__(self)
+        self.label = label
+
+    def __repr__(self):
+        return f'goto {self.label}'
+
+
+#########################################
+# Value Objects
+#########################################
+
+true = ValueNode(Token(TT.true, None, None, None, None))
+false = ValueNode(Token(TT.false, None, None, None, None))
+null = ValueNode(Token(TT.null, None, None, None, None))
+
+#########################################
 # Parser
 #########################################
 
@@ -991,6 +1027,9 @@ class Parser:
             elif t == TT.for_:
                 body.append(self.make_for())
 
+            elif t == TT.foreach:
+                body.append(self.make_foreach())
+
             elif t == TT.while_:
                 body.append(self.make_while())
 
@@ -1006,6 +1045,16 @@ class Parser:
             elif t == TT.urcl:
                 body.append(self.make_urcl())
 
+            elif t == t.word:
+                word = self.peak
+                self.advance()
+                if self.peak.type == TT.colon:
+                    body.append(KeywordNode(word))
+                    word.type = TT.label
+                    self.advance()
+                else:
+                    self.advance(-1)
+                    self.make_expression()
             else:
                 self.make_expression()
         return body
@@ -1221,16 +1270,38 @@ class Parser:
 
     def make_for(self) -> ForNode:
         self.advance()
+        has_parenthesis = False
         if self.peak.type == TT.lpa:    # i need to patch this.
             self.advance()
-        # for cannot handle the parenthesis because its 3 expressions. i can make a method to grab all 3 expressions
-        # if it has a parenthesis, so it will reach the end and it will
+            has_parenthesis = True
 
         setup = self.make_expression()
         end_cnd = self.make_expression()
         step = self.make_expression()
         node = ForNode(setup, end_cnd, step)
 
+        if has_parenthesis:
+            self.advance()
+        self.scope.append(node)
+        body = self.next_expressions()
+        self.scope.pop()
+
+        node.assign_body(body)
+        return node
+
+    def make_foreach(self) -> ForeachNode:
+        self.advance()
+        has_parenthesis = False
+        if self.peak.type == TT.lpa:    # i need to patch this.
+            self.advance()
+            has_parenthesis = True
+
+        var = self.assign_var()
+        collection = self.make_expression()
+        node = ForeachNode(var, collection)
+
+        if has_parenthesis:
+            self.advance()
         self.scope.append(node)
         body = self.next_expressions()
         self.scope.pop()
@@ -1267,14 +1338,21 @@ class Parser:
         node.assign_cnd(condition)
         return node
 
-    def make_return(self) -> ReturnNode:    # TODO bare return not supported yet
+    def make_return(self) -> ReturnNode:
         self.advance()
-        expression = self.make_expression()
-        return ReturnNode(expression)
+        if self.peak.type in {TT.comma, TT.colon, TT.semi_col}:
+            self.advance()
+            return ReturnNode(null)
+        else:
+            expression = self.make_expression()
+            return ReturnNode(expression)
 
-    def make_goto(self) -> Node:
-        # TODO
-        return
+    def make_goto(self) -> GotoNode:
+        self.advance()
+        label = self.peak
+        if label.type != TT.word:
+            self.error(E.identifier_expected, self.peak)
+        return GotoNode(label)
 
     def make_urcl(self) -> Node:
         # TODO
