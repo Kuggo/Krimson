@@ -13,7 +13,7 @@ def main():
     if src_name == '--help':
         print('usage: krimson <source_file> <destination_file>')
 
-    source = '''object class {int var}'''
+    source = '''int var = 5'''
 
     if src_name is not None:
         if os.path.isfile(src_name):
@@ -31,7 +31,7 @@ def main():
 
     lexer = Lexer(source, src_name)
     lexer.tokenize()
-    print(lexer.tokens)
+    print(lexer.tokens, file=dest)
 
     if len(lexer.errors) > 0:
         for err in lexer.errors:
@@ -41,7 +41,7 @@ def main():
     parser = Parser(source, lexer.tokens, src_name)
     try:
         parser.parse()
-        print(parser.output)
+        print(parser.output, file=dest)
     except ErrorException as e:
         print(e.error, file=stderr)
         exit(1)
@@ -146,7 +146,7 @@ class TT(Enum):
     exit_ = 'exit'
     skip = 'skip'
     for_ = 'for'
-    foreach = 'foreach' # not going to implement yet
+    foreach = 'foreach'
     while_ = 'while'
     do_ = 'do'
     return_ = 'return'
@@ -286,8 +286,8 @@ unary_ops = {TT.inc, TT.dec, TT.not_, TT.b_not, TT.neg}
 
 
 class Token:
-    def __init__(self, type: TT, start_index, start_char, end_char, line, value=None):
-        self.type = type
+    def __init__(self, tt: TT, start_index, start_char, end_char, line, value=None):
+        self.type = tt
         self.start = start_char
         self.end = end_char
         self.line = line
@@ -666,7 +666,7 @@ class Lexer:
         return
 
     def token(self, tt: TT, value=None) -> Token:
-        tok = Token(tt, self.start_index, self.start, self.end-1, self.n, value)
+        tok = Token(tt, self.start_index, self.start, self.end - 1, self.n, value)
         self.tokens.append(tok)
         self.reset_tok_pos()
         self.last_tok = tok
@@ -706,23 +706,23 @@ class Lexer:
 
 
 class Node:
-    def __init__(self, value):
-        self.value = value
+    def __init__(self):
         self.parent = None
         return
-
-    def __repr__(self):
-        return self.value.__repr__()
 
 
 class ValueNode(Node):
     def __init__(self, value: Token):
-        super().__init__(value)
+        super().__init__()
+        self.value = value
+
+    def __repr__(self):
+        return f'{self.value}'
 
 
 class UnOpNode(Node):
     def __init__(self, op: Token, child: Node):
-        super().__init__(self)
+        super().__init__()
         self.op = op
         self.child = child
         self.child.parent = self.parent
@@ -737,7 +737,7 @@ class UnOpNode(Node):
 
 class BinOpNode(Node):
     def __init__(self, op: Token, left: Node, right: Node):
-        super().__init__(self)
+        super().__init__()
         self.left_child = left
         self.right_child = right
         self.op = op
@@ -751,9 +751,9 @@ class BinOpNode(Node):
 
 
 class VarDeclarationNode(Node):
-    def __init__(self, type: Token, name: Token, value: Node = None):
-        super().__init__(self)
-        self.type = type
+    def __init__(self, var_type: Token, name: Token, value: BinOpNode = None):
+        super().__init__()
+        self.type = var_type
         self.name = name
         self.value = value
         if value is not None:
@@ -764,12 +764,12 @@ class VarDeclarationNode(Node):
         if self.value is None:
             return f'<{self.type} {self.name} = {self.value}>'
         else:
-            return f'<{self.type} {self.name} = {self.value.value.right_child.value}>'
+            return f'<{self.type} {self.name} = {self.value.right_child}>'
 
 
 class ScopedNode(Node):
-    def __init__(self, value):
-        super().__init__(value)
+    def __init__(self):
+        super().__init__()
         self.body = None
         return
 
@@ -784,9 +784,9 @@ class ScopedNode(Node):
 
 
 class FuncDeclarationNode(ScopedNode):
-    def __init__(self, type: Token, name: Token, args: List[VarDeclarationNode] = None):
-        super().__init__(self)
-        self.type = type
+    def __init__(self, ret_type: Token, name: Token, args: List[VarDeclarationNode] = None):
+        super().__init__()
+        self.type = ret_type
         self.name = name
         if args is None:
             self.args = []
@@ -808,7 +808,7 @@ class FuncDeclarationNode(ScopedNode):
 
 class ObjectDeclarationNode(ScopedNode):
     def __init__(self, name: Token, parent_classes: List[Token]):
-        super().__init__(self)
+        super().__init__()
         self.name = name
         self.variables = []
         self.methods = []
@@ -825,7 +825,7 @@ class ObjectDeclarationNode(ScopedNode):
 
 class IfNode(Node):
     def __init__(self, condition: Node, body: List[Node] = None):
-        super().__init__(self)
+        super().__init__()
         self.condition = condition
         if body is None:
             self.body = []
@@ -845,7 +845,7 @@ class IfNode(Node):
 
 class ElseNode(Node):
     def __init__(self, body: List[Node] = None):
-        super().__init__(self)
+        super().__init__()
         if body is None:
             self.body = []
         else:
@@ -864,7 +864,7 @@ class ElseNode(Node):
 
 class ForNode(ScopedNode):
     def __init__(self, var: Node, condition: Node, step: Node):
-        super().__init__(self)
+        super().__init__()
         self.var = var
         self.var.parent = self
         self.condition = condition
@@ -883,7 +883,7 @@ class ForNode(ScopedNode):
 
 class ForeachNode(ScopedNode):
     def __init__(self, var: Node, collection: Node):
-        super().__init__(self)
+        super().__init__()
         self.var = var
         self.var.parent = self
         self.collection = collection
@@ -900,7 +900,7 @@ class ForeachNode(ScopedNode):
 
 class WhileNode(ScopedNode):
     def __init__(self, condition: Node):
-        super().__init__(self)
+        super().__init__()
         self.condition = condition
         self.condition.parent = self
         return
@@ -915,7 +915,7 @@ class WhileNode(ScopedNode):
 
 class DoWhileNode(ScopedNode):
     def __init__(self):
-        super().__init__(self)
+        super().__init__()
         self.condition = None
         return
 
@@ -934,7 +934,7 @@ class DoWhileNode(ScopedNode):
 
 class SwitchNode(ScopedNode):
     def __init__(self, switch_val: Node):
-        super().__init__(self)
+        super().__init__()
         self.switch_val = switch_val
         return
 
@@ -947,13 +947,17 @@ class SwitchNode(ScopedNode):
 
 
 class KeywordNode(Node):
-    def __init__(self, value: Token):
-        super().__init__(value)
+    def __init__(self, keyword: Token):
+        super().__init__()
+        self.keyword = keyword
+
+    def __repr__(self):
+        return self.keyword
 
 
 class SingleExpressionNode(Node):
     def __init__(self, value, word: TT, ):
-        super().__init__(self)
+        super().__init__()
         self.val = value
         self.word = word
 
@@ -1107,13 +1111,13 @@ class Parser:
         queue: List[Token] = []
         stack = []
         while self.has_next() and self.peak.type not in {TT.comma, TT.colon, TT.semi_col, TT.rcbr, TT.lcbr, TT.eof}:
-            type = self.peak.type
-            if type == TT.lpa:
+            t = self.peak.type
+            if t == TT.lpa:
                 if self.last.type == TT.word:
                     self.peak.type = TT.func_call
                 stack.append(self.peak)
 
-            elif type == TT.lbr:
+            elif t == TT.lbr:
                 if self.last.type == TT.word:
                     self.peak.type = TT.address
                     stack.append(self.peak)
@@ -1121,19 +1125,19 @@ class Parser:
                     # TODO
                     pass
 
-            elif type == TT.rbr:
+            elif t == TT.rbr:
                 while len(stack) > 0 and stack[-1].type != TT.address:
                     queue.append(stack.pop())
                 if len(stack) > 0:
                     queue.append(stack.pop())
 
-            elif type in op_table:
-                while len(stack) > 0 and (op_table[type][0] > op_table[stack[-1].type][0] or
-                                          (op_table[type][0] == op_table[stack[-1].type][0] and op_table[type][1])):
+            elif t in op_table:
+                while len(stack) > 0 and (op_table[t][0] > op_table[stack[-1].type][0] or
+                                          (op_table[t][0] == op_table[stack[-1].type][0] and op_table[t][1])):
                     queue.append(stack.pop())
                 stack.append(self.peak)
 
-            elif type == TT.rpa:
+            elif t == TT.rpa:
                 while len(stack) > 0 and stack[-1].type != TT.lpa and stack[-1].type != TT.func_call:
                     queue.append(stack.pop())
                 if len(stack) > 0:
@@ -1184,7 +1188,7 @@ class Parser:
 
         name = self.peak
         expression = self.make_expression()
-        if type(expression) != ValueNode:
+        if isinstance(expression, BinOpNode):
             declair_node = VarDeclarationNode(var_type, name, expression)
         else:
             declair_node = VarDeclarationNode(var_type, name)
@@ -1428,6 +1432,16 @@ class Parser:
 
     def has_next(self, i=0) -> bool:
         return self.i + i < self.len
+
+
+#########################################
+# Type Checker
+#########################################
+
+class TypeChecker:
+    def __init__(self):
+
+        return
 
 
 if __name__ == "__main__":
