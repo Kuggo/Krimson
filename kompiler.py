@@ -13,7 +13,7 @@ def main():
     if src_name == '--help':
         print('usage: krimson <source_file> <destination_file>')
 
-    source = '''int var = 5'''
+    source = '''int var = [[1], 2] + 3'''
 
     if src_name is not None:
         if os.path.isfile(src_name):
@@ -37,6 +37,10 @@ def main():
         for err in lexer.errors:
             print(err, file=stderr)
         exit(1)
+
+    if len(lexer.warnings) > 0:
+        for warn in lexer.warnings:
+            print(warn, file=stderr)
 
     parser = Parser(source, lexer.tokens, src_name)
     try:
@@ -205,7 +209,8 @@ keywords = {
     'urcl': TT.urcl,
 }
 
-types = {TT.bool_, TT.int_, TT.uint, TT.fixed, TT.ufixed, TT.float_, TT.char, TT.func, TT.string, TT.array, TT.object_}
+types = {TT.bool_.value, TT.int_.value, TT.uint.value, TT.fixed.value, TT.ufixed.value, TT.float_.value, TT.char.value,
+         TT.func.value, TT.string.value, TT.array.value, TT.object_.value}
 
 symbols = {
     '(': TT.lpa,
@@ -279,19 +284,18 @@ op_table = {
     TT.assign_mod: (14, False),
     TT.lpa: (20, True),
     TT.address: (19, True),
-    TT.rbr: (19, True),
+    # TT.rbr: (19, True),   # not needed makes only trouble
 }
 
 unary_ops = {TT.inc, TT.dec, TT.not_, TT.b_not, TT.neg}
 
 
 class Token:
-    def __init__(self, tt: TT, start_index, start_char, end_char, line, value=None):
+    def __init__(self, tt: TT, start_char, end_char, line, value=None):
         self.type = tt
         self.start = start_char
         self.end = end_char
         self.line = line
-        self.start_index = start_index
         if value is None:
             self.value = ''
         else:
@@ -305,6 +309,8 @@ class Token:
 class E(Enum):
 
     name_expected = 'Name expected'
+    duplicate_object = 'Duplicate object name'
+    duplicate_func = 'Duplicate function declaration'
     literal_expected = 'Literal expected'
     symbol_expected = '{} expected'
     expression_expected = 'Expression expected'
@@ -373,7 +379,6 @@ class Lexer:
 
         self.peak = self.pr[self.i]
         self.last_tok = None
-        self.start_index = self.i
         self.start = self.end
         return
 
@@ -513,7 +518,8 @@ class Lexer:
                 self.advance()
                 self.token(TT.assign_add)
             else:
-                if self.last_tok.type in op_table:  # its unary plus, thus can be ignored
+                if self.last_tok is None or self.last_tok.type in op_table:
+                    # its unary plus, thus can be ignored
                     pass
                 else:
                     self.token(TT.add)
@@ -527,7 +533,8 @@ class Lexer:
                 self.advance()
                 self.token(TT.assign_sub)
             else:
-                if self.last_tok is None or self.last_tok.type in op_table:  # its unary minus
+                if self.last_tok is None or self.last_tok.type in op_table:
+                    # its unary minus
                     self.token(TT.neg)
                 else:
                     self.token(TT.sub)
@@ -617,8 +624,19 @@ class Lexer:
     def make_string(self) -> None:
         string = self.peak
         self.advance()
-        while self.has_next() and self.peak != '"' and self.peak != '\n':
-            string += self.peak
+        escape = False
+        escape_char = {     # putting more later
+            'n': '\n',
+        }
+        while self.has_next() and ((self.peak != '"' and self.peak != '\n') or escape):
+            if escape:
+                string += escape_char.get(self.peak, self.peak)
+                escape = False
+            else:
+                if self.peak == '\\':
+                    escape = True
+                else:
+                    string += self.peak
             self.advance()
 
         if self.peak == '\n':
@@ -666,7 +684,7 @@ class Lexer:
         return
 
     def token(self, tt: TT, value=None) -> Token:
-        tok = Token(tt, self.start_index, self.start, self.end - 1, self.n, value)
+        tok = Token(tt, self.start, self.end - 1, self.n, value)
         self.tokens.append(tok)
         self.reset_tok_pos()
         self.last_tok = tok
@@ -684,7 +702,6 @@ class Lexer:
 
     def reset_tok_pos(self) -> None:
         self.start = self.end
-        self.start_index = self.i + 1
         return
 
     def advance(self, i=1) -> None:
@@ -706,14 +723,15 @@ class Lexer:
 
 
 class Node:
-    def __init__(self):
+    def __init__(self, t=TT.null.value):
         self.parent = None
+        self.type: str = t
         return
 
 
 class ValueNode(Node):
     def __init__(self, value: Token):
-        super().__init__()
+        super().__init__(t=value.value)
         self.value = value
 
     def __repr__(self):
@@ -753,7 +771,7 @@ class BinOpNode(Node):
 class VarDeclarationNode(Node):
     def __init__(self, var_type: Token, name: Token, value: BinOpNode = None):
         super().__init__()
-        self.type = var_type
+        self.type = var_type.value
         self.name = name
         self.value = value
         if value is not None:
@@ -771,6 +789,8 @@ class ScopedNode(Node):
     def __init__(self):
         super().__init__()
         self.body = None
+        self.vars = {}
+        self.funcs = {}
         return
 
     def assign_body(self, body: List[Node] = None):
@@ -780,13 +800,17 @@ class ScopedNode(Node):
             self.body = body
             for b in body:
                 b.parent = self
+                if isinstance(b, VarDeclarationNode):
+                    self.vars[b.name.value] = b
+                elif isinstance(b, FuncDeclarationNode):
+                    self.funcs[b.name.value] = b
         return
 
 
 class FuncDeclarationNode(ScopedNode):
     def __init__(self, ret_type: Token, name: Token, args: List[VarDeclarationNode] = None):
         super().__init__()
-        self.type = ret_type
+        self.type = ret_type.value
         self.name = name
         if args is None:
             self.args = []
@@ -810,6 +834,7 @@ class ObjectDeclarationNode(ScopedNode):
     def __init__(self, name: Token, parent_classes: List[Token]):
         super().__init__()
         self.name = name
+        types.add(name.value)
         self.variables = []
         self.methods = []
         self.parent_classes = parent_classes
@@ -989,9 +1014,9 @@ class UrclNode(SingleExpressionNode):
 # Value Objects
 #########################################
 
-true = ValueNode(Token(TT.true, None, None, None, None))
-false = ValueNode(Token(TT.false, None, None, None, None))
-null = ValueNode(Token(TT.null, None, None, None, None))
+true = ValueNode(Token(TT.true, None, None, None))
+false = ValueNode(Token(TT.false, None, None, None))
+null = ValueNode(Token(TT.null, None, None, None))
 
 #########################################
 # Parser
@@ -1001,7 +1026,7 @@ null = ValueNode(Token(TT.null, None, None, None, None))
 class Parser:
     def __init__(self, program: str, toks: List[Token], file_name: str):
         self.toks = toks
-        self.toks.append(Token(TT.eof, None, None, None, None))
+        self.toks.append(Token(TT.eof, None, None, None))
         self.len = len(self.toks)
         self.i = 0
         self.peak = self.toks[self.i]
@@ -1021,74 +1046,79 @@ class Parser:
     def parse_body(self, end_tt: TT) -> List[Node]:
         body: List[Node] = []
         while self.has_next() and self.peak.type != end_tt:
-            t = self.peak.type
-
-            if t in types and self.peak.value == t.value and not (t in {TT.func, TT.object_}):
-                body.append(self.assign_var())
-
-            elif t == TT.func:
+            tt = self.peak.type
+            if tt == TT.func:
                 body.append(self.func_def())
 
-            elif t == TT.object_:
+            elif tt == TT.object_:
                 body.append(self.make_object())
 
-            elif t == TT.if_:
-                body += self.make_if()
+            elif tt in types:
+                body.append(self.assign_var())
 
-            elif t == TT.elif_:
-                self.error(E.if_expected, self.peak)
-
-            elif t == TT.else_:
-                self.error(E.if_expected, self.peak)
-
-            elif t == TT.switch:
-                body.append(self.make_switch())
-
-            elif t == TT.case:
-                body.append(self.make_case())
-
-            elif t == TT.default:
-                body.append(self.make_default())
-
-            elif t == TT.exit_:
-                body.append(self.make_exit())
-
-            elif t == TT.skip:
-                body.append(self.make_skip())
-
-            elif t == TT.for_:
-                body.append(self.make_for())
-
-            elif t == TT.foreach:
-                body.append(self.make_foreach())
-
-            elif t == TT.while_:
-                body.append(self.make_while())
-
-            elif t == TT.do_:
-                body.append(self.make_do_while())
-
-            elif t == TT.return_:
-                body.append(self.make_return())
-
-            elif t == TT.goto:
-                body.append(self.make_goto())
-
-            elif t == TT.urcl:
-                body.append(self.make_urcl())
-
-            elif t == t.word:
+            elif tt == TT.word:   # can be a custom type, a function call, or a label
                 word = self.peak
                 self.advance()
                 if self.peak.type == TT.colon:
                     body.append(KeywordNode(word))
                     word.type = TT.label
                     self.advance()
+
+                elif self.peak.type == TT.word:
+                    self.advance(-1)
+                    body.append(self.assign_var())
+
                 else:
                     self.advance(-1)
                     self.make_expression()
+
+            elif tt == TT.if_:
+                body += self.make_if()
+
+            elif tt == TT.elif_:
+                self.error(E.if_expected, self.peak)
+
+            elif tt == TT.else_:
+                self.error(E.if_expected, self.peak)
+
+            elif tt == TT.switch:
+                body.append(self.make_switch())
+
+            elif tt == TT.case:
+                body.append(self.make_case())
+
+            elif tt == TT.default:
+                body.append(self.make_default())
+
+            elif tt == TT.exit_:
+                body.append(self.make_exit())
+
+            elif tt == TT.skip:
+                body.append(self.make_skip())
+
+            elif tt == TT.for_:
+                body.append(self.make_for())
+
+            elif tt == TT.foreach:
+                body.append(self.make_foreach())
+
+            elif tt == TT.while_:
+                body.append(self.make_while())
+
+            elif tt == TT.do_:
+                body.append(self.make_do_while())
+
+            elif tt == TT.return_:
+                body.append(self.make_return())
+
+            elif tt == TT.goto:
+                body.append(self.make_goto())
+
+            elif tt == TT.urcl:
+                body.append(self.make_urcl())
+
             else:
-                self.make_expression()
+                body.append(self.make_expression())
         return body
 
     def make_expression(self) -> Node:
@@ -1107,8 +1137,8 @@ class Parser:
         else:
             return [self.make_expression()]
 
-    def shunting_yard(self) -> List[Token]:
-        queue: List[Token] = []
+    def shunting_yard(self) -> List:
+        queue: List = []
         stack = []
         while self.has_next() and self.peak.type not in {TT.comma, TT.colon, TT.semi_col, TT.rcbr, TT.lcbr, TT.eof}:
             t = self.peak.type
@@ -1122,14 +1152,15 @@ class Parser:
                     self.peak.type = TT.address
                     stack.append(self.peak)
                 else:   # it's an array then
-                    # TODO
-                    pass
+                    queue.append(self.make_array())
 
             elif t == TT.rbr:
                 while len(stack) > 0 and stack[-1].type != TT.address:
                     queue.append(stack.pop())
                 if len(stack) > 0:
                     queue.append(stack.pop())
+                else:
+                    break
 
             elif t in op_table:
                 while len(stack) > 0 and (op_table[t][0] > op_table[stack[-1].type][0] or
@@ -1163,7 +1194,9 @@ class Parser:
     def make_ast(self, queue) -> Node:
         stack: List[Node] = []
         for tok in queue:
-            if tok.type in op_table:
+            if isinstance(tok, Node):
+                stack.append(tok)
+            elif tok.type in op_table:
                 if tok.type in unary_ops:
                     node_a = stack.pop()
                     stack.append(UnOpNode(tok, node_a))
@@ -1197,7 +1230,7 @@ class Parser:
     def func_def(self) -> Node:
         self.advance()
         ret_type = self.peak
-        if ret_type.type != TT.null and ret_type.type not in types:
+        if ret_type.type != TT.word and ret_type.value not in types and ret_type.type != TT.null:
             self.error(E.invalid_ret_type, self.peak)
 
         self.advance()
@@ -1227,6 +1260,8 @@ class Parser:
         if self.peak.type != TT.word:
             self.error(E.identifier_expected, self.peak)
         name = self.peak
+        # if name.value in types:   # it was already defined previously
+        #    self.error(E.duplicate_object, self.peak)
         self.advance()
 
         parent_classes = []
@@ -1419,6 +1454,15 @@ class Parser:
 
     # utils
 
+    def make_array(self) -> Node:
+        start_tok = self.peak
+        self.advance()
+        elements = []
+        while self.has_next() and self.peak.type != TT.rbr:
+            elements.append(self.make_expression())
+
+        return ValueNode(Token(TT.array, start_tok.start, self.peak.end, start_tok.line, elements))
+
     def error(self, error: E, tok: Token, *args) -> None:
         raise ErrorException(Error(error, tok.start, tok.end, tok.line, self.file_name, self.lines[tok.line-1], args))
 
@@ -1439,7 +1483,36 @@ class Parser:
 #########################################
 
 class TypeChecker:
-    def __init__(self):
+    def __init__(self, trees: List[Node]):
+        self.asts = trees
+        self.funcs = set()
+        self.vars = set()
+        self.types = types.copy()
+
+        self.errors = []
+        return
+
+    def check(self):
+        self.check_scope(self.asts)
+        return
+
+    def check_scope(self, trees):
+        funcs = self.funcs.copy()
+        vars = self.vars.copy()
+        types = self.types.copy()
+
+        for tree in trees:
+            self.visit_node(tree)
+
+        self.funcs = funcs
+        self.vars = vars
+        self.types = types
+        return
+
+    def visit_node(self, node: Node):
+        if isinstance(node, BinOpNode):
+
+            pass
 
         return
 
