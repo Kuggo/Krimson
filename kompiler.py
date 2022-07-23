@@ -13,7 +13,7 @@ def main():
     if src_name == '--help':
         print('usage: krimson <source_file> <destination_file>')
 
-    source = '''int var = [[1], 2] + 3'''
+    source = '''int var'''
 
     if src_name is not None:
         if os.path.isfile(src_name):
@@ -49,6 +49,16 @@ def main():
     except ErrorException as e:
         print(e.error, file=stderr)
         exit(1)
+
+    type_checker = TypeChecker(parser.output, source, src_name)
+    type_checker.check()
+
+    if len(type_checker.errors) > 0:
+        for err in type_checker.errors:
+            print(err, file=stderr)
+        exit(1)
+
+    # TODO compile to urcl
     return
 
 
@@ -209,8 +219,19 @@ keywords = {
     'urcl': TT.urcl,
 }
 
-types = {TT.bool_.value, TT.int_.value, TT.uint.value, TT.fixed.value, TT.ufixed.value, TT.float_.value, TT.char.value,
-         TT.func.value, TT.string.value, TT.array.value, TT.object_.value}
+default_types = {
+    TT.bool_.value: None,
+    TT.int_.value: None,
+    TT.uint.value: None,
+    TT.fixed.value: None,
+    TT.ufixed.value: None,
+    TT.float_.value: None,
+    TT.char.value: None,
+    TT.func.value: None,
+    TT.string.value: None,
+    TT.array.value: None,
+    TT.object_.value: None
+}
 
 symbols = {
     '(': TT.lpa,
@@ -234,6 +255,7 @@ symbols = {
     ',': TT.comma,
     ';': TT.semi_col,
     ':': TT.colon,
+    '.': TT.dot,
 }
 
 op_table = {
@@ -287,7 +309,7 @@ op_table = {
     # TT.rbr: (19, True),   # not needed makes only trouble
 }
 
-unary_ops = {TT.inc, TT.dec, TT.not_, TT.b_not, TT.neg}
+unary_ops = {TT.inc, TT.dec, TT.not_, TT.b_not, TT.neg, TT.func_call}
 
 
 class Token:
@@ -314,6 +336,7 @@ class E(Enum):
     literal_expected = 'Literal expected'
     symbol_expected = '{} expected'
     expression_expected = 'Expression expected'
+    statement_expected = 'Statement expected'
     string_expected = 'String expected'
     invalid_literal = 'Invalid literal'
     invalid_char = 'Invalid character'
@@ -324,6 +347,7 @@ class E(Enum):
     identifier_expected = 'Identifier expected'
     exit_not_in_loop = 'exit keyword found outside a loop/switch'
     skip_not_in_loop = 'skip keyword found outside a loop'
+    unknown_type = 'unknown variable type'
 
     def __repr__(self) -> str:
         return self.value
@@ -421,6 +445,10 @@ class Lexer:
 
         elif self.peak == "'":
             self.make_char()
+
+        else:
+            self.error(E.invalid_char)
+            self.advance()
 
         return
 
@@ -613,7 +641,9 @@ class Lexer:
                 else:
                     self.token(TT.word, word)
                 self.token(TT.dot)
+                self.advance()
                 self.make_word()
+                return
 
         if word in keywords:
             self.token(keywords[word], keywords[word].value)
@@ -660,7 +690,7 @@ class Lexer:
         if len(char) != 1:
             self.error(E.invalid_literal)
         else:
-            self.token(TT.string, char)
+            self.token(TT.char, char)
         self.advance()
         return
 
@@ -723,16 +753,34 @@ class Lexer:
 
 
 class Node:
-    def __init__(self, t=TT.null.value):
+    def __init__(self, start, end, line, t=TT.null.value):
         self.parent = None
         self.type: str = t
+        self.start = start
+        self.end = end
+        self.line = line
         return
+
+    def assign_parent(self, parent) -> None:
+        self.parent = parent
+
+    def is_valid_expression(self) -> bool:
+        pass
+
+    def is_valid_statement(self) -> bool:
+        pass
 
 
 class ValueNode(Node):
     def __init__(self, value: Token):
-        super().__init__(t=value.value)
+        super().__init__(value.start, value.end, value.line, t=value.value)
         self.value = value
+
+    def is_valid_expression(self) -> bool:
+        return True
+
+    def is_valid_statement(self) -> bool:
+        return False
 
     def __repr__(self):
         return f'{self.value}'
@@ -740,11 +788,23 @@ class ValueNode(Node):
 
 class UnOpNode(Node):
     def __init__(self, op: Token, child: Node):
-        super().__init__()
+        super().__init__(None, None, op.line)
+        if op.type in op_table and op_table[op.type][1]:
+            self.start = child.start
+            self.end = op.end
+        else:
+            self.start = op.start
+            self.end = child.end
         self.op = op
         self.child = child
-        self.child.parent = self.parent
+        self.child.assign_parent(self.parent)
         return
+
+    def is_valid_expression(self) -> bool:
+        return self.child.is_valid_expression()
+
+    def is_valid_statement(self) -> bool:
+        return False
 
     def __repr__(self):
         if self.op.type in op_table and op_table[self.op.type][1]:
@@ -755,14 +815,20 @@ class UnOpNode(Node):
 
 class BinOpNode(Node):
     def __init__(self, op: Token, left: Node, right: Node):
-        super().__init__()
+        super().__init__(left.start, right.end, op.line)
         self.left_child = left
         self.right_child = right
         self.op = op
 
-        self.left_child.parent = self.parent
-        self.right_child.parent = self.parent
+        self.left_child.assign_parent(self.parent)
+        self.right_child.assign_parent(self.parent)
         return
+
+    def is_valid_expression(self) -> bool:
+        return self.left_child.is_valid_expression() and self.right_child.is_valid_expression()
+
+    def is_valid_statement(self) -> bool:
+        return False
 
     def __repr__(self):
         return f'<{self.left_child} {self.op.type} {self.right_child}>'
@@ -770,13 +836,19 @@ class BinOpNode(Node):
 
 class VarDeclarationNode(Node):
     def __init__(self, var_type: Token, name: Token, value: BinOpNode = None):
-        super().__init__()
+        super().__init__(var_type.start, name.end, name.line)
         self.type = var_type.value
         self.name = name
         self.value = value
         if value is not None:
-            value.parent = self.parent
+            value.assign_parent(self.parent)
         return
+
+    def is_valid_expression(self) -> bool:
+        return False
+
+    def is_valid_statement(self) -> bool:
+        return True
 
     def __repr__(self):
         if self.value is None:
@@ -786,11 +858,12 @@ class VarDeclarationNode(Node):
 
 
 class ScopedNode(Node):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, start=None, line=None):
+        super().__init__(start, None, line)
         self.body = None
         self.vars = {}
         self.funcs = {}
+        self.classes = {}
         return
 
     def assign_body(self, body: List[Node] = None):
@@ -799,17 +872,27 @@ class ScopedNode(Node):
         else:
             self.body = body
             for b in body:
-                b.parent = self
+                b.assign_parent(self)
                 if isinstance(b, VarDeclarationNode):
                     self.vars[b.name.value] = b
                 elif isinstance(b, FuncDeclarationNode):
                     self.funcs[b.name.value] = b
+                elif isinstance(b, ObjectDeclarationNode):
+                    self.classes[b.name.value] = b
+
+        self.end = self.body[-1].end
         return
+
+    def is_valid_expression(self) -> bool:
+        return False
+
+    def is_valid_statement(self) -> bool:
+        return True
 
 
 class FuncDeclarationNode(ScopedNode):
     def __init__(self, ret_type: Token, name: Token, args: List[VarDeclarationNode] = None):
-        super().__init__()
+        super().__init__(start=name.start, line=name.line)
         self.type = ret_type.value
         self.name = name
         if args is None:
@@ -817,9 +900,18 @@ class FuncDeclarationNode(ScopedNode):
         else:
             self.args = args
             for arg in args:
-                arg.parent = self
+                arg.assign_parent(self)
         self.body = None
         return
+
+    def get_arg_types(self) -> List[str]:
+        args = []
+        for arg in self.args:
+            args.append(arg.value.type)
+        return args
+
+    def assign_parent(self, parent) -> None:
+        self.parent = parent
 
     def __repr__(self):
         args = str(self.args)[1:-1]
@@ -832,9 +924,8 @@ class FuncDeclarationNode(ScopedNode):
 
 class ObjectDeclarationNode(ScopedNode):
     def __init__(self, name: Token, parent_classes: List[Token]):
-        super().__init__()
+        super().__init__(start=name.start, line=name.line)
         self.name = name
-        types.add(name.value)
         self.variables = []
         self.methods = []
         self.parent_classes = parent_classes
@@ -848,16 +939,33 @@ class ObjectDeclarationNode(ScopedNode):
         return string
 
 
+class FuncCallNode(Node):
+    def __init__(self, token: Token, args: List):
+        super().__init__(token.start, token.end, token.line)
+        self.func_name = token.value
+        self.args = args
+        return
+
+    def get_arg_types(self) -> List[str]:
+        args = []
+        for arg in self.args:
+            args.append(arg.type)
+        return args
+
+    def __repr__(self):
+        return f'{self.func_name}({str(self.args)[1:-1]})'
+
+
 class IfNode(Node):
     def __init__(self, condition: Node, body: List[Node] = None):
-        super().__init__()
+        super().__init__(condition.start, condition.end, condition.line)
         self.condition = condition
         if body is None:
             self.body = []
         else:
             self.body = body
             for b in body:
-                b.parent = self.parent
+                b.parent.assign_parent(self.parent)
         return
 
     def __repr__(self):
@@ -869,14 +977,14 @@ class IfNode(Node):
 
 
 class ElseNode(Node):
-    def __init__(self, body: List[Node] = None):
-        super().__init__()
+    def __init__(self, start, end, line, body: List[Node] = None):
+        super().__init__(start, end, line)
         if body is None:
             self.body = []
         else:
             self.body = body
             for b in body:
-                b.parent = self.parent
+                b.parent.assign_parent(self.parent)
         return
 
     def __repr__(self):
@@ -889,7 +997,7 @@ class ElseNode(Node):
 
 class ForNode(ScopedNode):
     def __init__(self, var: Node, condition: Node, step: Node):
-        super().__init__()
+        super().__init__(start=var.start, line=var.line)
         self.var = var
         self.var.parent = self
         self.condition = condition
@@ -908,7 +1016,7 @@ class ForNode(ScopedNode):
 
 class ForeachNode(ScopedNode):
     def __init__(self, var: Node, collection: Node):
-        super().__init__()
+        super().__init__(start=var.start, line=var.line)
         self.var = var
         self.var.parent = self
         self.collection = collection
@@ -925,7 +1033,7 @@ class ForeachNode(ScopedNode):
 
 class WhileNode(ScopedNode):
     def __init__(self, condition: Node):
-        super().__init__()
+        super().__init__(start=condition.start, line=condition.line)
         self.condition = condition
         self.condition.parent = self
         return
@@ -947,6 +1055,8 @@ class DoWhileNode(ScopedNode):
     def assign_cnd(self, condition: Node):
         self.condition = condition
         self.condition.parent = self
+        self.start = condition.start
+        self.line = condition.line
         return
 
     def __repr__(self):
@@ -959,7 +1069,7 @@ class DoWhileNode(ScopedNode):
 
 class SwitchNode(ScopedNode):
     def __init__(self, switch_val: Node):
-        super().__init__()
+        super().__init__(start=switch_val.start, line=switch_val.line)
         self.switch_val = switch_val
         return
 
@@ -973,18 +1083,30 @@ class SwitchNode(ScopedNode):
 
 class KeywordNode(Node):
     def __init__(self, keyword: Token):
-        super().__init__()
+        super().__init__(keyword.start, keyword.end, keyword.line)
         self.keyword = keyword
+
+    def is_valid_expression(self) -> bool:
+        return False
+
+    def is_valid_statement(self) -> bool:
+        return True
 
     def __repr__(self):
         return self.keyword
 
 
 class SingleExpressionNode(Node):
-    def __init__(self, value, word: TT, ):
-        super().__init__()
+    def __init__(self, value, word: TT):
+        super().__init__(value.start, value.end, value.line)
         self.val = value
         self.word = word
+
+    def is_valid_expression(self) -> bool:
+        return False
+
+    def is_valid_statement(self) -> bool:
+        return True
 
     def __repr__(self):
         return f'{self.word.value} {self.val}'
@@ -1053,7 +1175,7 @@ class Parser:
             elif tt == TT.object_:
                 body.append(self.make_object())
 
-            elif tt in types:
+            elif tt.value in default_types:
                 body.append(self.assign_var())
 
             elif tt == TT.word:   # can be a custom type, a function call, or a label
@@ -1070,7 +1192,7 @@ class Parser:
 
                 else:
                     self.advance(-1)
-                    self.make_expression()
+                    body.append(self.make_expression())
 
             elif tt == TT.if_:
                 body += self.make_if()
@@ -1128,12 +1250,12 @@ class Parser:
             self.advance()
         return node
 
-    def next_expressions(self) -> List[Node]:
+    def next_statements(self) -> List[Node]:
         if self.peak.type == TT.lcbr:
             self.advance()
-            expression = self.parse_body(TT.rcbr)
+            statement = self.parse_body(TT.rcbr)
             self.advance()
-            return expression
+            return statement
         else:
             return [self.make_expression()]
 
@@ -1144,8 +1266,9 @@ class Parser:
             t = self.peak.type
             if t == TT.lpa:
                 if self.last.type == TT.word:
-                    self.peak.type = TT.func_call
-                stack.append(self.peak)
+                    queue.append(self.make_func_call(queue.pop()))
+                else:
+                    stack.append(self.peak)
 
             elif t == TT.lbr:
                 if self.last.type == TT.word:
@@ -1169,19 +1292,21 @@ class Parser:
                 stack.append(self.peak)
 
             elif t == TT.rpa:
+                stack_elements = []
                 while len(stack) > 0 and stack[-1].type != TT.lpa and stack[-1].type != TT.func_call:
-                    queue.append(stack.pop())
+                    stack_elements.append(stack.pop())
                 if len(stack) > 0:
                     if stack[-1].type == TT.func_call:
-                        queue.append(stack.pop())
+                        func_call = FuncCallNode(stack.pop(), stack_elements)
+                        queue.append(func_call)
                     else:
                         stack.pop()
                         self.advance()
+                        queue += stack_elements
                         if len(stack) == 0 and self.peak.type not in op_table:
                             break
                         continue
                 else:
-                    # self.advance()
                     break   # we found the matching close parenthesis
             else:
                 queue.append(self.peak)
@@ -1230,7 +1355,7 @@ class Parser:
     def func_def(self) -> Node:
         self.advance()
         ret_type = self.peak
-        if ret_type.type != TT.word and ret_type.value not in types and ret_type.type != TT.null:
+        if ret_type.type != TT.word and ret_type.value not in default_types and ret_type.type != TT.null:
             self.error(E.invalid_ret_type, self.peak)
 
         self.advance()
@@ -1250,7 +1375,7 @@ class Parser:
         self.advance()
         node = FuncDeclarationNode(ret_type, func_name, args)
         self.scope.append(node)
-        body = self.next_expressions()
+        body = self.next_statements()
         self.scope.pop()
         node.assign_body(body)
         return node
@@ -1260,8 +1385,6 @@ class Parser:
         if self.peak.type != TT.word:
             self.error(E.identifier_expected, self.peak)
         name = self.peak
-        # if name.value in types:   # it was already defined previously
-        #    self.error(E.duplicate_object, self.peak)
         self.advance()
 
         parent_classes = []
@@ -1277,7 +1400,7 @@ class Parser:
 
         node = ObjectDeclarationNode(name, parent_classes)
         self.scope.append(node)
-        body = self.next_expressions()
+        body = self.next_statements()
         self.scope.pop()
         node.assign_body(body)
         return node
@@ -1285,7 +1408,7 @@ class Parser:
     def make_if(self) -> List[Node]:
         self.advance()
         condition = self.make_expression()
-        body = self.next_expressions()
+        body = self.next_statements()
         if self.peak.type == TT.elif_:
             return [IfNode(condition, body), self.make_elif()]
         elif self.peak.type == TT.else_:
@@ -1294,18 +1417,19 @@ class Parser:
 
     def make_elif(self) -> List[Node]:
         self.advance()
-        condition = self.make_expression()
-        body = self.next_expressions()
+        cnd = self.make_expression()
+        body = self.next_statements()
         if self.peak.type == TT.elif_:
-            return [ElseNode([IfNode(condition, body)]), self.make_elif()]
+            return [ElseNode(cnd.start, cnd.end, cnd.line, [IfNode(cnd, body)]), self.make_elif()]
         elif self.peak.type == TT.else_:
-            return [ElseNode([IfNode(condition, body)]), self.make_else()]
-        return [ElseNode([IfNode(condition, body)])]
+            return [ElseNode(cnd.start, cnd.end, cnd.line, [IfNode(cnd, body)]), self.make_else()]
+        return [ElseNode(cnd.start, cnd.end, cnd.line, [IfNode(cnd, body)])]
 
-    def make_else(self):
+    def make_else(self) -> ElseNode:
+        start = self.peak.start
         self.advance()
-        body = self.next_expressions()
-        return ElseNode(body)
+        body = self.next_statements()
+        return ElseNode(start, self.peak.end, self.peak.line, body)
 
     def make_switch(self) -> SwitchNode:
         self.advance()
@@ -1313,7 +1437,7 @@ class Parser:
         node = SwitchNode(switch_val)
 
         self.scope.append(node)
-        body = self.next_expressions()
+        body = self.next_statements()
         self.scope.pop()
 
         node.assign_body(body)
@@ -1372,7 +1496,7 @@ class Parser:
         if has_parenthesis:
             self.advance()
         self.scope.append(node)
-        body = self.next_expressions()
+        body = self.next_statements()
         self.scope.pop()
 
         node.assign_body(body)
@@ -1392,7 +1516,7 @@ class Parser:
         if has_parenthesis:
             self.advance()
         self.scope.append(node)
-        body = self.next_expressions()
+        body = self.next_statements()
         self.scope.pop()
 
         node.assign_body(body)
@@ -1404,7 +1528,7 @@ class Parser:
         node = WhileNode(condition)
 
         self.scope.append(node)
-        body = self.next_expressions()
+        body = self.next_statements()
         self.scope.pop()
 
         node.assign_body(body)
@@ -1415,7 +1539,7 @@ class Parser:
         node = DoWhileNode()
 
         self.scope.append(node)
-        body = self.next_expressions()
+        body = self.next_statements()
         self.scope.pop()
 
         node.assign_body(body)
@@ -1463,6 +1587,14 @@ class Parser:
 
         return ValueNode(Token(TT.array, start_tok.start, self.peak.end, start_tok.line, elements))
 
+    def make_func_call(self, func_name) -> FuncCallNode:
+        self.advance()
+        args = []
+        while self.peak.type != TT.rpa:
+            args.append(self.make_expression())
+
+        return FuncCallNode(func_name, args)
+
     def error(self, error: E, tok: Token, *args) -> None:
         raise ErrorException(Error(error, tok.start, tok.end, tok.line, self.file_name, self.lines[tok.line-1], args))
 
@@ -1483,11 +1615,13 @@ class Parser:
 #########################################
 
 class TypeChecker:
-    def __init__(self, trees: List[Node]):
+    def __init__(self, trees: List[Node], program: str, file_name):
+        self.lines = program.split('\n')
+        self.file_name = file_name
         self.asts = trees
-        self.funcs = set()
-        self.vars = set()
-        self.types = types.copy()
+        self.funcs = {}
+        self.vars = {}
+        self.types = default_types.copy()
 
         self.errors = []
         return
@@ -1498,23 +1632,60 @@ class TypeChecker:
 
     def check_scope(self, trees):
         funcs = self.funcs.copy()
-        vars = self.vars.copy()
+        variables = self.vars.copy()
         types = self.types.copy()
+
+        for tree in trees:
+            if isinstance(tree, VarDeclarationNode):
+                self.vars[tree.name.value] = tree
+
+            elif isinstance(tree, ScopedNode):
+                if isinstance(tree, FuncDeclarationNode):
+                    self.funcs[(tree.name.value, tree.get_arg_types())] = tree
+
+                elif isinstance(tree, ObjectDeclarationNode):
+                    if tree.name.value in self.types:
+                        self.error(E.duplicate_object, tree)
+                    else:
+                        self.types[tree.name.value] = tree
+
+                self.vars += tree.vars
+                self.funcs += tree.funcs
+                self.types += tree.classes
 
         for tree in trees:
             self.visit_node(tree)
 
         self.funcs = funcs
-        self.vars = vars
+        self.vars = variables
         self.types = types
         return
 
     def visit_node(self, node: Node):
-        if isinstance(node, BinOpNode):
-
+        if isinstance(node, BinOpNode) and node.type == TT.dot:
             pass
+        if not node.is_valid_statement():
+            self.error(E.statement_expected, node)
+
+        if isinstance(node, VarDeclarationNode):
+            if node.type not in self.types:
+                self.error(E.unknown_type, node)
+            if node.value is not None and not node.value.is_valid_expression():
+                self.error(E.expression_expected, node)
+
+        elif isinstance(node, ObjectDeclarationNode):
+            for parent in node.parent_classes:
+                if parent not in self.types:
+                    self.error(E.unknown_type, node)
+
+        if isinstance(node, ScopedNode):
+            self.check_scope(node.body)
 
         return
+
+    def error(self, e: E, node: Node):
+        self.errors.append(
+            Error(e, node.start, node.end, node.line, self.file_name, self.lines[node.line-1]))
 
 
 if __name__ == "__main__":
