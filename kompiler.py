@@ -825,7 +825,10 @@ class UnOpNode(Node):
         return self.child.is_valid_expression(variables, defined_vars, funcs, types)
 
     def is_valid_statement(self, variables, defined_vars, funcs, types) -> bool:
-        return False
+        if self.op.type == TT.inc or self.op.type == TT.dec:
+            return self.child.is_valid_expression(variables, defined_vars, funcs, types)
+        else:
+            return False
 
     def __repr__(self):
         if self.op.type in op_table and op_table[self.op.type][1]:
@@ -1251,7 +1254,7 @@ class KeywordNode(Node):
         return True
 
     def __repr__(self):
-        return self.keyword
+        return f'{self.keyword}'
 
 
 class SingleExpressionNode(Node):
@@ -1410,7 +1413,7 @@ class Parser:
     def make_expression(self) -> Node:
         toks = self.shunting_yard()
         node = self.make_ast(toks)
-        if self.peak.type in {TT.comma, TT.colon, TT.semi_col}:  # TT.rpa is not there cause it should not consume it
+        if self.peak.type in {TT.comma, TT.colon, TT.semi_col}:  # TT.rpa is not there because it should not consume it
             self.advance()
         return node
 
@@ -1426,6 +1429,7 @@ class Parser:
     def shunting_yard(self) -> List:
         queue: List = []
         stack = []
+        start_index = self.i
         while self.has_next() and self.peak.type not in {TT.comma, TT.colon, TT.semi_col, TT.rcbr, TT.lcbr, TT.eof}:
             t = self.peak.type
             if t == TT.lpa:
@@ -1473,12 +1477,26 @@ class Parser:
                 else:
                     break  # we found the matching close parenthesis
             else:
+                if self.check_if_expression_over(start_index):
+                    break
                 queue.append(self.peak)
             self.advance()
 
         while len(stack) > 0:
             queue.append(stack.pop())
         return queue
+
+    def check_if_expression_over(self, start_index):
+        if self.peak.value == self.peak.type.value:
+            return True
+        i = self.i-1
+        while i >= start_index and self.toks[i].type in {TT.rpa, TT.rbr}:
+            i -= 1
+
+        if i >= start_index and self.toks[i].type not in op_table:
+            return True
+        else:
+            return False
 
     def make_ast(self, queue) -> Node:
         stack: List[Node] = []
@@ -1487,12 +1505,18 @@ class Parser:
                 stack.append(tok)
             elif tok.type in op_table:
                 if tok.type in unary_ops:
-                    node_a = stack.pop()
-                    stack.append(UnOpNode(tok, node_a))
+                    if len(stack) >= 1:
+                        node_a = stack.pop()
+                        stack.append(UnOpNode(tok, node_a))
+                    else:
+                        self.error(E.expression_expected, tok)
                 else:
-                    node_b = stack.pop()
-                    node_a = stack.pop()
-                    stack.append(BinOpNode(tok, node_a, node_b))
+                    if len(stack) >= 2:
+                        node_b = stack.pop()
+                        node_a = stack.pop()
+                        stack.append(BinOpNode(tok, node_a, node_b))
+                    else:
+                        self.error(E.expression_expected, tok)
             else:
                 stack.append(ValueNode(tok))
         if len(stack) > 0:
