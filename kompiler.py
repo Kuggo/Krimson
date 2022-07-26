@@ -3,7 +3,7 @@ from enum import Enum
 from sys import argv, stdout, stderr
 import os
 
-from typing import List
+from typing import List, Dict
 
 
 def main():
@@ -13,8 +13,8 @@ def main():
     if src_name == '--help':
         print('usage: krimson <source_file> <destination_file>')
 
-    source = '''macro var = 0;
-    int ver = var + 1;'''
+    source = '''int var = 0;
+    int yeet = var[9]'''
 
     if src_name is not None:
         if os.path.isfile(src_name):
@@ -51,6 +51,8 @@ def main():
         print(e.error, file=stderr)
         exit(1)
 
+    make_default_types_helper()     # if no errors so far lets load default types to began type checking
+
     type_checker = TypeChecker(parser.output, source, src_name)
     type_checker.check()
 
@@ -63,6 +65,24 @@ def main():
 
     # TODO compile to urcl
     return
+
+
+def make_default_types_helper():
+    file_name = 'default_lib.txt'
+    try:
+        with open(file_name, 'r') as file:
+            code = file.read()
+            lexer = Lexer(code, file_name)
+            lexer.tokenize()
+
+            parser = Parser(code, lexer.tokens, file_name)
+            parser.parse()
+            for t in parser.output:
+                if isinstance(t, ObjectDeclarationNode):
+                    default_types[t.name.value[2:-2]] = t
+    except OSError:
+        print('Unable to find built in type library', file=stderr)
+        exit(1)
 
 
 class TT(Enum):
@@ -105,7 +125,6 @@ class TT(Enum):
     # bitwise
     shl = '<<'
     shr = '>>'
-    ushr = '>>>'
     b_and = '&'
     b_or = '|'
     b_xor = '^'
@@ -122,7 +141,6 @@ class TT(Enum):
 
     assign_shl = '<<='
     assign_shr = '>>='
-    assign_ushr = '>>>='
     assign_b_and = '&='
     assign_b_or = '|='
     assign_b_xor = '^='
@@ -133,7 +151,6 @@ class TT(Enum):
     int_ = 'int'
     uint = 'uint'
     fixed = 'fixed'
-    ufixed = 'ufixed'
     float_ = 'float'
     char = 'char'
 
@@ -189,7 +206,6 @@ keywords = {
     'int': TT.int_,
     'uint': TT.uint,
     'fixed': TT.fixed,
-    'ufixed': TT.ufixed,
     'float': TT.float_,
     'char': TT.char,
 
@@ -219,20 +235,6 @@ keywords = {
 
     'urcl': TT.urcl,
     'macro': TT.macro,
-}
-
-default_types = {  # dict must return ObjectDeclarationNode
-    TT.bool_.value: None,
-    TT.int_.value: None,
-    TT.uint.value: None,
-    TT.fixed.value: None,
-    TT.ufixed.value: None,
-    TT.float_.value: None,
-    TT.char.value: None,
-    TT.func.value: None,
-    TT.string.value: None,
-    TT.array.value: None,
-    TT.object_.value: None
 }
 
 symbols = {
@@ -279,7 +281,6 @@ op_table = {
     TT.mod: (3, True),
     TT.add: (4, True),
     TT.sub: (4, True),
-    TT.ushr: (5, True),
     TT.shr: (5, True),
     TT.shl: (5, True),
     TT.gt: (6, True),
@@ -296,7 +297,6 @@ op_table = {
     # right to left
     TT.assign: (14, False),
     TT.assign_shl: (14, False),
-    TT.assign_ushr: (14, False),
     TT.assign_shr: (14, False),
     TT.assign_add: (14, False),
     TT.assign_sub: (14, False),
@@ -312,6 +312,33 @@ op_table = {
 }
 
 unary_ops = {TT.inc, TT.dec, TT.not_, TT.b_not, TT.neg, TT.func_call}
+
+default_ops = {
+    TT.inc: '__inc__',
+    TT.dec: '__dec__',
+    TT.not_: '__not__',
+    TT.b_not: '__bnot__',
+    TT.neg: '__neg__',
+    TT.mlt: '__mlt__',
+    TT.div: '__div__',
+    TT.mod: '__mod__',
+    TT.add: '__add__',
+    TT.sub: '__sub__',
+    TT.shr: '__shr__',
+    TT.shl: '__shl__',
+    TT.gt:  '__gt__',
+    TT.gte: '__gte__',
+    TT.lt:  '__lt__',
+    TT.lte: '__lte__',
+    TT.dif: '__dif__',
+    TT.equ: '__equ__',
+    TT.b_and: '__band__',
+    TT.b_xor: '__bxor__',
+    TT.b_or: '__bor__',
+    TT.and_: '__and__',
+    TT.or_: '__or__',
+    TT.address: '__get__',
+}
 
 
 class Token:
@@ -447,7 +474,7 @@ class Lexer:
         elif self.peak.isnumeric():
             self.make_num()
 
-        elif self.peak.isalpha():
+        elif self.peak.isalpha() or self.peak == '_':
             self.make_word()
 
         elif self.peak == '"':
@@ -483,14 +510,7 @@ class Lexer:
             self.advance()
             if self.peak == '>':
                 self.advance()
-                if self.peak == '>':
-                    self.advance()
-                    if self.peak == '=':
-                        self.advance()
-                        self.token(TT.assign_ushr)
-                    else:
-                        self.token(TT.ushr)
-                elif self.peak == '=':
+                if self.peak == '=':
                     self.advance()
                     self.token(TT.assign_shl)
                 else:
@@ -862,7 +882,7 @@ class BinOpNode(Node):
             self.right_child = variables[self.right_child.value.value].expression
 
         return self.left_child.is_valid_expression(variables, defined_vars, funcs, types) and \
-                    self.right_child.is_valid_expression(variables, defined_vars, funcs, types)
+               self.right_child.is_valid_expression(variables, defined_vars, funcs, types)
 
     def is_valid_statement(self, variables, defined_vars, funcs, types) -> bool:
         return False
@@ -897,13 +917,15 @@ class DotOpNode(Node):
 
 
 class VarDeclarationNode(Node):
-    def __init__(self, var_type: Token, name: Token, value: BinOpNode = None):
+    def __init__(self, var_type: Token, name: Token, value: BinOpNode = None, fixed_point_scale: int = None):
         super().__init__(var_type.start, name.end, name.line)
         self.type = var_type.value
         self.name = name
         self.value = value
         if value is not None:
             value.assign_parent(self.parent)
+        if var_type.type == TT.fixed:
+            self.fixed_point_scale = fixed_point_scale
         return
 
     def is_valid_expression(self, variables, defined_vars, funcs, types) -> bool:
@@ -920,8 +942,8 @@ class VarDeclarationNode(Node):
 
 
 class ScopedNode(Node):
-    def __init__(self, start=None, line=None):
-        super().__init__(start, None, line)
+    def __init__(self, start=None, end=None, line=None):
+        super().__init__(start, end, line)
         self.body = None
         self.vars = {}
         self.funcs = {}
@@ -941,8 +963,8 @@ class ScopedNode(Node):
                     self.funcs[b.name.value] = b
                 elif isinstance(b, ObjectDeclarationNode):
                     self.classes[b.name.value] = b
-
-        self.end = self.body[-1].end
+        if len(body) > 0:
+            self.end = self.body[-1].end
         return
 
     def is_valid_expression(self, variables, defined_vars, funcs, types) -> bool:
@@ -954,7 +976,7 @@ class ScopedNode(Node):
 
 class FuncDeclarationNode(ScopedNode):
     def __init__(self, ret_type: Token, name: Token, args: List[VarDeclarationNode] = None):
-        super().__init__(start=name.start, line=name.line)
+        super().__init__(start=name.start, end=name.end, line=name.line)
         self.type = ret_type.value
         self.name = name
         if args is None:
@@ -992,7 +1014,7 @@ class FuncDeclarationNode(ScopedNode):
 
 class ObjectDeclarationNode(ScopedNode):
     def __init__(self, name: Token, parent_classes: List[Token]):
-        super().__init__(start=name.start, line=name.line)
+        super().__init__(start=name.start, end=name.end, line=name.line)
         self.name = name
         self.parent_classes = parent_classes
         return
@@ -1014,7 +1036,10 @@ class ObjectDeclarationNode(ScopedNode):
 
     def __repr__(self):
         parents = str(self.parent_classes)[1:-1]
-        string = f'{self.name}({parents}) ' + '{'
+        if len(parents) == 0:
+            string = f'{self.name} ' + '{'
+        else:
+            string = f'{self.name}({parents}) ' + '{'
         for node in self.body:
             string += str(node)
         string += '}>'
@@ -1119,7 +1144,7 @@ class ElseNode(Node):
 
 class ForNode(ScopedNode):
     def __init__(self, var: Node, condition: Node, step: Node):
-        super().__init__(start=var.start, line=var.line)
+        super().__init__(start=var.start, end=var.end, line=var.line)
         self.var = var
         self.var.parent = self
         self.condition = condition
@@ -1151,7 +1176,7 @@ class ForNode(ScopedNode):
 
 class ForeachNode(ScopedNode):
     def __init__(self, var: Node, collection: Node):
-        super().__init__(start=var.start, line=var.line)
+        super().__init__(start=var.start, end=var.end, line=var.line)
         self.var = var
         self.var.parent = self
         self.collection = collection
@@ -1176,7 +1201,7 @@ class ForeachNode(ScopedNode):
 
 class WhileNode(ScopedNode):
     def __init__(self, condition: Node):
-        super().__init__(start=condition.start, line=condition.line)
+        super().__init__(start=condition.start, end=condition.end, line=condition.line)
         self.condition = condition
         self.condition.parent = self
         return
@@ -1224,7 +1249,7 @@ class DoWhileNode(ScopedNode):
 
 class SwitchNode(ScopedNode):
     def __init__(self, switch_val: Node):
-        super().__init__(start=switch_val.start, line=switch_val.line)
+        super().__init__(start=switch_val.start, end=switch_val.end, line=switch_val.line)
         self.switch_val = switch_val
         return
 
@@ -1303,6 +1328,18 @@ true = ValueNode(Token(TT.true, None, None, None))
 false = ValueNode(Token(TT.false, None, None, None))
 null = ValueNode(Token(TT.null, None, None, None))
 
+default_types: Dict[str, ObjectDeclarationNode] = {
+    TT.bool_.value: ObjectDeclarationNode(Token(TT.word, None, None, None, 'bool'), []),
+    TT.int_.value: ObjectDeclarationNode(Token(TT.word, None, None, None, 'int'), []),
+    TT.uint.value: ObjectDeclarationNode(Token(TT.word, None, None, None, 'uint'), []),
+    TT.fixed.value: ObjectDeclarationNode(Token(TT.word, None, None, None, 'fixed'), []),
+    TT.float_.value: ObjectDeclarationNode(Token(TT.word, None, None, None, 'float'), []),
+    TT.char.value: ObjectDeclarationNode(Token(TT.word, None, None, None, 'char'), []),
+    TT.func.value: None,    # function can't have operations
+    TT.string.value: ObjectDeclarationNode(Token(TT.word, None, None, None, 'string'), []),
+    TT.array.value: ObjectDeclarationNode(Token(TT.word, None, None, None, 'array'), []),
+    TT.object_.value: None  # object type doesn't have operations
+}
 
 #########################################
 # Parser
@@ -1529,15 +1566,22 @@ class Parser:
     def assign_var(self) -> VarDeclarationNode:
         var_type = self.peak
         self.advance()
+        scale = None
+        if var_type.type == TT.fixed:
+            if self.peak.type != TT.int_:
+                self.error(E.invalid_literal, self.peak)
+            scale = self.peak.value
+            self.advance()
+
         if self.peak.type != TT.word:
             self.error(E.identifier_expected, self.peak)
 
         name = self.peak
         expression = self.make_expression()
         if isinstance(expression, BinOpNode):
-            declair_node = VarDeclarationNode(var_type, name, expression)
+            declair_node = VarDeclarationNode(var_type, name, expression, fixed_point_scale=scale)
         else:
-            declair_node = VarDeclarationNode(var_type, name)
+            declair_node = VarDeclarationNode(var_type, name, fixed_point_scale=scale)
         return declair_node
 
     def func_def(self) -> Node:
@@ -1820,9 +1864,9 @@ class TypeChecker:
         self.lines = program.split('\n')
         self.file_name = file_name
         self.asts = trees
-        self.funcs = {}
-        self.vars = {}
-        self.types = default_types.copy()
+        self.funcs: Dict[(str, List[str]), FuncDeclarationNode] = {}
+        self.vars: Dict[str] = {}
+        self.types: Dict[str, ObjectDeclarationNode] = default_types.copy()
 
         self.errors = []
         return
