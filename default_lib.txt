@@ -84,7 +84,7 @@ object __uint__ {
     func bool __equ__(uint other) {}
 }
 
-object __fixed__ {
+object __fixed__<int_> {
     func fixed __add__(fixed other) {}
 
     func fixed __sub__(fixed other) {}
@@ -166,4 +166,32 @@ object __char__ {
     func bool __equ__(char other) {}
 }
 
-// TODO string array types
+object __string__ {
+    func string __add__(string other) {}
+
+    func string __add__(char other) {}
+
+    func string __mlt__(int amount) {}
+
+    func bool __gt__(string other) {}
+
+    func bool __gte__(string other) {}
+
+    func bool __lt__(string other) {}
+
+    func bool __lte__(string other) {}
+
+    func bool __dif__(string other) {}
+
+    func bool __equ__(string other) {}
+}
+
+object __array__ {
+    func array __add__(array other) {}
+
+    func array __add__(int other) {}
+
+    func bool __dif__(array other) {}
+
+    func bool __equ__(array other) {}
+}

@@ -13,8 +13,7 @@ def main():
     if src_name == '--help':
         print('usage: krimson <source_file> <destination_file>')
 
-    source = '''int var = 0;
-    int yeet = var[9]'''
+    source = '''fixed<8> var = 1'''
 
     if src_name is not None:
         if os.path.isfile(src_name):
@@ -51,7 +50,7 @@ def main():
         print(e.error, file=stderr)
         exit(1)
 
-    make_default_types_helper()     # if no errors so far lets load default types to began type checking
+    make_default_types_helper()  # if no errors so far lets load default types to began type checking
 
     type_checker = TypeChecker(parser.output, source, src_name)
     type_checker.check()
@@ -71,15 +70,19 @@ def make_default_types_helper():
     file_name = 'default_lib.txt'
     try:
         with open(file_name, 'r') as file:
-            code = file.read()
-            lexer = Lexer(code, file_name)
-            lexer.tokenize()
+            try:
+                code = file.read()
+                lexer = Lexer(code, file_name)
+                lexer.tokenize()
 
-            parser = Parser(code, lexer.tokens, file_name)
-            parser.parse()
-            for t in parser.output:
-                if isinstance(t, ObjectDeclarationNode):
-                    default_types[t.name.value[2:-2]] = t
+                parser = Parser(code, lexer.tokens, file_name)
+                parser.parse()
+                for t in parser.output:
+                    if isinstance(t, ObjectDeclarationNode):
+                        default_types[t.name.value[2:-2]] = t
+            except ErrorException as e:
+                print(e.error, file=stderr)
+                exit(1)
     except OSError:
         print('Unable to find built in type library', file=stderr)
         exit(1)
@@ -311,6 +314,9 @@ op_table = {
     # TT.rbr: (19, True),   # not needed makes only trouble
 }
 
+assignment_toks = {TT.assign, TT.assign_shl, TT.assign_shr, TT.assign_add, TT.assign_sub, TT.assign_div, TT.assign_mlt,
+                   TT.assign_b_and, TT.assign_b_or, TT.assign_b_not, TT.assign_mod}
+
 unary_ops = {TT.inc, TT.dec, TT.not_, TT.b_not, TT.neg, TT.func_call}
 
 default_ops = {
@@ -326,9 +332,9 @@ default_ops = {
     TT.sub: '__sub__',
     TT.shr: '__shr__',
     TT.shl: '__shl__',
-    TT.gt:  '__gt__',
+    TT.gt: '__gt__',
     TT.gte: '__gte__',
-    TT.lt:  '__lt__',
+    TT.lt: '__lt__',
     TT.lte: '__lte__',
     TT.dif: '__dif__',
     TT.equ: '__equ__',
@@ -342,7 +348,7 @@ default_ops = {
 
 
 class Token:
-    def __init__(self, tt: TT, start_char, end_char, line, value=None):
+    def __init__(self, tt: TT, start_char, end_char, line, value=None, generics=None):
         self.type = tt
         self.start = start_char
         self.end = end_char
@@ -351,6 +357,11 @@ class Token:
             self.value = ''
         else:
             self.value = value
+
+        if generics is None:
+            self.generics = []
+        else:
+            self.generics = generics
         return
 
     def __repr__(self):
@@ -455,9 +466,10 @@ class Lexer:
                 if self.has_next() and self.peak == '/':  # double slash means inline comment
                     self.advance()
                     self.inline_comment()
+                    continue
                 elif self.has_next() and self.peak == '*':
                     self.multi_line_comment()
-
+                    continue
                 elif self.has_next() and self.peak == '=':
                     self.token(TT.assign_div)
                     self.advance()
@@ -730,7 +742,6 @@ class Lexer:
             comment += self.peak
             self.advance()
         self.token(TT.comment, comment)
-        self.advance()
         return
 
     def multi_line_comment(self) -> None:
@@ -844,6 +855,11 @@ class UnOpNode(Node):
 
         return self.child.is_valid_expression(variables, defined_vars, funcs, types)
 
+    def replace_with_dunder_func(self, types):  # TODO
+        if self.child.type in types:
+            pass
+        return
+
     def is_valid_statement(self, variables, defined_vars, funcs, types) -> bool:
         if self.op.type == TT.inc or self.op.type == TT.dec:
             return self.child.is_valid_expression(variables, defined_vars, funcs, types)
@@ -885,7 +901,10 @@ class BinOpNode(Node):
                self.right_child.is_valid_expression(variables, defined_vars, funcs, types)
 
     def is_valid_statement(self, variables, defined_vars, funcs, types) -> bool:
-        return False
+        if self.op.type in assignment_toks:
+            return self.right_child.is_valid_expression(variables, defined_vars, funcs, types)
+        else:
+            return False
 
     def __repr__(self):
         return f'<{self.left_child} {self.op.type} {self.right_child}>'
@@ -917,28 +936,30 @@ class DotOpNode(Node):
 
 
 class VarDeclarationNode(Node):
-    def __init__(self, var_type: Token, name: Token, value: BinOpNode = None, fixed_point_scale: int = None):
+    def __init__(self, var_type: Token, name: Token, value: BinOpNode = None):
         super().__init__(var_type.start, name.end, name.line)
-        self.type = var_type.value
+        self.var_type = var_type
         self.name = name
         self.value = value
         if value is not None:
             value.assign_parent(self.parent)
-        if var_type.type == TT.fixed:
-            self.fixed_point_scale = fixed_point_scale
         return
 
     def is_valid_expression(self, variables, defined_vars, funcs, types) -> bool:
         return False
 
     def is_valid_statement(self, variables, defined_vars, funcs, types) -> bool:
-        return True
+        if self.var_type.value in types and types[self.var_type.value].check_generics(self.var_type.generics):
+            return self.value.right_child.is_valid_expression(variables, defined_vars, funcs, types)
+        else:
+            raise ErrorException(
+                Error(E.identifier_expected, self.var_type.start, self.var_type.end, self.var_type.line))
 
     def __repr__(self):
         if self.value is None:
-            return f'<{self.type} {self.name} = {self.value}>'
+            return f'<{self.var_type.value} {self.name} = {self.value}>'
         else:
-            return f'<{self.type} {self.name} = {self.value.right_child}>'
+            return f'<{self.var_type.value} {self.name} = {self.value.right_child}>'
 
 
 class ScopedNode(Node):
@@ -1013,9 +1034,10 @@ class FuncDeclarationNode(ScopedNode):
 
 
 class ObjectDeclarationNode(ScopedNode):
-    def __init__(self, name: Token, parent_classes: List[Token]):
+    def __init__(self, name: Token, generics: List[str], parent_classes: List[Token]):
         super().__init__(start=name.start, end=name.end, line=name.line)
         self.name = name
+        self.generics = generics
         self.parent_classes = parent_classes
         return
 
@@ -1025,7 +1047,7 @@ class ObjectDeclarationNode(ScopedNode):
                 raise ErrorException(Error(E.unknown_obj_type, c.start, c.end, c.line))
         return True
 
-    def contains_attribute(self, name: str, types):
+    def contains_attribute(self, name: str, types) -> bool:
         output = name in self.vars or name in self.funcs or name in self.classes
         if output:
             return True
@@ -1033,6 +1055,9 @@ class ObjectDeclarationNode(ScopedNode):
             if parent.value in types and types[parent.value].contains_attribute(name, types):
                 return True
         return False
+
+    def check_generics(self, generics) -> bool:
+        return len(generics) == len(self.generics)
 
     def __repr__(self):
         parents = str(self.parent_classes)[1:-1]
@@ -1071,7 +1096,7 @@ class FuncCallNode(Node):
         return
 
     def is_valid_expression(self, variables, defined_vars, funcs, types) -> bool:
-        return True
+        return self.is_valid_statement(variables, defined_vars, funcs, types)
 
     def is_valid_statement(self, variables, defined_vars, funcs, types) -> bool:
         if self.func_name not in funcs:
@@ -1106,7 +1131,7 @@ class IfNode(Node):
         else:
             self.body = body
             for b in body:
-                b.parent.assign_parent(self.parent)
+                b.assign_parent(self.parent)
         return
 
     def is_valid_statement(self, variables, defined_vars, funcs, types) -> bool:
@@ -1329,17 +1354,18 @@ false = ValueNode(Token(TT.false, None, None, None))
 null = ValueNode(Token(TT.null, None, None, None))
 
 default_types: Dict[str, ObjectDeclarationNode] = {
-    TT.bool_.value: ObjectDeclarationNode(Token(TT.word, None, None, None, 'bool'), []),
-    TT.int_.value: ObjectDeclarationNode(Token(TT.word, None, None, None, 'int'), []),
-    TT.uint.value: ObjectDeclarationNode(Token(TT.word, None, None, None, 'uint'), []),
-    TT.fixed.value: ObjectDeclarationNode(Token(TT.word, None, None, None, 'fixed'), []),
-    TT.float_.value: ObjectDeclarationNode(Token(TT.word, None, None, None, 'float'), []),
-    TT.char.value: ObjectDeclarationNode(Token(TT.word, None, None, None, 'char'), []),
-    TT.func.value: None,    # function can't have operations
-    TT.string.value: ObjectDeclarationNode(Token(TT.word, None, None, None, 'string'), []),
-    TT.array.value: ObjectDeclarationNode(Token(TT.word, None, None, None, 'array'), []),
+    TT.bool_.value: ObjectDeclarationNode(Token(TT.word, None, None, None, 'bool'), [], []),
+    TT.int_.value: ObjectDeclarationNode(Token(TT.word, None, None, None, 'int'), [], []),
+    TT.uint.value: ObjectDeclarationNode(Token(TT.word, None, None, None, 'uint'), [], []),
+    TT.fixed.value: ObjectDeclarationNode(Token(TT.word, None, None, None, 'fixed'), [], []),
+    TT.float_.value: ObjectDeclarationNode(Token(TT.word, None, None, None, 'float'), [], []),
+    TT.char.value: ObjectDeclarationNode(Token(TT.word, None, None, None, 'char'), [], []),
+    TT.func.value: None,  # function can't have operations
+    TT.string.value: ObjectDeclarationNode(Token(TT.word, None, None, None, 'string'), [], []),
+    TT.array.value: ObjectDeclarationNode(Token(TT.word, None, None, None, 'array'), [], []),
     TT.object_.value: None  # object type doesn't have operations
 }
+
 
 #########################################
 # Parser
@@ -1349,12 +1375,12 @@ default_types: Dict[str, ObjectDeclarationNode] = {
 class Parser:
     def __init__(self, program: str, toks: List[Token], file_name: str):
         self.toks = toks
-        self.toks.append(Token(TT.eof, None, None, None))
         self.len = len(self.toks)
         self.i = 0
         self.peak = self.toks[self.i]
         self.last = None
         self.lines = program.split('\n')
+        self.toks.append(Token(TT.eof, len(program), len(program), len(self.lines)))
         self.file_name = file_name
         self.output: List[Node] = []
 
@@ -1369,83 +1395,86 @@ class Parser:
     def parse_body(self, end_tt: TT) -> List[Node]:
         body: List[Node] = []
         while self.has_next() and self.peak.type != end_tt:
-            tt = self.peak.type
-            if tt == TT.func:
-                body.append(self.func_def())
+            body += self.next_statement()
+        return body
 
-            elif tt == TT.object_:
-                body.append(self.make_object())
+    def next_statement(self) -> List[Node]:
+        tt = self.peak.type
+        if tt == TT.func:
+            return [self.func_def()]
 
-            elif tt == TT.macro:
-                body.append(self.make_macro())
+        elif tt == TT.object_:
+            return [self.make_object()]
 
-            elif tt.value in default_types:
-                body.append(self.assign_var())
+        elif tt == TT.macro:
+            return [self.make_macro()]
 
-            elif tt == TT.word:  # can be a custom type, a function call, or a label
-                word = self.peak
+        elif tt.value in default_types:
+            return [self.assign_var()]
+
+        elif tt == TT.word:  # can be a custom type, a function call, or a label
+            word = self.peak
+            self.advance()
+            if self.peak.type == TT.colon:
+                word.type = TT.label
                 self.advance()
-                if self.peak.type == TT.colon:
-                    body.append(KeywordNode(word))
-                    word.type = TT.label
-                    self.advance()
+                return [KeywordNode(word)]
 
-                elif self.peak.type == TT.word:
-                    self.advance(-1)
-                    body.append(self.assign_var())
-
-                else:
-                    self.advance(-1)
-                    body.append(self.make_expression())
-
-            elif tt == TT.if_:
-                body += self.make_if()
-
-            elif tt == TT.elif_:
-                self.error(E.if_expected, self.peak)
-
-            elif tt == TT.else_:
-                self.error(E.if_expected, self.peak)
-
-            elif tt == TT.switch:
-                body.append(self.make_switch())
-
-            elif tt == TT.case:
-                body.append(self.make_case())
-
-            elif tt == TT.default:
-                body.append(self.make_default())
-
-            elif tt == TT.exit_:
-                body.append(self.make_exit())
-
-            elif tt == TT.skip:
-                body.append(self.make_skip())
-
-            elif tt == TT.for_:
-                body.append(self.make_for())
-
-            elif tt == TT.foreach:
-                body.append(self.make_foreach())
-
-            elif tt == TT.while_:
-                body.append(self.make_while())
-
-            elif tt == TT.do_:
-                body.append(self.make_do_while())
-
-            elif tt == TT.return_:
-                body.append(self.make_return())
-
-            elif tt == TT.goto:
-                body.append(self.make_goto())
-
-            elif tt == TT.urcl:
-                body.append(self.make_urcl())
+            elif self.peak.type == TT.word:
+                self.advance(-1)
+                return [self.assign_var()]
 
             else:
-                body.append(self.make_expression())
-        return body
+                self.advance(-1)
+                return [self.make_expression()]
+
+        elif tt == TT.if_:
+            return self.make_if()
+
+        elif tt == TT.elif_:
+            self.error(E.if_expected, self.peak)
+
+        elif tt == TT.else_:
+            self.error(E.if_expected, self.peak)
+
+        elif tt == TT.switch:
+            return [self.make_switch()]
+
+        elif tt == TT.case:
+            return [self.make_case()]
+
+        elif tt == TT.default:
+            return [self.make_default()]
+
+        elif tt == TT.exit_:
+            return [self.make_exit()]
+
+        elif tt == TT.skip:
+            return [self.make_skip()]
+
+        elif tt == TT.for_:
+            return [self.make_for()]
+
+        elif tt == TT.foreach:
+            return [self.make_foreach()]
+
+        elif tt == TT.while_:
+            return [self.make_while()]
+
+        elif tt == TT.do_:
+            return [self.make_do_while()]
+
+        elif tt == TT.return_:
+            return [self.make_return()]
+
+        elif tt == TT.goto:
+            return [self.make_goto()]
+
+        elif tt == TT.urcl:
+            return [self.make_urcl()]
+
+        else:
+            return [self.make_expression()]
 
     def make_expression(self) -> Node:
         toks = self.shunting_yard()
@@ -1461,7 +1490,7 @@ class Parser:
             self.advance()
             return statement
         else:
-            return [self.make_expression()]
+            return self.next_statement()
 
     def shunting_yard(self) -> List:
         queue: List = []
@@ -1526,7 +1555,7 @@ class Parser:
     def check_if_expression_over(self, start_index):
         if self.peak.value == self.peak.type.value:
             return True
-        i = self.i-1
+        i = self.i - 1
         while i >= start_index and self.toks[i].type in {TT.rpa, TT.rbr}:
             i -= 1
 
@@ -1566,12 +1595,8 @@ class Parser:
     def assign_var(self) -> VarDeclarationNode:
         var_type = self.peak
         self.advance()
-        scale = None
-        if var_type.type == TT.fixed:
-            if self.peak.type != TT.int_:
-                self.error(E.invalid_literal, self.peak)
-            scale = self.peak.value
-            self.advance()
+        if self.peak.type == TT.lt:
+            var_type.generics = self.make_generics(fixed_point=var_type.type == TT.fixed)
 
         if self.peak.type != TT.word:
             self.error(E.identifier_expected, self.peak)
@@ -1579,9 +1604,9 @@ class Parser:
         name = self.peak
         expression = self.make_expression()
         if isinstance(expression, BinOpNode):
-            declair_node = VarDeclarationNode(var_type, name, expression, fixed_point_scale=scale)
+            declair_node = VarDeclarationNode(var_type, name, expression)
         else:
-            declair_node = VarDeclarationNode(var_type, name, fixed_point_scale=scale)
+            declair_node = VarDeclarationNode(var_type, name)
         return declair_node
 
     def func_def(self) -> Node:
@@ -1618,6 +1643,9 @@ class Parser:
             self.error(E.identifier_expected, self.peak)
         name = self.peak
         self.advance()
+        generics = []
+        if self.peak.type == TT.lt:
+            generics = self.make_generics(defining=True)
 
         parent_classes = []
         if self.peak.type == TT.lpa:
@@ -1630,7 +1658,7 @@ class Parser:
                     self.advance()
             self.advance()
 
-        node = ObjectDeclarationNode(name, parent_classes)
+        node = ObjectDeclarationNode(name, generics, parent_classes)
         self.scope.append(node)
         body = self.next_statements()
         self.scope.pop()
@@ -1840,6 +1868,26 @@ class Parser:
 
         return FuncCallNode(func_name, args)
 
+    def make_generics(self, defining=False, fixed_point=False):
+        self.advance()
+        generics = []
+        while self.has_next() and self.peak.type != TT.gt:
+            if defining:
+                if self.peak.type == TT.word:
+                    generics.append(self.peak)
+                else:
+                    self.error(E.identifier_expected, self.peak)
+            else:
+                if self.peak.type == TT.word or (fixed_point and self.peak.type == TT.int_):
+                    generics.append(self.peak)
+                else:
+                    self.error(E.identifier_expected, self.peak)
+            self.advance()
+            if self.peak.type == TT.comma:
+                self.advance()
+        self.advance()
+        return generics
+
     def error(self, error: E, tok: Token, *args) -> None:
         raise ErrorException(Error(error, tok.start, tok.end, tok.line, self.file_name, self.lines[tok.line - 1], args))
 
@@ -1923,12 +1971,10 @@ class TypeChecker:
                 return
 
             if isinstance(node, VarDeclarationNode):
-                if node.type not in self.types:
+                if node.var_type.value not in self.types:
                     self.error(E.unknown_var_type, node)
                 if node.value is not None:
                     defined_vars.add(node.name.value)
-                    if not node.value.right_child.is_valid_expression(self.vars, defined_vars, self.funcs, self.types):
-                        self.error(E.expression_expected, node)
 
             elif isinstance(node, ObjectDeclarationNode):
                 for parent in node.parent_classes:
