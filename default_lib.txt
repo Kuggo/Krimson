@@ -25,6 +25,14 @@ object __int__ {
         return me - other
     }
 
+    func int __inc__(int other) {
+        return me++
+    }
+
+    func int __dec__(int other) {
+        return me--
+    }
+
     func int __shr__(uint amount) {
         return me >> other
     }
@@ -95,6 +103,14 @@ object __uint__ {
         return me - other
     }
 
+    func int __inc__(uint other) {
+        return me++
+    }
+
+    func int __dec__(uint other) {
+        return me--
+    }
+
     func uint __shr__(uint amount) {
         return me >> other
     }
@@ -163,6 +179,18 @@ object __fixed__<uint_> {
 
     func fixed __sub__(fixed<uint_> other) {
         return me - other
+    }
+
+    func int __inc__(int other) {
+        copy = me
+        me += 1 << uint_
+        return copy
+    }
+
+    func int __dec__(int other) {
+        copy = me
+        me -= 1 << uint_
+        return copy
     }
 
     func fixed __shr__(uint amount) {
