@@ -171,7 +171,6 @@ class TT(Enum):
     true = 'true'
     false = 'false'
     null = 'null'
-    me = 'me'
 
     # keywords
     if_ = 'if'
@@ -221,7 +220,6 @@ keywords = {
     'true': TT.true,
     'false': TT.false,
     'null': TT.null,
-    'me': TT.me,
     'weak': TT.weak,
 
     'if': TT.if_,
@@ -1342,7 +1340,6 @@ class UrclNode(SingleExpressionNode):
 true = ValueNode(Token(TT.true, None, None, None))
 false = ValueNode(Token(TT.false, None, None, None))
 null = ValueNode(Token(TT.null, None, None, None))
-me = ValueNode(Token(TT.me, None, None, None))
 
 default_types: Dict[str, ObjectDeclarationNode] = {
     TT.bool_.value: ObjectDeclarationNode(Token(TT.word, None, None, None, 'bool'), [], []),
@@ -1539,7 +1536,7 @@ class Parser:
         return queue
 
     def check_if_expression_over(self, start_index):
-        if self.peak.value == self.peak.type.value != TT.me.value:
+        if self.peak.value == self.peak.type.value:
             return True
         i = self.i - 1
         while i >= start_index and self.toks[i].type in {TT.rpa, TT.rbr}:
