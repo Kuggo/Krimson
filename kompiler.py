@@ -183,7 +183,6 @@ class TT(Enum):
     exit_ = 'exit'
     skip = 'skip'
     for_ = 'for'
-    foreach = 'foreach'
     while_ = 'while'
     do_ = 'do'
     return_ = 'return'
@@ -234,7 +233,6 @@ keywords = {
     'exit': TT.exit_,
     'skip': TT.skip,
     'for': TT.for_,
-    'foreach': TT.foreach,  # not yet
     'while': TT.while_,
     'do': TT.do_,
     'return': TT.return_,
@@ -392,7 +390,6 @@ class E(Enum):
     exit_not_in_loop = 'exit keyword found outside a loop/switch body'
     skip_not_in_loop = 'skip keyword found outside a loop body'
     return_not_in_func = 'return keyword found outside a function body'
-    foreach_not_applicable = 'foreach not applicable to variable'
     unknown_var_type = 'Unknown variable type'
     undefined_variable = 'Undefined variable'
     var_before_assign = 'Variable might been used before assignment'
@@ -402,6 +399,7 @@ class E(Enum):
     type_missmatch = 'expected {} and got {}'
     bin_dunder_not_found = 'Cannot {} for {} and {}. No suitable declaration of {} exists anywhere'
     unary_dunder_not_found = 'Cannot {} for {}. No suitable declaration of {} exists anywhere'
+    weak_cant_be_on_primitives = "Cannot apply 'weak' modifier to primitive types"
 
     def __repr__(self) -> str:
         return self.value
@@ -432,7 +430,7 @@ class Error:
 #########################################
 
 class ErrorException(Exception):
-    def __init__(self, error: Error=None):
+    def __init__(self, error: Error = None):
         self.error = error
         return
 
@@ -914,10 +912,10 @@ class DotOpNode(Node):
             return f'{self.object.value.value}.{self.property.value.value}'
 
     def lower(self, tc: 'TypeChecker') -> Node:
-        self.object = self.object.lower(tc)
-        self.property = self.property.lower(tc)
         if self.object.type in tc.types and \
                 tc.types[self.object.type].contains_attribute(self.property.value.value, tc.types):
+            self.object = self.object.lower(tc)
+            self.property = self.property.lower(tc)
             return self
         else:
             tc.error(E.no_attribute, self.property, self.object, self.property)
@@ -928,9 +926,10 @@ class DotOpNode(Node):
 
 
 class VarDeclarationNode(Node):
-    def __init__(self, var_type: Token, name: Token, value: BinOpNode = None):
+    def __init__(self, var_type: Token, name: Token, value: BinOpNode = None, weak=None):
         super().__init__(var_type.start, name.end, name.line)
         self.var_type = var_type
+        self.weak = weak
         self.name = name
         self.value = value
         if value is not None:
@@ -939,9 +938,12 @@ class VarDeclarationNode(Node):
 
     def lower(self, tc: 'TypeChecker') -> Node:
         tc.defined_vars.add(self.name.value)
-        self.value = self.value.lower(tc)   # this line can be avoided
+        self.value = self.value.lower(tc)
         if self.var_type.value not in tc.types:
             tc.error(E.identifier_expected, self.var_type)
+            raise ErrorException()
+        if self.weak is not None and self.var_type.value in default_types:
+            tc.error(E.weak_cant_be_on_primitives, self.weak)
             raise ErrorException()
         elif not tc.types[self.var_type.value].check_generics(self.var_type.generics):
             tc.error(E.identifier_expected, self.var_type)      # may require a better error for generics
@@ -1197,31 +1199,6 @@ class ForNode(ScopedNode):
         return string
 
 
-class ForeachNode(ScopedNode):
-    def __init__(self, var: Node, collection: Node):
-        super().__init__(start=var.start, end=var.end, line=var.line)
-        self.var = var
-        self.var.parent = self
-        self.collection = collection
-        self.collection.parent = self
-        return
-
-    def is_valid_statement(self, variables, defined_vars, funcs, types) -> bool:
-        if not self.var.is_valid_expression(variables, defined_vars, funcs, types):
-            raise ErrorException(Error(E.expression_expected, self.var.start, self.var.end, self.var.line))
-        if self.collection not in variables:
-            raise ErrorException(
-                Error(E.foreach_not_applicable, self.collection.start, self.collection.end, self.collection.line))
-        return True
-
-    def __repr__(self):
-        string = f'<for ({self.var}:{self.collection}) ' + '{'
-        for node in self.body:
-            string += str(node) + ';'
-        string += '}>'
-        return string
-
-
 class WhileNode(ScopedNode):
     def __init__(self, condition: Node):
         super().__init__(start=condition.start, end=condition.end, line=condition.line)
@@ -1423,7 +1400,7 @@ class Parser:
         elif tt == TT.macro:
             return [self.make_macro()]
 
-        elif tt.value in default_types:
+        elif tt.value in default_types or tt == TT.weak:
             return [self.assign_var()]
 
         elif tt == TT.word:  # can be a custom type, a function call, or a label
@@ -1468,9 +1445,6 @@ class Parser:
 
         elif tt == TT.for_:
             return [self.make_for()]
-
-        elif tt == TT.foreach:
-            return [self.make_foreach()]
 
         elif tt == TT.while_:
             return [self.make_while()]
@@ -1611,6 +1585,10 @@ class Parser:
     # processing keywords
 
     def assign_var(self) -> VarDeclarationNode:
+        is_weak = None
+        if self.peak.type == TT.weak:
+            is_weak = self.peak
+            self.advance()
         var_type = self.peak
         self.advance()
         if self.peak.type == TT.lt:
@@ -1622,9 +1600,9 @@ class Parser:
         name = self.peak
         expression = self.make_expression()
         if isinstance(expression, BinOpNode):
-            declair_node = VarDeclarationNode(var_type, name, expression)
+            declair_node = VarDeclarationNode(var_type, name, expression, weak=is_weak)
         else:
-            declair_node = VarDeclarationNode(var_type, name)
+            declair_node = VarDeclarationNode(var_type, name, weak=is_weak)
         return declair_node
 
     def func_def(self) -> Node:
@@ -1777,26 +1755,6 @@ class Parser:
         end_cnd = self.make_expression()
         step = self.make_expression()
         node = ForNode(setup, end_cnd, step)
-
-        if has_parenthesis:
-            self.advance()
-        self.scope.append(node)
-        body = self.next_statements()
-        self.scope.pop()
-
-        node.assign_body(body)
-        return node
-
-    def make_foreach(self) -> ForeachNode:
-        self.advance()
-        has_parenthesis = False
-        if self.peak.type == TT.lpa:  # i need to patch this.
-            self.advance()
-            has_parenthesis = True
-
-        var = self.assign_var()
-        collection = self.make_expression()
-        node = ForeachNode(var, collection)
 
         if has_parenthesis:
             self.advance()
