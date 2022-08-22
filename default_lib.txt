@@ -4,7 +4,7 @@ object __bool__ {
     }
 
     func bool __and__(bool me, bool other) {
-        return me other
+        return me && other
     }
 
     func bool __xor__(bool me, bool other) {
