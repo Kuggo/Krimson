@@ -3,7 +3,7 @@ from enum import Enum
 from sys import argv, stdout, stderr
 import os
 
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Set
 
 
 def main():
@@ -13,7 +13,17 @@ def main():
     if src_name == '--help':
         print('usage: krimson <source_file> <destination_file>')
 
-    source = '''bool.__not__(true)'''
+    source = '''object E {
+        int field
+        int campo
+        int var = 0
+        
+        1+1
+        
+        func E(int number) {
+            field = number
+        }
+    }'''
 
     if src_name is not None:
         if os.path.isfile(src_name):
@@ -147,7 +157,6 @@ class TT(Enum):
     assign_b_and = '&='
     assign_b_or = '|='
     assign_b_xor = '^='
-    assign_b_not = '~='
 
     # primitive types
     bool_ = 'bool'
@@ -307,16 +316,25 @@ op_table = {
     TT.assign_mlt: (14, False),
     TT.assign_b_and: (14, False),
     TT.assign_b_or: (14, False),
-    TT.assign_b_not: (14, False),
     TT.assign_mod: (14, False),
     TT.lpa: (20, True),
     TT.address: (19, True),
 }
 
-assignment_toks = {TT.assign, TT.assign_shl, TT.assign_shr, TT.assign_add, TT.assign_sub, TT.assign_div, TT.assign_mlt,
-                   TT.assign_b_and, TT.assign_b_or, TT.assign_b_not, TT.assign_mod}
-
 unary_ops = {TT.inc, TT.dec, TT.not_, TT.b_not, TT.neg, TT.func_call}
+
+assign_ops: Dict[TT, TT] = {
+    TT.assign: None,
+    TT.assign_shl: TT.shl,
+    TT.assign_shr: TT.shr,
+    TT.assign_add: TT.add,
+    TT.assign_sub: TT.sub,
+    TT.assign_div: TT.div,
+    TT.assign_mlt: TT.mlt,
+    TT.assign_b_and: TT.b_and,
+    TT.assign_b_or: TT.b_or,
+    TT.assign_mod: TT.mod,
+}
 
 default_ops = {
     # operations
@@ -404,7 +422,7 @@ class E(Enum):
     return_not_in_func = 'return keyword found outside a function body'
     unknown_var_type = 'Unknown variable type'
     undefined_variable = 'Undefined variable'
-    var_before_assign = 'Variable might been used before assignment'
+    var_before_assign = 'Variable might be used before assignment'
     undefined_function = 'Undefined function for the given args'
     unknown_obj_type = 'Unknown object type'
     unknown_name = "No variable, object or function named '{}' is visible in scope"
@@ -413,6 +431,7 @@ class E(Enum):
     bin_dunder_not_found = 'Cannot {} for {} and {}. No suitable declaration of {} exists anywhere'
     unary_dunder_not_found = 'Cannot {} for {}. No suitable declaration of {} exists anywhere'
     weak_cant_be_on_primitives = "Cannot apply 'weak' modifier to primitive types"
+    constructor_outside_class = "Constructor for object {} found outside its class"
 
     def __repr__(self) -> str:
         return self.value
@@ -847,7 +866,7 @@ def implicit_type_convert(target_type: str, node: 'ValueNode') -> None:
 
 class Node:
     def __init__(self, start, end, line, t=TT.null.value):
-        self.parent = None
+        self.parent: (Node, None) = None
         self.type: str = t
         self.start = start
         self.end = end
@@ -859,6 +878,14 @@ class Node:
 
     def lower(self, tc) -> 'Node':
         return self
+
+    def find_parent_object(self, tc: 'TypeChecker') -> ('ObjectDeclarationNode', None):
+        if isinstance(self.parent, ObjectDeclarationNode):
+            return self.parent
+        elif self.parent is None:
+            return None
+        else:
+            return self.parent.find_parent_object(tc)
 
 
 class ValueNode(Node):
@@ -954,12 +981,10 @@ class BinOpNode(Node):
         self.right_child.assign_parent(self.parent)
         return
 
-    def lower(self, tc: 'TypeChecker', expression=True, declaring=None) -> ('BinOpNode', 'FuncCallNode'):
-        self.left_child = self.left_child.lower(tc, expression=expression, declaring=declaring)
+    def lower(self, tc: 'TypeChecker', expression=True) -> ('BinOpNode', 'FuncCallNode'):
+        self.left_child = self.left_child.lower(tc, expression=expression)
         self.right_child = self.right_child.lower(tc, expression=expression)
         if self.op.type not in default_ops:
-            if self.op.type == TT.assign and isinstance(self.left_child, ValueNode):
-                tc.defined_vars.add(self.left_child.value.value)
             return self
         dunder_func = op_to_dunder(tc, self.op.type, self.start, self.end, self.line, self.left_child, self.right_child)
         if dunder_func is None:
@@ -985,22 +1010,13 @@ class DotOpNode(Node):
         self.property.assign_parent(self.parent)
         return
 
-    def find_type(self, tc: 'TypeChecker') -> None:
-        self.object.find_type(tc)
-        if not tc.types[self.object.type].has_attribute(self.property.value.value, tc):
-            tc.error(E.no_attribute, self.property, self.object.type, self.property.value.value)
-            raise ErrorException()
-
-        self.type = tc.types[self.object.type].get_attribute_type(self.property.value.value)
-        return
-
     def get_whole_name(self) -> str:
         return f'{self.object.type}.{self.property.value.value}'
 
     def lower(self, tc: 'TypeChecker', func_call=False, expression=False) -> Node:
-        self.find_type(tc)
+        self.object = self.object.lower(tc, func_call, expression)
+
         if self.object.type in tc.types and tc.types[self.object.type].has_attribute(self.property.value.value, tc):
-            self.object = self.object.lower(tc, func_call, expression)
             # self.property = self.property.lower(tc)
             return self
         else:
@@ -1012,7 +1028,7 @@ class DotOpNode(Node):
 
 
 class VarDeclarationNode(Node):
-    def __init__(self, var_type: Token, name: Token, value: BinOpNode = None, weak=None):
+    def __init__(self, var_type: Token, name: Token, value: 'AssignNode' = None, weak=None):
         super().__init__(var_type.start, name.end, name.line)
         self.var_type = var_type
         self.type: str = var_type.value
@@ -1026,7 +1042,6 @@ class VarDeclarationNode(Node):
     def lower(self, tc: 'TypeChecker') -> 'VarDeclarationNode':
         if self.value is not None:
             self.value = self.value.lower(tc, declaring=self.name.value)
-            tc.defined_vars.add(self.name.value)
         if self.var_type.value not in tc.types:
             tc.error(E.identifier_expected, self.var_type)
             raise ErrorException()
@@ -1036,24 +1051,42 @@ class VarDeclarationNode(Node):
 
         tc.types[self.var_type.value].check_generics(tc, self.var_type.generics,
                                                      self.var_type.end+1, self.var_type.generic_end, self.line)
-
-        if isinstance(self.value, BinOpNode):
-            if isinstance(self.value.right_child, ValueNode):
-                implicit_type_convert(self.var_type.value, self.value.right_child)
-            if self.value.right_child.type != self.var_type.value:
-                tc.error(E.type_missmatch, self.value.right_child, self.var_type.value, self.value.right_child.type)
-                raise ErrorException()
-
-        elif isinstance(self.value, FuncCallNode) and self.value.type != self.var_type.value:
-            tc.error(E.type_missmatch, self.value, self.var_type.value, self.value.type)
-            raise ErrorException()
         return self
 
     def __repr__(self):
         if self.value is None:
             return f'<{self.var_type.value} {self.name} = {self.value}>'
         else:
-            return f'<{self.var_type.value} {self.name} = {self.value.right_child}>'
+            return f'<{self.var_type.value} {self.value}>'
+
+
+class AssignNode(Node):
+    def __init__(self, var: (ValueNode, DotOpNode), value: Node):
+        super().__init__(var.start, value.end, value.line)
+        self.var: (ValueNode, DotOpNode) = var
+        self.value: Node = value
+        return
+
+    def lower(self, tc, declaring=None) -> 'AssignNode':
+        if isinstance(self.var, ValueNode):
+            self.var = self.var.lower(tc, declaring=self.var.value.value)
+        else:
+            self.var = self.var.lower(tc)
+        self.value = self.value.lower(tc)
+        if isinstance(self.var, ValueNode) and isinstance(self.value, ValueNode):
+            implicit_type_convert(self.var.value.value, self.value)
+
+        if self.value.type != self.value.type:
+            tc.error(E.type_missmatch, self.value, self.var.type, self.value.type)
+            raise ErrorException()
+
+        if isinstance(self.var, ValueNode):
+            tc.defined_vars.add(self.var.value.value)
+
+        return self
+
+    def __repr__(self):
+        return f'<{self.var} = {self.value}>'
 
 
 class ScopedNode(Node):
@@ -1090,6 +1123,7 @@ class ScopedNode(Node):
 class FuncDeclarationNode(ScopedNode):
     def __init__(self, ret_type: Token, name: Token, args: List[VarDeclarationNode] = None):
         super().__init__(start=name.start, end=name.end, line=name.line)
+        self.parent_obj = None
         self.type_tok = ret_type
         self.type = ret_type.value
         self.name = name
@@ -1100,17 +1134,50 @@ class FuncDeclarationNode(ScopedNode):
             for arg in args:
                 arg.assign_parent(self)
         self.body = None
+        self.constructor = False
         return
 
     def lower(self, tc: 'TypeChecker') -> Node:
-        error_found = False
         if self.type not in tc.types and self.type != null.value.type.value:
-            error_found = True
             tc.error(E.invalid_ret_type, self.type_tok)
+            raise ErrorException()
+
+        if self.type == self.name.value:    # it's a constructor
+            self.constructor = True
+            self.parent_obj = self.find_parent_object(tc)
+            if self.parent_obj is None or self.type != self.parent_obj.type:  # constructor outside its class definition
+                tc.error(E.constructor_outside_class, self, self.type)
+                raise ErrorException()
+            else:
+                self.parent_obj.constructors[(self.type, self.get_arg_types())] = self
+
         for i, arg in enumerate(self.args):
             self.args[i] = arg.lower(tc)
-        if error_found:
-            raise ErrorException()
+            self.vars[arg.name.value] = arg
+            tc.defined_vars.add(arg.name.value)
+
+        self.body = tc.check_scope(self.body, context=(self.vars, self.funcs, self.types))
+
+        if self.constructor:
+            instance_vars: Set[str] = set()     # instance variable not assigned
+            for node in self.parent.vars.values():
+                if node.value is None:
+                    instance_vars.add(node.name.value)
+                else:
+                    self.body.insert(0, node.value)
+
+            for node in self.body:
+                if isinstance(node, AssignNode) and isinstance(node.var, ValueNode) and \
+                        node.var.value.value in self.parent_obj.vars and node.var.value.value in instance_vars:
+                    instance_vars.remove(node.var.value.value)
+
+            for var_name in instance_vars:  # iterating the vars that weren't assigned
+                var = self.parent_obj.vars[var_name]
+                self.body.append(AssignNode(ValueNode(Token(TT.word, var.start, var.end, var.line, var_name)), null))
+
+        if not isinstance(self.body[-1], ReturnNode) or self.constructor:
+            # body doesn't end with return, we will autogenerate it
+            self.body.append(ReturnNode(null, Token(TT.return_, self.end, self.end, self.line)))
         return self
 
     def get_arg_types(self) -> Tuple[str]:
@@ -1137,10 +1204,11 @@ class ObjectDeclarationNode(ScopedNode):
         self.name = name
         self.type = name.value
         self.generics = generics
+        self.constructors: Dict[Tuple[str, Tuple[str]], FuncDeclarationNode] = {}
         self.parent_classes = parent_classes
         return
 
-    def lower(self, tc: 'TypeChecker') -> Node:
+    def lower(self, tc: 'TypeChecker') -> 'ObjectDeclarationNode':
         for c in self.parent_classes:
             if c not in tc.types:
                 tc.error(E.unknown_obj_type, c)
@@ -1241,7 +1309,7 @@ class FuncCallNode(Node):
                 self.func_name = self.func.value.value
         elif isinstance(self.func, DotOpNode):
             self.func_name = self.func.property.value.value
-            if self.func.object.value.value not in tc.types:
+            if not (isinstance(self.func.object, ValueNode) and self.func.object.value.value in tc.types):
                 self.args.insert(0, self.func.object)
         else:
             raise ErrorException()
@@ -1427,7 +1495,7 @@ class SingleExpressionNode(Node):
         return self
 
     def __repr__(self):
-        return f'{self.word.value} {self.val}'
+        return f'<{self.word.value} {self.val}>'
 
 
 class CaseNode(SingleExpressionNode):
@@ -1712,18 +1780,29 @@ class Parser:
                         stack.append(UnOpNode(tok, node_a))
                     else:
                         self.error(E.expression_expected, tok)
+                    continue
+
+                if len(stack) >= 2:
+                    node_b = stack.pop()
+                    node_a = stack.pop()
                 else:
-                    if len(stack) >= 2:
-                        node_b = stack.pop()
-                        node_a = stack.pop()
-                        if tok.type == TT.dot and isinstance(node_b, ValueNode):
-                            stack.append(DotOpNode(tok, node_a, node_b))
-                        else:
-                            stack.append(BinOpNode(tok, node_a, node_b))
+                    self.error(E.expression_expected, tok)
+                    raise   # this is so python type checker chills a bit
+
+                if tok.type in assign_ops:
+                    if tok.type == TT.assign:
+                        stack.append(AssignNode(node_a, node_b))
                     else:
-                        self.error(E.expression_expected, tok)
+                        op_tok = Token(assign_ops[tok.type], tok.start, tok.end, tok.line)
+                        stack.append(AssignNode(node_a, BinOpNode(op_tok, node_a, node_b)))
+                else:
+                    if tok.type == TT.dot and isinstance(node_b, ValueNode):
+                        stack.append(DotOpNode(tok, node_a, node_b))
+                    else:
+                        stack.append(BinOpNode(tok, node_a, node_b))
             else:
                 stack.append(ValueNode(tok))
+            continue
         if len(stack) > 0:
             return stack.pop()
         else:
@@ -1750,7 +1829,7 @@ class Parser:
 
         name = self.peak
         expression = self.make_expression()
-        if isinstance(expression, BinOpNode):
+        if isinstance(expression, AssignNode):
             declair_node = VarDeclarationNode(var_type, name, expression, weak=is_weak)
         else:
             declair_node = VarDeclarationNode(var_type, name, weak=is_weak)
@@ -1769,11 +1848,15 @@ class Parser:
         if self.peak.type == TT.lt:
             ret_type.generics, ret_type.generic_end = self.make_generics()
 
-        func_name = self.peak
-        if func_name.type != TT.word:
+        if self.peak.type == TT.lpa:  # then it's a constructor
+            func_name = ret_type
+        elif self.peak.type != TT.word:
             self.error(E.identifier_expected, self.peak)
+            raise   # just so python typechecker chills a bit
+        else:
+            func_name = self.peak
+            self.advance()
 
-        self.advance()
         if self.peak.type != TT.lpa:
             self.error(E.symbol_expected, self.peak, '(')
 
@@ -2063,7 +2146,7 @@ class TypeChecker:
         self.check_scope(self.asts)
         return
 
-    def check_scope(self, nodes, context: Tuple = None) -> List[Node]:
+    def check_scope(self, nodes, context: Tuple = None, object_scope=False) -> List[Node]:
         funcs = self.funcs.copy()
         variables = self.vars.copy()
         types = self.types.copy()
@@ -2089,6 +2172,10 @@ class TypeChecker:
         defined_vars = self.defined_vars.copy()
         body_lowered = []
         for node in nodes:
+            if object_scope and not (isinstance(node, VarDeclarationNode) or isinstance(node, MacroDefNode) or
+                                     isinstance(node, ScopedNode)):
+                self.error(E.identifier_expected, node)
+                continue
             try:
                 node_lowered = node.lower(self)
                 if node_lowered is not None:

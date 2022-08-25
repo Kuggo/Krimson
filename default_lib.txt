@@ -17,6 +17,10 @@ object __bool__ {
 }
 
 object __int__ {
+    func uint __uint__(int me) {
+        return me
+    }
+
     func int __add__(int me, int other) {
         return me + other
     }
