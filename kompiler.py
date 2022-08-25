@@ -929,9 +929,6 @@ class ValueNode(Node):
                 return self
         return self
 
-    def get_whole_name(self, tc) -> str:
-        return self.value.value
-
     def __repr__(self):
         return f'{self.value}'
 
@@ -1010,13 +1007,10 @@ class DotOpNode(Node):
         self.property.assign_parent(self.parent)
         return
 
-    def get_whole_name(self) -> str:
-        return f'{self.object.type}.{self.property.value.value}'
-
     def lower(self, tc: 'TypeChecker', func_call=False, expression=False) -> Node:
         self.object = self.object.lower(tc, func_call, expression)
 
-        if self.object.type in tc.types and tc.types[self.object.type].has_attribute(self.property.value.value, tc):
+        if self.object.type in tc.types and tc.types[self.object.type].has_attribute(self.property.value.value):
             # self.property = self.property.lower(tc)
             return self
         else:
@@ -1175,7 +1169,9 @@ class FuncDeclarationNode(ScopedNode):
                 var = self.parent_obj.vars[var_name]
                 self.body.append(AssignNode(ValueNode(Token(TT.word, var.start, var.end, var.line, var_name)), null))
 
-        if not isinstance(self.body[-1], ReturnNode) or self.constructor:
+        if self.constructor:    # we must return the new object
+            self.body.append(ReturnNode(null, Token(TT.return_, self.end, self.end, self.line)))
+        elif not isinstance(self.body[-1], ReturnNode):
             # body doesn't end with return, we will autogenerate it
             self.body.append(ReturnNode(null, Token(TT.return_, self.end, self.end, self.line)))
         return self
@@ -1199,31 +1195,43 @@ class FuncDeclarationNode(ScopedNode):
 
 
 class ObjectDeclarationNode(ScopedNode):
-    def __init__(self, name: Token, generics: List[str], parent_classes: List[Token]):
+    def __init__(self, name: Token, generics: List[str], parent_class: Token = None):
         super().__init__(start=name.start, end=name.end, line=name.line)
         self.name = name
         self.type = name.value
         self.generics = generics
         self.constructors: Dict[Tuple[str, Tuple[str]], FuncDeclarationNode] = {}
-        self.parent_classes = parent_classes
+        self.parent_class = parent_class
         return
 
     def lower(self, tc: 'TypeChecker') -> 'ObjectDeclarationNode':
-        for c in self.parent_classes:
-            if c not in tc.types:
-                tc.error(E.unknown_obj_type, c)
-                raise ErrorException()
+        if self.parent_class is not None and self.parent_class.value not in tc.types:
+            tc.error(E.unknown_obj_type, self.parent_class)
+            raise ErrorException()
+
+        self.inherit(tc)
         self.body = tc.check_scope(self.body, context=(self.vars, self.funcs, self.types))
         return self
 
-    def has_attribute(self, name: str, tc: 'TypeChecker') -> bool:
-        output = name in self.vars or name in self.types or self.contains_func_name(name)
-        if output:
-            return True
-        for parent in self.parent_classes:
-            if parent.value in tc.types and tc.types[parent.value].has_attribute(name, tc):
-                return True
-        return False
+    def inherit(self, tc: 'TypeChecker') -> None:
+        if self.parent_class is None:
+            return
+        parent_class_def = tc.types[self.parent_class.value]
+        vars_copy = parent_class_def.vars.copy()
+        funcs_copy = parent_class_def.funcs.copy()
+        types_copy = parent_class_def.types.copy()
+
+        vars_copy.update(self.vars)
+        funcs_copy.update(self.funcs)
+        types_copy.update(self.types)
+
+        self.vars = vars_copy
+        self.funcs = funcs_copy
+        self.types = types_copy
+        return
+
+    def has_attribute(self, name: str) -> bool:
+        return name in self.vars or name in self.types or self.contains_func_name(name)
 
     def get_attribute_type(self, name) -> str:
         if self.contains_func_name(name):
@@ -1254,18 +1262,15 @@ class ObjectDeclarationNode(ScopedNode):
     def get_func(self, func_name, args) -> (FuncDeclarationNode, None):
         if (func_name, args) in self.funcs:
             return self.funcs[(func_name, args)]
-        for obj in self.types.values():
-            func = obj.get_func(func_name, args)
-            if func is not None:
-                return func
-        return None
+        else:
+            return None
 
     def __repr__(self):
-        parents = str(self.parent_classes)[1:-1]
-        if len(parents) == 0:
+        if self.parent_class is None:
             string = f'{self.name} ' + '{'
         else:
-            string = f'{self.name}({parents}) ' + '{'
+            string = f'{self.name}({str(self.parent_class)}) ' + '{'
+
         for node in self.body:
             string += str(node)
         string += '}>'
@@ -1558,15 +1563,15 @@ default_values = {
 primitive_types = {TT.bool_.value, TT.int_.value, TT.uint.value, TT.fixed.value, TT.float_.value, TT.char.value}
 
 default_types: Dict[str, ObjectDeclarationNode] = {
-    TT.bool_.value: ObjectDeclarationNode(Token(TT.word, None, None, None, 'bool'), [], []),
-    TT.int_.value: ObjectDeclarationNode(Token(TT.word, None, None, None, 'int'), [], []),
-    TT.uint.value: ObjectDeclarationNode(Token(TT.word, None, None, None, 'uint'), [], []),
-    TT.fixed.value: ObjectDeclarationNode(Token(TT.word, None, None, None, 'fixed'), [], []),
-    TT.float_.value: ObjectDeclarationNode(Token(TT.word, None, None, None, 'float'), [], []),
-    TT.char.value: ObjectDeclarationNode(Token(TT.word, None, None, None, 'char'), [], []),
+    TT.bool_.value: ObjectDeclarationNode(Token(TT.word, None, None, None, 'bool'), []),
+    TT.int_.value: ObjectDeclarationNode(Token(TT.word, None, None, None, 'int'), []),
+    TT.uint.value: ObjectDeclarationNode(Token(TT.word, None, None, None, 'uint'), []),
+    TT.fixed.value: ObjectDeclarationNode(Token(TT.word, None, None, None, 'fixed'), []),
+    TT.float_.value: ObjectDeclarationNode(Token(TT.word, None, None, None, 'float'), []),
+    TT.char.value: ObjectDeclarationNode(Token(TT.word, None, None, None, 'char'), []),
     TT.func.value: None,  # function can't have operations
-    TT.string.value: ObjectDeclarationNode(Token(TT.word, None, None, None, 'string'), [], []),
-    TT.array.value: ObjectDeclarationNode(Token(TT.word, None, None, None, 'array'), [], []),
+    TT.string.value: ObjectDeclarationNode(Token(TT.word, None, None, None, 'string'), []),
+    TT.array.value: ObjectDeclarationNode(Token(TT.word, None, None, None, 'array'), []),
     TT.object_.value: None  # object type doesn't have operations
 }
 
@@ -1883,19 +1888,19 @@ class Parser:
         if self.peak.type == TT.lt:
             generics = self.make_generics(defining=True)[0]
 
-        parent_classes = []
+        parent_class = None
         if self.peak.type == TT.lpa:
             self.advance()
-            while self.peak.type != TT.rpa:
-                if self.peak.type != TT.word:
-                    self.error(E.identifier_expected, self.peak)
-                parent_classes.append(self.peak)
-                self.advance()
-                while self.peak in {TT.comma, TT.colon, TT.semi_col}:
-                    self.advance()
+            if self.peak.type != TT.word:
+                self.error(E.identifier_expected, self.peak)
+            parent_class = self.peak
             self.advance()
+            if self.peak.type != TT.rpa:
+                self.error(E.symbol_expected, self.peak, TT.rpa.value)
+            else:
+                self.advance()
 
-        node = ObjectDeclarationNode(name, generics, parent_classes)
+        node = ObjectDeclarationNode(name, generics, parent_class)
         self.scope.append(node)
         body = self.next_statements()
         self.scope.pop()
