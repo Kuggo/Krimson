@@ -13,16 +13,24 @@ def main():
     if src_name == '--help':
         print('usage: krimson <source_file> <destination_file>')
 
-    source = '''object E {
-        int field
+    source = '''
+    E var = E(9)
+    int ver = var.yeet()
+    
+    object B {
         int campo
-        int var = 0
         
-        1+1
+        func int yeet(E e) {return 69}
+    }
+    
+    object E(B) {
+        int field
         
         func E(int number) {
-            field = number
+            E.campo = number
         }
+        
+        func int yeet(E e) {return 420}
     }'''
 
     if src_name is not None:
@@ -180,6 +188,8 @@ class TT(Enum):
     true = 'true'
     false = 'false'
     null = 'null'
+    super = 'super'
+    this = 'this'
 
     # keywords
     if_ = 'if'
@@ -230,6 +240,8 @@ keywords = {
     'false': TT.false,
     'null': TT.null,
     'weak': TT.weak,
+    'super': TT.super,
+    'this': TT.this,
 
     'if': TT.if_,
     'elif': TT.elif_,
@@ -426,12 +438,16 @@ class E(Enum):
     undefined_function = 'Undefined function for the given args'
     unknown_obj_type = 'Unknown object type'
     unknown_name = "No variable, object or function named '{}' is visible in scope"
-    no_attribute = '{} has no attribute {}'
-    type_missmatch = 'expected {} and got {}'
+    no_attribute = "'{}' has no attribute '{}'"
+    type_missmatch = "expected '{}' and got '{}'"
     bin_dunder_not_found = 'Cannot {} for {} and {}. No suitable declaration of {} exists anywhere'
     unary_dunder_not_found = 'Cannot {} for {}. No suitable declaration of {} exists anywhere'
     weak_cant_be_on_primitives = "Cannot apply 'weak' modifier to primitive types"
     constructor_outside_class = "Constructor for object {} found outside its class"
+    this_outside_class = 'this keyword found outside an object definition'
+    super_outside_class = 'super keyword found outside an object definition'
+    object_is_not_subtype = "object '{}' does not inherit from another object"
+    instance_needed = "Cannot access fields of object '{}' without an instance of it"
 
     def __repr__(self) -> str:
         return self.value
@@ -921,12 +937,36 @@ class ValueNode(Node):
             if self.value.value == declaring:
                 return self
             if self.value.value in tc.vars and isinstance(tc.vars[self.value.value], MacroDefNode):
+                tc.vars[self.value.value].assign_parent(self.parent)
                 return tc.vars[self.value.value].expression.lower()
             if self.value.value in tc.vars and self.value.value not in tc.defined_vars:
                 tc.error(E.var_before_assign, self.value)
                 raise ErrorException()
             if tc.contains_name(self.value.value):
                 return self
+
+        elif self.value.type == TT.this:
+            current_class = self.find_parent_object(tc)
+            if current_class is None:
+                tc.error(E.this_outside_class, self)
+                raise ErrorException()
+
+            self.type = current_class.name.value
+            return self
+
+        elif self.value.type == TT.super:
+            current_class = self.find_parent_object(tc)
+            if current_class is None:
+                tc.error(E.super_outside_class, self)
+                raise ErrorException()
+
+            super_class = current_class.parent_class
+            if super_class is None:
+                tc.error(E.object_is_not_subtype, self, current_class.name.value)
+                raise ErrorException()
+
+            self.type = super_class.value
+            return self
         return self
 
     def __repr__(self):
@@ -944,10 +984,10 @@ class UnOpNode(Node):
             self.end = child.end
         self.op = op
         self.child = child
-        self.child.assign_parent(self.parent)
         return
 
     def lower(self, tc: 'TypeChecker', expression=True) -> Node:
+        self.child.assign_parent(self.parent)
         self.child = self.child.lower(tc, expression)
         if self.op.type in default_ops:
             dunder_func = op_to_dunder(tc, self.op.type, self.start, self.end, self.line, self.child)
@@ -973,12 +1013,11 @@ class BinOpNode(Node):
         self.left_child = left
         self.right_child = right
         self.op = op
-
-        self.left_child.assign_parent(self.parent)
-        self.right_child.assign_parent(self.parent)
         return
 
     def lower(self, tc: 'TypeChecker', expression=True) -> ('BinOpNode', 'FuncCallNode'):
+        self.left_child.assign_parent(self.parent)
+        self.right_child.assign_parent(self.parent)
         self.left_child = self.left_child.lower(tc, expression=expression)
         self.right_child = self.right_child.lower(tc, expression=expression)
         if self.op.type not in default_ops:
@@ -1002,19 +1041,23 @@ class DotOpNode(Node):
         self.object = obj
         self.property: ValueNode = prop
         self.op = op
-
-        self.object.assign_parent(self.parent)
-        self.property.assign_parent(self.parent)
         return
 
     def lower(self, tc: 'TypeChecker', func_call=False, expression=False) -> Node:
+        self.object.assign_parent(self.parent)
+        self.property.assign_parent(self.parent)
         self.object = self.object.lower(tc, func_call, expression)
 
         if self.object.type in tc.types and tc.types[self.object.type].has_attribute(self.property.value.value):
-            # self.property = self.property.lower(tc)
+            object_type = tc.types[self.object.type]
+            if isinstance(self.object, ValueNode) and self.object.value.value == self.object.type:
+                # it's the class name or super/this keywords
+                if self.property.value.value in object_type.vars and self.find_parent_object(tc) != object_type:
+                    # later can check if var is static or not
+                    tc.error(E.instance_needed, self.object, self.object.value.value)
             return self
         else:
-            tc.error(E.no_attribute, self.property, self.object, self.property)
+            tc.error(E.no_attribute, self.property, self.object.value.value, self.property.value.value)
             raise ErrorException()
 
     def __repr__(self):
@@ -1029,13 +1072,12 @@ class VarDeclarationNode(Node):
         self.weak = weak
         self.name = name
         self.value = value
-        if value is not None:
-            value.assign_parent(self.parent)
         return
 
     def lower(self, tc: 'TypeChecker') -> 'VarDeclarationNode':
         if self.value is not None:
-            self.value = self.value.lower(tc, declaring=self.name.value)
+            self.value.assign_parent(self.parent)
+            self.value = self.value.lower(tc)
         if self.var_type.value not in tc.types:
             tc.error(E.identifier_expected, self.var_type)
             raise ErrorException()
@@ -1061,7 +1103,9 @@ class AssignNode(Node):
         self.value: Node = value
         return
 
-    def lower(self, tc, declaring=None) -> 'AssignNode':
+    def lower(self, tc) -> 'AssignNode':
+        self.var.assign_parent(self.parent)
+        self.value.assign_parent(self.parent)
         if isinstance(self.var, ValueNode):
             self.var = self.var.lower(tc, declaring=self.var.value.value)
         else:
@@ -1154,7 +1198,7 @@ class FuncDeclarationNode(ScopedNode):
 
         if self.constructor:
             instance_vars: Set[str] = set()     # instance variable not assigned
-            for node in self.parent.vars.values():
+            for node in self.parent_obj.vars.values():
                 if node.value is None:
                     instance_vars.add(node.name.value)
                 else:
@@ -1170,7 +1214,7 @@ class FuncDeclarationNode(ScopedNode):
                 self.body.append(AssignNode(ValueNode(Token(TT.word, var.start, var.end, var.line, var_name)), null))
 
         if self.constructor:    # we must return the new object
-            self.body.append(ReturnNode(null, Token(TT.return_, self.end, self.end, self.line)))
+            self.body.append(ReturnNode(this, Token(TT.return_, self.end, self.end, self.line)))
         elif not isinstance(self.body[-1], ReturnNode):
             # body doesn't end with return, we will autogenerate it
             self.body.append(ReturnNode(null, Token(TT.return_, self.end, self.end, self.line)))
@@ -1285,6 +1329,7 @@ class MacroDefNode(Node):
         return
 
     def lower(self, tc: 'TypeChecker') -> Node:
+        self.expression.assign_parent(self.parent)
         self.expression = self.expression.lower(tc)
         self.type = self.expression.type
         return self
@@ -1302,9 +1347,11 @@ class FuncCallNode(Node):
         return
 
     def lower(self, tc: 'TypeChecker', func_call=True, expression=False) -> Node:
+        self.func.assign_parent(self.parent)
         self.func = self.func.lower(tc, func_call, expression=False)
 
         for i, arg in enumerate(self.args):
+            arg.assign_parent(self.parent)
             self.args[i] = arg.lower(tc)
 
         if isinstance(self.func, ValueNode):
@@ -1346,13 +1393,13 @@ class IfNode(Node):
             self.body = []
         else:
             self.body = body
-            for b in body:
-                b.assign_parent(self.parent)
         return
 
     def lower(self, tc: 'TypeChecker') -> Node:
+        self.condition.assign_parent(self.parent)
         self.condition = self.condition.lower(tc)
         for i, node in enumerate(self.body):
+            node.assign_parent(self.parent)
             self.body[i] = node.lower(tc)
         return self
 
@@ -1371,12 +1418,11 @@ class ElseNode(Node):
             self.body = []
         else:
             self.body = body
-            for b in body:
-                b.parent.assign_parent(self.parent)
         return
 
     def lower(self, tc: 'TypeChecker') -> Node:
         for i, node in enumerate(self.body):
+            node.assign_parent(self.parent)
             self.body[i] = node.lower(tc)
         return self
 
@@ -1464,6 +1510,7 @@ class SwitchNode(ScopedNode):
     def __init__(self, switch_val: Node):
         super().__init__(start=switch_val.start, end=switch_val.end, line=switch_val.line)
         self.switch_val = switch_val
+        self.switch_val.assign_parent(self)
         return
 
     def lower(self, tc: 'TypeChecker') -> Node:
@@ -1555,10 +1602,15 @@ false = ValueNode(Token(TT.false, None, None, None))
 false.type = TT.bool_.value
 null = ValueNode(Token(TT.null, None, None, None))
 
+this = ValueNode(Token(TT.this, None, None, None))
+super_ = ValueNode(Token(TT.super, None, None, None))
+
 default_values = {
     true.value.type.value: true,
     false.value.type.value: false,
     null.value.type.value: null,
+    this.value.type.value: this,
+    super_.value.type.value: super_,
 }
 primitive_types = {TT.bool_.value, TT.int_.value, TT.uint.value, TT.fixed.value, TT.float_.value, TT.char.value}
 

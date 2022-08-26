@@ -99,6 +99,10 @@ object __int__ {
 }
 
 object __uint__ {
+    func int __uint__(uint me) {
+        return me
+    }
+
     func uint __add__(uint me, uint other) {
         return me + other
     }
@@ -177,6 +181,14 @@ object __uint__ {
 }
 
 object __fixed__<uint_> {
+    func int __fixed__(fixed<uint_> me) {
+        return me >> uint_
+    }
+
+    func uint __fixed__(fixed<uint_> me) {
+        return me >> uint_
+    }
+
     func fixed __add__(fixed<uint_> me, fixed<uint_> other) {
         return me + other
     }
