@@ -13,25 +13,28 @@ def main():
     if src_name == '--help':
         print('usage: krimson <source_file> <destination_file>')
 
-    source = '''
-    E var = E(9)
-    int ver = var.yeet()
-    
-    object B {
-        int campo
-        
-        func int yeet(E e) {return 69}
+    source = ''' 
+    urcl {
+        "LLOD R1 SP 1"
+        "OUT %X R1"
+        "LLOD R1 SP 2"
+        "OUT %Y R1"
+        "LLOD R1 SP 3"
+        "OUT %COLOR R1"
     }
     
-    object E(B) {
-        int field
+    object vector<size> {
+        int count
         
-        func E(int number) {
-            E.campo = number
+        func vector() {
+            count = 0
         }
         
-        func int yeet(E e) {return 420}
-    }'''
+        func bool isFull() {
+            return count < size
+        }
+    }
+    '''
 
     if src_name is not None:
         if os.path.isfile(src_name):
@@ -448,6 +451,7 @@ class E(Enum):
     super_outside_class = 'super keyword found outside an object definition'
     object_is_not_subtype = "object '{}' does not inherit from another object"
     instance_needed = "Cannot access fields of object '{}' without an instance of it"
+    cannot_default_arg = "Cannot assign a default value to function argument '{}'"
 
     def __repr__(self) -> str:
         return self.value
@@ -903,6 +907,14 @@ class Node:
         else:
             return self.parent.find_parent_object(tc)
 
+    def find_parent_function(self, tc: 'TypeChecker') -> ('FuncDeclarationNode', None):
+        if isinstance(self.parent, FuncDeclarationNode):
+            return self.parent
+        elif self.parent is None:
+            return None
+        else:
+            return self.parent.find_parent_function(tc)
+
 
 class ValueNode(Node):
     def __init__(self, value: Token):
@@ -921,15 +933,25 @@ class ValueNode(Node):
             self.type = tc.vars[self.value.value].type
         elif tc.contains_func_name(self.value.value):
             self.type = TT.func
-        elif func_call:
-            tc.error(E.undefined_function, self.value)
-            raise ErrorException()
-        elif expression:
-            tc.error(E.undefined_variable, self.value)
-            raise ErrorException()
         else:
-            tc.error(E.unknown_name, self, self.value.value)
-            raise ErrorException()
+            parent = self.find_parent_object(tc)
+            if self.value.type == TT.word and parent is not None and self.value.value in parent.generics:
+                self.type = self.value.value
+                return  # not changing the type
+
+            parent = self.find_parent_function(tc)
+            if self.value.type == TT.word and parent is not None and self.value.value in parent.vars:
+                self.type = parent.vars[self.value.value].type
+                return
+            elif func_call:
+                tc.error(E.undefined_function, self.value)
+                raise ErrorException()
+            elif expression:
+                tc.error(E.undefined_variable, self.value)
+                raise ErrorException()
+            else:
+                tc.error(E.unknown_name, self, self.value.value)
+                raise ErrorException()
 
     def lower(self, tc: 'TypeChecker', func_call=False, expression=False, declaring=None) -> Node:
         self.find_type(tc, func_call, expression)
@@ -1114,7 +1136,7 @@ class AssignNode(Node):
         if isinstance(self.var, ValueNode) and isinstance(self.value, ValueNode):
             implicit_type_convert(self.var.value.value, self.value)
 
-        if self.value.type != self.value.type:
+        if self.var.type != self.value.type:
             tc.error(E.type_missmatch, self.value, self.var.type, self.value.type)
             raise ErrorException()
 
@@ -1180,9 +1202,9 @@ class FuncDeclarationNode(ScopedNode):
             tc.error(E.invalid_ret_type, self.type_tok)
             raise ErrorException()
 
+        self.parent_obj = self.find_parent_object(tc)
         if self.type == self.name.value:    # it's a constructor
             self.constructor = True
-            self.parent_obj = self.find_parent_object(tc)
             if self.parent_obj is None or self.type != self.parent_obj.type:  # constructor outside its class definition
                 tc.error(E.constructor_outside_class, self, self.type)
                 raise ErrorException()
@@ -1190,9 +1212,11 @@ class FuncDeclarationNode(ScopedNode):
                 self.parent_obj.constructors[(self.type, self.get_arg_types())] = self
 
         for i, arg in enumerate(self.args):
-            self.args[i] = arg.lower(tc)
             self.vars[arg.name.value] = arg
-            tc.defined_vars.add(arg.name.value)
+            if arg.value is not None:
+                tc.error(E.cannot_default_arg, arg, arg.name.value)
+            else:
+                self.args[i] = arg.lower(tc)
 
         self.body = tc.check_scope(self.body, context=(self.vars, self.funcs, self.types))
 
@@ -1215,7 +1239,7 @@ class FuncDeclarationNode(ScopedNode):
 
         if self.constructor:    # we must return the new object
             self.body.append(ReturnNode(this, Token(TT.return_, self.end, self.end, self.line)))
-        elif not isinstance(self.body[-1], ReturnNode):
+        elif len(self.body) == 0 or not isinstance(self.body[-1], ReturnNode):
             # body doesn't end with return, we will autogenerate it
             self.body.append(ReturnNode(null, Token(TT.return_, self.end, self.end, self.line)))
         return self
@@ -1566,6 +1590,7 @@ class ReturnNode(SingleExpressionNode):
         return
 
     def lower(self, tc: 'TypeChecker') -> Node:
+        self.val.assign_parent(self.parent)
         self.val = self.val.lower(tc)
         ret_type = self.get_current_func().type
         if ret_type != self.val.type:
@@ -1587,9 +1612,17 @@ class GotoNode(SingleExpressionNode):
         SingleExpressionNode.__init__(self, label, word)
 
 
-class UrclNode(SingleExpressionNode):
-    def __init__(self, string: Token, word: Token):
-        SingleExpressionNode.__init__(self, string, word)
+class UrclNode(Node):
+    def __init__(self, word: Token, block: List[Token]):
+        super().__init__(word.start, word.end, word.line)
+        self.type = TT.urcl
+        self.body = block
+
+    def __repr__(self):
+        string = ''
+        for tok in self.body:
+            string += tok.value + '\n'
+        return string
 
 
 #########################################
@@ -1681,7 +1714,7 @@ class Parser:
                 self.advance()
                 return [KeywordNode(word)]
 
-            elif self.peak.type == TT.word:
+            elif self.peak.type == TT.word or self.peak.type == TT.lt:
                 self.advance(-1)
                 return [self.assign_var()]
 
@@ -1919,7 +1952,7 @@ class Parser:
 
         self.advance()
         args = []
-        while self.peak.type != TT.rpa:
+        while self.has_next() and self.peak.type != TT.rpa:
             args.append(self.assign_var(func_def=True))
 
         self.advance()
@@ -2079,7 +2112,7 @@ class Parser:
 
         node.assign_body(body)
 
-        if self.peak.type != TT.while_:
+        if self.has_next() and self.peak.type != TT.while_:
             self.error(E.while_expected, self.peak)
 
         condition = self.make_expression()
@@ -2108,11 +2141,20 @@ class Parser:
     def make_urcl(self) -> UrclNode:
         word = self.peak
         self.advance()
-        body = self.peak
-        if body != TT.string:
-            self.error(E.string_expected, self.peak)
+        if self.peak.type != TT.lcbr:
+            self.error(E.symbol_expected, self.peak, '{')
+
         self.advance()
-        return UrclNode(body, word)
+        body = []
+        while self.has_next() and self.peak.type != TT.rcbr:
+            if self.peak.type != TT.string:
+                self.error(E.string_expected, self.peak)
+            else:
+                body.append(self.peak)
+            self.advance()
+
+        self.advance()
+        return UrclNode(word, body)
 
     def make_macro(self) -> MacroDefNode:
         self.advance()
@@ -2141,7 +2183,7 @@ class Parser:
     def make_func_call(self) -> List[Node]:
         self.advance()
         args = []
-        while self.peak.type != TT.rpa:
+        while self.has_next() and self.peak.type != TT.rpa:
             args.append(self.make_expression())
 
         return args
@@ -2152,9 +2194,9 @@ class Parser:
         while self.has_next() and self.peak.type != TT.gt:
             if defining:
                 if self.peak.type == TT.word:
-                    generics.append(self.peak)
+                    generics.append(self.peak.value)
                 else:
-                    self.error(E.identifier_expected, self.peak)
+                    self.error(E.identifier_expected, self.peak.value)
             else:
                 if self.peak.type == TT.word or self.peak.type.value in default_types:
                     generics.append(self.peak)
@@ -2209,6 +2251,7 @@ class TypeChecker:
         types = self.types.copy()
 
         if context is None:
+            defined_vars = self.defined_vars.copy()
             for node in nodes:
                 if isinstance(node, VarDeclarationNode):
                     self.vars[node.name.value] = node
@@ -2225,8 +2268,10 @@ class TypeChecker:
             self.vars.update(context[0])
             self.funcs.update(context[1])
             self.types.update(context[2])
+            defined_vars = self.defined_vars.copy()
+            for key in context[0]:
+                self.defined_vars.add(key)
 
-        defined_vars = self.defined_vars.copy()
         body_lowered = []
         for node in nodes:
             if object_scope and not (isinstance(node, VarDeclarationNode) or isinstance(node, MacroDefNode) or

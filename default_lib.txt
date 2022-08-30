@@ -1,3 +1,62 @@
+// built in functions
+
+func null print(int n) {
+    urcl {
+        "LLOD R1 SP 1"
+        "OUT %NUM R1"
+    }
+}
+
+func null print(uint n) {
+    urcl {
+        "LLOD R1 SP 1"
+        "OUT %NUM R1"
+    }
+}
+
+func null print(char c) {
+    urcl {
+        "LLOD R1 SP 1"
+        "OUT %TEXT R1"
+    }
+}
+
+func null print(string s) {
+    urcl {
+        "LLOD R1 SP 1"
+        "SUB R2 R1 4"     // accessing its metadata (length)
+        "LOD R2 R2"
+        "SUB R2 R2 4"     // subtracting metadata space
+        "LOD $3 $1"       // overwriting BP should be illegal but here it's fine because I know what im doing B)
+        "OUT %TEXT $3"
+        "INC $1 $1"
+        "DEC $2 $2"
+        "BNZ ~-4 $2"
+    }
+
+    // or it could be written mostly in krimson
+
+    //for (int i = 0; i < s.length; i++) {
+    //    print(s[i])
+    //}
+}
+
+func null display(uint x, uint y, uint color = 1) {
+    urcl {
+        "LLOD R1 SP 1"
+        "OUT %X R1"
+        "LLOD R1 SP 2"
+        "OUT %Y R1"
+        "LLOD R1 SP 3"
+        "OUT %COLOR R1"
+    }
+}
+
+
+
+
+// Default Classes
+
 object __bool__ {
     func bool __or__(bool me, bool other) {
         return me || other
@@ -297,6 +356,8 @@ object __char__ {
 }
 
 object __string__ {
+    func char __get__(string me, uint index) {}
+
     func string __add__(string me, string other) {}
 
     func string __add__(string me, char other) {}
