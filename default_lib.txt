@@ -57,7 +57,7 @@ func null display(uint x, uint y, uint color = 1) {
 
 // Default Classes
 
-object __bool__ {
+class __bool__ {
     func bool __or__(bool me, bool other) {
         return me || other
     }
@@ -75,7 +75,7 @@ object __bool__ {
     }
 }
 
-object __int__ {
+class __int__ {
     func uint __uint__(int me) {
         return me
     }
@@ -157,7 +157,7 @@ object __int__ {
     }
 }
 
-object __uint__ {
+class __uint__ {
     func int __uint__(uint me) {
         return me
     }
@@ -239,81 +239,81 @@ object __uint__ {
     }
 }
 
-object __fixed__<uint_> {
-    func int __fixed__(fixed<uint_> me) {
+class __fixed__<uint scale> {
+    func int __fixed__(fixed<scale> me) {
         return me >> uint_
     }
 
-    func uint __fixed__(fixed<uint_> me) {
+    func uint __fixed__(fixed<scale> me) {
         return me >> uint_
     }
 
-    func fixed __add__(fixed<uint_> me, fixed<uint_> other) {
+    func fixed __add__(fixed<scale> me, fixed<scale> other) {
         return me + other
     }
 
-    func fixed __sub__(fixed<uint_> me, fixed<uint_> other) {
+    func fixed __sub__(fixed<scale> me, fixed<scale> other) {
         return me - other
     }
 
-    func int __inc__(fixed<uint_> me, int other) {
+    func int __inc__(fixed<scale> me, int other) {
         copy = me
         me += 1 << uint_
         return copy
     }
 
-    func int __dec__(fixed<uint_> me, int other) {
+    func int __dec__(fixed<scale> me, int other) {
         copy = me
         me -= 1 << uint_
         return copy
     }
 
-    func fixed __shr__(fixed<uint_> me, uint amount) {
+    func fixed __shr__(fixed<scale> me, uint amount) {
         return me >> other
     }
 
-    func fixed __shl__(fixed<uint_> me, uint amount) {
+    func fixed __shl__(fixed<scale> me, uint amount) {
         return me << other
     }
 
-    func fixed __mlt__(fixed<uint_> me, fixed<uint_> other) {
+    func fixed __mlt__(fixed<scale> me, fixed<scale> other) {
         return (me * other) >> uint_
     }
 
-    func fixed __div__(fixed<uint_> me, fixed<uint_> other) {
+    func fixed __div__(fixed<scale> me, fixed<scale> other) {
         return (me << uint_) / other
     }
 
-    func fixed __neg__(fixed<uint_> me) {
+    func fixed __neg__(fixed<scale> me) {
         return -me
     }
 
-    func bool __gt__(fixed<uint_> me, fixed<uint_> other) {
+    func bool __gt__(fixed<scale> me, fixed<scale> other) {
         return me > other
     }
 
-    func bool __gte__(fixed<uint_> me, fixed<uint_> other) {
+    func bool __gte__(fixed<scale> me, fixed<scale> other) {
         return me >= other
     }
 
-    func bool __lt__(fixed<uint_> me, fixed<uint_> other) {
+    func bool __lt__(fixed<scale> me, fixed<scale> other) {
         return me < other
     }
 
-    func bool __lte__(fixed<uint_> me, fixed<uint_> other) {
+    func bool __lte__(fixed<scale> me, fixed<scale> other) {
         return me <= other
     }
 
-    func bool __dif__(fixed<uint_> me, fixed<uint_> other) {
+    func bool __dif__(fixed<scale> me, fixed<scale> other) {
         return me != other
     }
 
-    func bool __equ__(fixed<uint_> me, fixed<uint_> other) {
+    func bool __equ__(fixed<scale> me, fixed<scale> other) {
         return me == other
     }
 }
 
-object __float__ {  // they are not being implemented in krimson
+class __float__ {  // they are not being implemented in krimson
     func float __add__(float me, float other) {}
 
     func float __sub__(float me, float other) {}
@@ -337,7 +337,7 @@ object __float__ {  // they are not being implemented in krimson
     func bool __equ__(float me, float other) {}
 }
 
-object __char__ {
+class __char__ {
     func char __add__(char me, char other) {}
 
     func string __mlt__(char me, int amount) {}
@@ -355,7 +355,7 @@ object __char__ {
     func bool __equ__(char me, char other) {}
 }
 
-object __string__ {
+class __string__ {
     func char __get__(string me, uint index) {}
 
     func string __add__(string me, string other) {}
@@ -377,7 +377,7 @@ object __string__ {
     func bool __equ__(string me, string other) {}
 }
 
-object __array__<T> {
+class __array__<T> {
     func array<T> __add__(array<T> me, array<T> other) {}
 
     func array<T> __add__(array<T> me, T other) {}

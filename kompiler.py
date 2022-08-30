@@ -3,7 +3,7 @@ from enum import Enum
 from sys import argv, stdout, stderr
 import os
 
-from typing import List, Dict, Tuple, Set
+from typing import List, Dict, Tuple, Set, Union
 
 
 def main():
@@ -13,17 +13,10 @@ def main():
     if src_name == '--help':
         print('usage: krimson <source_file> <destination_file>')
 
-    source = ''' 
-    urcl {
-        "LLOD R1 SP 1"
-        "OUT %X R1"
-        "LLOD R1 SP 2"
-        "OUT %Y R1"
-        "LLOD R1 SP 3"
-        "OUT %COLOR R1"
-    }
+    source = '''
+    vector<10> var = vector()
     
-    object vector<size> {
+    class vector<uint size> {
         int count
         
         func vector() {
@@ -185,7 +178,7 @@ class TT(Enum):
     # primitive data structures
     string = 'string'
     array = 'array'
-    object_ = 'object'
+    class_ = 'class'
 
     # Default values
     true = 'true'
@@ -211,6 +204,7 @@ class TT(Enum):
 
     urcl = 'urcl'
     label = 'label'
+    generic = 'generic'
 
     # comment
     comment = '//'
@@ -238,7 +232,7 @@ keywords = {
 
     'string': TT.string,
     'array': TT.array,
-    'object': TT.object_,
+    'class': TT.class_,
     'true': TT.true,
     'false': TT.false,
     'null': TT.null,
@@ -391,7 +385,7 @@ default_ops = {
 
 
 class Token:
-    def __init__(self, tt: TT, start_char, end_char, line, value=None, generics=None):
+    def __init__(self, tt: TT, start_char, end_char, line, value=None, generics: List['ValueNode'] = None):
         self.type = tt
         self.start = start_char
         self.end = end_char
@@ -414,7 +408,7 @@ class Token:
 
 class E(Enum):
     name_expected = 'Name expected'
-    duplicate_object = 'Duplicate object name'
+    duplicate_class = 'Duplicate class name'
     duplicate_func = 'Duplicate function declaration'
     duplicate_var = 'Duplicate variable name'
     duplicate_macro = 'Duplicate macro'
@@ -440,16 +434,17 @@ class E(Enum):
     var_before_assign = 'Variable might be used before assignment'
     undefined_function = 'Undefined function for the given args'
     unknown_obj_type = 'Unknown object type'
-    unknown_name = "No variable, object or function named '{}' is visible in scope"
+    unknown_name = "No variable, class or function named '{}' is visible in scope"
     no_attribute = "'{}' has no attribute '{}'"
     type_missmatch = "expected '{}' and got '{}'"
     bin_dunder_not_found = 'Cannot {} for {} and {}. No suitable declaration of {} exists anywhere'
     unary_dunder_not_found = 'Cannot {} for {}. No suitable declaration of {} exists anywhere'
     weak_cant_be_on_primitives = "Cannot apply 'weak' modifier to primitive types"
-    constructor_outside_class = "Constructor for object {} found outside its class"
-    this_outside_class = 'this keyword found outside an object definition'
-    super_outside_class = 'super keyword found outside an object definition'
-    object_is_not_subtype = "object '{}' does not inherit from another object"
+    weak_cant_assign_constructor = "Cannot assign a new constructed object to a weak reference holder"
+    constructor_outside_class = "Constructor for class '{}' found outside its class"
+    this_outside_class = 'this keyword found outside an class definition'
+    super_outside_class = 'super keyword found outside an class definition'
+    class_is_not_subtype = "class '{}' does not inherit from another class"
     instance_needed = "Cannot access fields of object '{}' without an instance of it"
     cannot_default_arg = "Cannot assign a default value to function argument '{}'"
 
@@ -899,13 +894,13 @@ class Node:
     def lower(self, tc) -> 'Node':
         return self
 
-    def find_parent_object(self, tc: 'TypeChecker') -> ('ObjectDeclarationNode', None):
+    def find_parent_class(self, tc: 'TypeChecker') -> ('ObjectDeclarationNode', None):
         if isinstance(self.parent, ObjectDeclarationNode):
             return self.parent
         elif self.parent is None:
             return None
         else:
-            return self.parent.find_parent_object(tc)
+            return self.parent.find_parent_class(tc)
 
     def find_parent_function(self, tc: 'TypeChecker') -> ('FuncDeclarationNode', None):
         if isinstance(self.parent, FuncDeclarationNode):
@@ -934,9 +929,13 @@ class ValueNode(Node):
         elif tc.contains_func_name(self.value.value):
             self.type = TT.func
         else:
-            parent = self.find_parent_object(tc)
-            if self.value.type == TT.word and parent is not None and self.value.value in parent.generics:
-                self.type = self.value.value
+            parent = self.find_parent_class(tc)
+            if self.value.type == TT.word and parent is not None:
+                generic_def = parent.get_generic_definition(self.value.value)
+                if isinstance(generic_def, VarDeclarationNode):
+                    self.type = generic_def.type
+                else:
+                    self.type = self.value.value
                 return  # not changing the type
 
             parent = self.find_parent_function(tc)
@@ -968,7 +967,7 @@ class ValueNode(Node):
                 return self
 
         elif self.value.type == TT.this:
-            current_class = self.find_parent_object(tc)
+            current_class = self.find_parent_class(tc)
             if current_class is None:
                 tc.error(E.this_outside_class, self)
                 raise ErrorException()
@@ -977,14 +976,14 @@ class ValueNode(Node):
             return self
 
         elif self.value.type == TT.super:
-            current_class = self.find_parent_object(tc)
+            current_class = self.find_parent_class(tc)
             if current_class is None:
                 tc.error(E.super_outside_class, self)
                 raise ErrorException()
 
             super_class = current_class.parent_class
             if super_class is None:
-                tc.error(E.object_is_not_subtype, self, current_class.name.value)
+                tc.error(E.class_is_not_subtype, self, current_class.name.value)
                 raise ErrorException()
 
             self.type = super_class.value
@@ -1046,7 +1045,7 @@ class BinOpNode(Node):
             return self
         dunder_func = op_to_dunder(tc, self.op.type, self.start, self.end, self.line, self.left_child, self.right_child)
         if dunder_func is None:
-            tc.error(E.bin_dunder_not_found, self.op, self.op.value, self.left_child.type, self.right_child.type,
+            tc.error(E.bin_dunder_not_found, self.op, self.op.type.value, self.left_child.type, self.right_child.type,
                      default_ops[self.op.type])
             raise ErrorException()
         else:
@@ -1074,7 +1073,7 @@ class DotOpNode(Node):
             object_type = tc.types[self.object.type]
             if isinstance(self.object, ValueNode) and self.object.value.value == self.object.type:
                 # it's the class name or super/this keywords
-                if self.property.value.value in object_type.vars and self.find_parent_object(tc) != object_type:
+                if self.property.value.value in object_type.vars and self.find_parent_class(tc) != object_type:
                     # later can check if var is static or not
                     tc.error(E.instance_needed, self.object, self.object.value.value)
             return self
@@ -1105,6 +1104,11 @@ class VarDeclarationNode(Node):
             raise ErrorException()
         if self.weak is not None and self.var_type.value in primitive_types:
             tc.error(E.weak_cant_be_on_primitives, self.weak)
+            raise ErrorException()
+
+        if self.weak is not None and isinstance(self.value.value, FuncCallNode) and \
+                self.value.value.type == self.value.value.func_name:    # detecting a constructor here
+            tc.error(E.weak_cant_assign_constructor, self.weak)
             raise ErrorException()
 
         tc.types[self.var_type.value].check_generics(tc, self.var_type.generics,
@@ -1202,7 +1206,7 @@ class FuncDeclarationNode(ScopedNode):
             tc.error(E.invalid_ret_type, self.type_tok)
             raise ErrorException()
 
-        self.parent_obj = self.find_parent_object(tc)
+        self.parent_obj = self.find_parent_class(tc)
         if self.type == self.name.value:    # it's a constructor
             self.constructor = True
             if self.parent_obj is None or self.type != self.parent_obj.type:  # constructor outside its class definition
@@ -1263,7 +1267,7 @@ class FuncDeclarationNode(ScopedNode):
 
 
 class ObjectDeclarationNode(ScopedNode):
-    def __init__(self, name: Token, generics: List[str], parent_class: Token = None):
+    def __init__(self, name: Token, generics: List[Union[ValueNode, VarDeclarationNode]], parent_class: Token = None):
         super().__init__(start=name.start, end=name.end, line=name.line)
         self.name = name
         self.type = name.value
@@ -1319,7 +1323,18 @@ class ObjectDeclarationNode(ScopedNode):
             tc.errors.append(Error(E.generic_expected, generic_start, generic_end, generic_line, tc.file_name,
                                    tc.lines[generic_line-1]))
             raise ErrorException()
+        else:
+            for self_gen, gen in zip(self.generics, generics):
+                if isinstance(self_gen, VarDeclarationNode) and not tc.types_compatible(self_gen.type, gen):
+                    tc.error(E.type_missmatch, gen, self_gen.type, gen.value.value)
+                    raise ErrorException()
         return
+
+    def get_generic_definition(self, name) -> (None, VarDeclarationNode, ValueNode):
+        for generic in self.generics:
+            if generic.name.value == name:
+                return generic
+        return None
 
     def contains_func_name(self, name) -> bool:
         for key in self.funcs:
@@ -1367,6 +1382,7 @@ class FuncCallNode(Node):
         super().__init__(name.start, name.end, name.line)
         self.func = name
         self.func_name = None
+        self.func_declaration = None
         self.args = args
         return
 
@@ -1391,12 +1407,12 @@ class FuncCallNode(Node):
             raise ErrorException()
 
         args = self.get_arg_types()
-        func = tc.get_func(self.func_name, args)
+        self.func_declaration = tc.get_func(self.func_name, args)
 
-        if func is None:
+        if self.func_declaration is None:
             tc.error(E.undefined_function, self.func)
             raise ErrorException()
-        self.type = func.type
+        self.type = self.func_declaration.type
         return self
 
     def get_arg_types(self) -> Tuple[str]:
@@ -1657,7 +1673,7 @@ default_types: Dict[str, ObjectDeclarationNode] = {
     TT.func.value: None,  # function can't have operations
     TT.string.value: ObjectDeclarationNode(Token(TT.word, None, None, None, 'string'), []),
     TT.array.value: ObjectDeclarationNode(Token(TT.word, None, None, None, 'array'), []),
-    TT.object_.value: None  # object type doesn't have operations
+    TT.class_.value: None  # class type doesn't have operations
 }
 
 
@@ -1697,8 +1713,8 @@ class Parser:
         if tt == TT.func:
             return [self.func_def()]
 
-        elif tt == TT.object_:
-            return [self.make_object()]
+        elif tt == TT.class_:
+            return [self.make_class()]
 
         elif tt == TT.macro:
             return [self.make_macro()]
@@ -1963,7 +1979,7 @@ class Parser:
         node.assign_body(body)
         return node
 
-    def make_object(self) -> Node:
+    def make_class(self) -> Node:
         self.advance()
         if self.peak.type != TT.word:
             self.error(E.identifier_expected, self.peak)
@@ -2193,13 +2209,24 @@ class Parser:
         generics = []
         while self.has_next() and self.peak.type != TT.gt:
             if defining:
-                if self.peak.type == TT.word:
-                    generics.append(self.peak.value)
+                if self.has_next(1) and self.toks[self.i+1].type == TT.gt:  # looking 1 token ahead to know if it's the end
+                    generics.append(ValueNode(self.peak))
+                    self.advance()
+                    break
                 else:
-                    self.error(E.identifier_expected, self.peak.value)
+                    var_type = self.peak
+                    self.advance()
+                    if self.peak.type == TT.comma:
+                        generics.append(ValueNode(var_type))
+                        self.advance()
+                        continue
+                    if self.peak.type != TT.word:
+                        self.error(E.identifier_expected, self.peak)
+
+                    generics.append(VarDeclarationNode(var_type, self.peak))
             else:
                 if self.peak.type == TT.word or self.peak.type.value in default_types:
-                    generics.append(self.peak)
+                    generics.append(ValueNode(self.peak))
                 else:
                     self.error(E.identifier_expected, self.peak)
             self.advance()
@@ -2245,7 +2272,7 @@ class TypeChecker:
         self.check_scope(self.asts)
         return
 
-    def check_scope(self, nodes, context: Tuple = None, object_scope=False) -> List[Node]:
+    def check_scope(self, nodes, context: Tuple = None, class_scope=False) -> List[Node]:
         funcs = self.funcs.copy()
         variables = self.vars.copy()
         types = self.types.copy()
@@ -2274,8 +2301,8 @@ class TypeChecker:
 
         body_lowered = []
         for node in nodes:
-            if object_scope and not (isinstance(node, VarDeclarationNode) or isinstance(node, MacroDefNode) or
-                                     isinstance(node, ScopedNode)):
+            if class_scope and not (isinstance(node, VarDeclarationNode) or isinstance(node, MacroDefNode) or
+                                    isinstance(node, ScopedNode)):
                 self.error(E.identifier_expected, node)
                 continue
             try:
@@ -2310,6 +2337,20 @@ class TypeChecker:
             if func is not None:
                 return func
         return None
+
+    def types_compatible(self, target_type: str, node_type: ValueNode) -> True:
+        if target_type not in self.types:
+            return False
+        implicit_type_convert(target_type, node_type)
+
+        if node_type.type == target_type:
+            return True
+
+        for t in self.types.values():
+            if t is not None and t.parent_class is not None:
+                if node_type.type == t.parent_class.value:
+                    return True
+        return False
 
     def error(self, e: E, node, *args) -> None:
         self.errors.append(
