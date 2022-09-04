@@ -58,338 +58,336 @@ func null display(uint x, uint y, uint color = 1) {
 }
 
 
-
-
 // Default Classes
 
 class __bool__ {
-    func bool __or__(bool me, bool other) {
-        return me || other
+    func bool __or__(bool other) {
+        return this || other
     }
 
-    func bool __and__(bool me, bool other) {
-        return me && other
+    func bool __and__(bool other) {
+        return this && other
     }
 
-    func bool __xor__(bool me, bool other) {
-        return me ^ other
+    func bool __xor__(bool other) {
+        return this ^ other
     }
 
-    func bool __not__(bool me) {
-        return !me
+    func bool __not__() {
+        return !this
     }
 }
 
 class __int__ {
-    func uint __uint__(int me) {
-        return me
+    func uint __uint__() {
+        return this
     }
 
-    func int __add__(int me, int other) {
-        return me + other
+    func int __add__(int other) {
+        return this + other
     }
 
-    func int __sub__(int me, int other) {
-        return me - other
+    func int __sub__(int other) {
+        return this - other
     }
 
-    func int __inc__(int me) {
-        return me++
+    func int __inc__() {
+        return this++
     }
 
-    func int __dec__(int me) {
-        return me--
+    func int __dec__() {
+        return this--
     }
 
-    func int __shr__(int me, uint amount) {
-        return me >> other
+    func int __shr__(uint amount) {
+        return this >> other
     }
 
-    func int __shl__(int me, uint amount) {
-        return me << other
+    func int __shl__(uint amount) {
+        return this << other
     }
 
-    func int __mlt__(int me, int other) {
-        return me * other
+    func int __mlt__(int other) {
+        return this * other
     }
 
-    func int __div__(int me, int other) {
-        return me / other
+    func int __div__(int other) {
+        return this / other
     }
 
-    func int __neg__(int me) {
-        return -me
+    func int __neg__() {
+        return -this
     }
 
-    func int __bor__(int me, int other) {
-        return me | other
+    func int __bor__(int other) {
+        return this | other
     }
 
-    func int __band__(int me, int other) {
-        return me & other
+    func int __band__(int other) {
+        return this & other
     }
 
-    func int __bxor__(int me, int other) {
-        return me ^ other
+    func int __bxor__(int other) {
+        return this ^ other
     }
 
-    func int __bnot__(int me) {
-        return ~me
+    func int __bnot__() {
+        return ~this
     }
 
-    func bool __gt__(int me, int other) {
-        return me > other
+    func bool __gt__(int other) {
+        return this > other
     }
 
-    func bool __gte__(int me, int other) {
-        return me >= other
+    func bool __gte__(int other) {
+        return this >= other
     }
 
-    func bool __lt__(int me, int other) {
-        return me < other
+    func bool __lt__(int other) {
+        return this < other
     }
 
-    func bool __lte__(int me, int other) {
-        return me <= other
+    func bool __lte__(int other) {
+        return this <= other
     }
 
-    func bool __dif__(int me, int other) {
-        return me != other
+    func bool __dif__(int other) {
+        return this != other
     }
 
-    func bool __equ__(int me, int other) {
-        return me == other
+    func bool __equ__(int other) {
+        return this == other
     }
 }
 
 class __uint__ {
-    func int __uint__(uint me) {
-        return me
+    func int __uint__() {
+        return this
     }
 
-    func uint __add__(uint me, uint other) {
-        return me + other
+    func uint __add__(uint other) {
+        return this + other
     }
 
-    func uint __sub__(uint me, uint other) {
-        return me - other
+    func uint __sub__(uint other) {
+        return this - other
     }
 
-    func int __inc__(uint me) {
-        return me++
+    func int __inc__() {
+        return this++
     }
 
-    func int __dec__(uint me) {
-        return me--
+    func int __dec__() {
+        return this--
     }
 
-    func uint __shr__(uint me, uint amount) {
-        return me >> other
+    func uint __shr__(uint amount) {
+        return this >> other
     }
 
-    func uint __shl__(uint me, uint amount) {
-        return me << other
+    func uint __shl__(uint amount) {
+        return this << other
     }
 
-    func uint __mlt__(uint me, uint other) {
-        return me * other
+    func uint __mlt__(uint other) {
+        return this * other
     }
 
-    func uint __div__(uint me, uint other) {
-        return me / other
+    func uint __div__(uint other) {
+        return this / other
     }
 
-    func uint __neg__(uint me) {
-        return -me
+    func uint __neg__() {
+        return -this
     }
 
-    func uint __bor__(uint me, uint other) {
-        return me | other
+    func uint __bor__(uint other) {
+        return this | other
     }
 
-    func uint __band__(uint me, uint other) {
-        return me & other
+    func uint __band__(uint other) {
+        return this & other
     }
 
-    func uint __bxor__(uint me, uint other) {
-        return me ^ other
+    func uint __bxor__(uint other) {
+        return this ^ other
     }
 
-    func uint __bnot__(uint me) {
-        return ~me
+    func uint __bnot__() {
+        return ~this
     }
 
-    func bool __gt__(uint me, uint other) {
-        return me > other
+    func bool __gt__(uint other) {
+        return this > other
     }
 
-    func bool __gte__(uint me, uint other) {
-        return me >= other
+    func bool __gte__(uint other) {
+        return this >= other
     }
 
-    func bool __lt__(uint me, uint other) {
-        return me < other
+    func bool __lt__(uint other) {
+        return this < other
     }
 
-    func bool __lte__(uint me, uint other) {
-        return me <= other
+    func bool __lte__(uint other) {
+        return this <= other
     }
 
-    func bool __dif__(uint me, uint other) {
-        return me != other
+    func bool __dif__(uint other) {
+        return this != other
     }
 
-    func bool __equ__(uint me, uint other) {
-        return me == other
+    func bool __equ__(uint other) {
+        return this == other
     }
 }
 
 class __fixed__ {
     // type conversions
-    func int __fixed__(fixed me) {
-        return me >> FP_scale
+    func int __fixed__() {
+        return this >> FP_scale
     }
 
-    func uint __fixed__(fixed me) {
-        return me >> FP_scale
+    func uint __fixed__() {
+        return this >> FP_scale
     }
 
     // dunder methods
-    func fixed __add__(fixed me, fixed other) {
-        return me + other
+    func fixed __add__(fixed other) {
+        return this + other
     }
 
-    func fixed __sub__(fixed me, fixed other) {
-        return me - other
+    func fixed __sub__(fixed other) {
+        return this - other
     }
 
-    func int __inc__(fixed me) {
-        copy = me
-        me += 1 << FP_scale
+    func int __inc__() {
+        copy = this
+        this += 1 << FP_scale
         return copy
     }
 
-    func int __dec__(fixed me) {
-        copy = me
-        me -= 1 << FP_scale
+    func int __dec__() {
+        copy = this
+        this -= 1 << FP_scale
         return copy
     }
 
-    func fixed __shr__(fixed me, uint amount) {
-        return me >> other
+    func fixed __shr__(uint amount) {
+        return this >> other
     }
 
-    func fixed __shl__(fixed me, uint amount) {
-        return me << other
+    func fixed __shl__(uint amount) {
+        return this << other
     }
 
-    func fixed __mlt__(fixed me, fixed other) {
-        return (me * other) >> FP_scale
+    func fixed __mlt__(fixed other) {
+        return (this * other) >> FP_scale
     }
 
-    func fixed __div__(fixed me, fixed other) {
-        return (me << FP_scale) / other
+    func fixed __div__(fixed other) {
+        return (this << FP_scale) / other
     }
 
-    func fixed __neg__(fixed me) {
-        return -me
+    func fixed __neg__() {
+        return -this
     }
 
-    func bool __gt__(fixed me, fixed other) {
-        return me > other
+    func bool __gt__(fixed other) {
+        return this > other
     }
 
-    func bool __gte__(fixed me, fixed other) {
-        return me >= other
+    func bool __gte__(fixed other) {
+        return this >= other
     }
 
-    func bool __lt__(fixed me, fixed other) {
-        return me < other
+    func bool __lt__(fixed other) {
+        return this < other
     }
 
-    func bool __lte__(fixed me, fixed other) {
-        return me <= other
+    func bool __lte__(fixed other) {
+        return this <= other
     }
 
-    func bool __dif__(fixed me, fixed other) {
-        return me != other
+    func bool __dif__(fixed other) {
+        return this != other
     }
 
-    func bool __equ__(fixed me, fixed other) {
-        return me == other
+    func bool __equ__(fixed other) {
+        return this == other
     }
 }
 
 class __float__ {  // they are not being implemented in krimson
-    func float __add__(float me, float other) {}
+    func float __add__(float other) {}
 
-    func float __sub__(float me, float other) {}
+    func float __sub__(float other) {}
 
-    func float __mlt__(float me, float other) {}
+    func float __mlt__(float other) {}
 
-    func float __div__(float me, float other) {}
+    func float __div__(float other) {}
 
-    func float __neg__(float me) {}
+    func float __neg__() {}
 
-    func bool __gt__(float me, float other) {}
+    func bool __gt__(float other) {}
 
-    func bool __gte__(float me, float other) {}
+    func bool __gte__(float other) {}
 
-    func bool __lt__(float me, float other) {}
+    func bool __lt__(float other) {}
 
-    func bool __lte__(float me, float other) {}
+    func bool __lte__(float other) {}
 
-    func bool __dif__(float me, float other) {}
+    func bool __dif__(float other) {}
 
-    func bool __equ__(float me, float other) {}
+    func bool __equ__(float other) {}
 }
 
 class __char__ {
-    func char __add__(char me, char other) {}
+    func char __add__(char other) {}
 
-    func string __mlt__(char me, int amount) {}
+    func string __mlt__(cint amount) {}
 
-    func bool __gt__(char me, char other) {}
+    func bool __gt__(char other) {}
 
-    func bool __gte__(char me, char other) {}
+    func bool __gte__(char other) {}
 
-    func bool __lt__(char me, char other) {}
+    func bool __lt__(char other) {}
 
-    func bool __lte__(char me, char other) {}
+    func bool __lte__(char other) {}
 
-    func bool __dif__(char me, char other) {}
+    func bool __dif__(char other) {}
 
-    func bool __equ__(char me, char other) {}
+    func bool __equ__(char other) {}
 }
 
 class __string__ {
-    func char __get__(string me, uint index) {}
+    func char __get__(uint index) {}
 
-    func string __add__(string me, string other) {}
+    func string __add__(string other) {}
 
-    func string __add__(string me, char other) {}
+    func string __add__(char other) {}
 
-    func string __mlt__(string me, int amount) {}
+    func string __mlt__(int amount) {}
 
-    func bool __gt__(string me, string other) {}
+    func bool __gt__(string other) {}
 
-    func bool __gte__(string me, string other) {}
+    func bool __gte__(string other) {}
 
-    func bool __lt__(string me, string other) {}
+    func bool __lt__(string other) {}
 
-    func bool __lte__(string me, string other) {}
+    func bool __lte__(string other) {}
 
-    func bool __dif__(string me, string other) {}
+    func bool __dif__(string other) {}
 
-    func bool __equ__(string me, string other) {}
+    func bool __equ__(string other) {}
 }
 
 class __array__<T> {
-    func array<T> __add__(array<T> me, array<T> other) {}
+    func array<T> __add__(array<T> other) {}
 
-    func array<T> __add__(array<T> me, T other) {}
+    func array<T> __add__(T other) {}
 
-    func bool __dif__(array<T> me, array other) {}
+    func bool __dif__(array other) {}
 
-    func bool __equ__(array<T> me, array other) {}
+    func bool __equ__(array other) {}
 }

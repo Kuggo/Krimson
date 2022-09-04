@@ -15,22 +15,29 @@ def main():
 
     source = '''
     vector<int> var = vector()
-    var++
+    
+    int num = var.getBonus()
+    num = var++
     
     class vector<int size> {
+        static int bonus = 1
         int count
         
         func vector() {
             count = 0
         }
         
-        //func bool isFull() {
-        //    return count < size
-        //}
+        static func int getBonus() {
+            return bonus
+        }
         
-        func null __inc__(vector me) {
-            me.count++
-            return null
+        func bool isFull() {
+            return count < size
+        }
+        
+        func int __inc__() {
+            this.count++
+            return count
         }
     }
     '''
@@ -101,6 +108,7 @@ def make_default_lib_helper(tc: 'TypeChecker'):
                 for t in parser.output:
                     if isinstance(t, ObjectDeclarationNode):
                         tc.types[t.name.value[2:-2]] = t
+                        t.type = t.name.value[2:-2]     # fixing the type so they dont have __type__ instead of type
 
                     elif isinstance(t, FuncDeclarationNode):
                         tc.funcs[t.name.value] = t
@@ -185,6 +193,7 @@ class TT(Enum):
     char = 'char'
 
     weak = 'weak'
+    static = 'static'
     func = 'func'
     func_call = 'func()'
     address = '[]'
@@ -251,6 +260,7 @@ keywords = {
     'false': TT.false,
     'null': TT.null,
     'weak': TT.weak,
+    'static': TT.static,
     'super': TT.super,
     'this': TT.this,
 
@@ -458,9 +468,12 @@ class E(Enum):
     weak_cant_assign_constructor = "Cannot assign a new constructed object to a weak reference holder"
     constructor_outside_class = "Constructor for class '{}' found outside its class"
     this_outside_class = 'this keyword found outside an class definition'
+    this_on_static = 'this keyword cannot be used in a static context'
     super_outside_class = 'super keyword found outside an class definition'
     class_is_not_subtype = "class '{}' does not inherit from another class"
     instance_needed = "Cannot access fields of object '{}' without an instance of it"
+    static_class_no_constructor = "Static class cannot have a constructor"
+    static_not_in_class_scope = 'Static modifier cannot be applied outside a Class definition scope'
     cannot_default_arg = "Cannot assign a default value to function argument '{}'"
 
     def __repr__(self) -> str:
@@ -954,7 +967,10 @@ class ValueNode(Node):
             self.type = TT.func
         else:
             parent = self.find_parent_class(tc)
-            if self.value.type == TT.word and parent is not None:
+            if parent is not None and self.value.value in parent.static_vars:
+                self.type = parent.static_vars[self.value.value].type
+                return
+            elif self.value.type == TT.word and parent is not None:
                 generic_def = parent.get_generic_definition(self.value.value)
                 if isinstance(generic_def, VarDeclarationNode):
                     self.type = generic_def.type
@@ -994,6 +1010,11 @@ class ValueNode(Node):
             current_class = self.find_parent_class(tc)
             if current_class is None:
                 tc.error(E.this_outside_class, self)
+                raise ErrorException()
+
+            current_func = self.find_parent_function(tc)
+            if current_class.static or (current_func is not None and current_func.static):
+                tc.error(E.this_on_static, self.value)
                 raise ErrorException()
 
             self.type = current_class.name.value
@@ -1091,16 +1112,17 @@ class DotOpNode(Node):
     def lower(self, tc: 'TypeChecker', func_call=False, expression=False) -> Node:
         self.object.assign_parent(self.parent)
         self.property.assign_parent(self.parent)
-        self.object = self.object.lower(tc, func_call, expression)
+        self.object = self.object.lower(tc, expression=expression, func_call=False)
 
         if self.object.type in tc.types and tc.types[self.object.type].has_attribute(self.property.value.value):
             object_type = tc.types[self.object.type]
             self.type = object_type.get_attribute_type(self.property.value.value)
             if isinstance(self.object, ValueNode) and self.object.value.value == self.object.type:
                 # it's the class name or super/this keywords
-                if self.property.value.value in object_type.vars and self.find_parent_class(tc) != object_type:
-                    # later can check if var is static or not
-                    tc.error(E.instance_needed, self.object, self.object.value.value)
+                if self.find_parent_class(tc) != object_type:
+                    if self.property.value.value in object_type.vars:
+                        tc.error(E.instance_needed, self.object, self.object.value.value)
+
             return self
         else:
             tc.error(E.no_attribute, self.property, self.object.value.value, self.property.value.value)
@@ -1111,11 +1133,12 @@ class DotOpNode(Node):
 
 
 class VarDeclarationNode(Node):
-    def __init__(self, var_type: Token, name: Token, value: 'AssignNode' = None, weak=None):
+    def __init__(self, var_type: Token, name: Token, value: 'AssignNode' = None, weak=None, static=False):
         super().__init__(var_type.start, name.end, name.line)
         self.var_type = var_type
         self.type: str = var_type.value
         self.weak = weak
+        self.static = static
         self.name = name
         self.value = value
         return
@@ -1134,6 +1157,11 @@ class VarDeclarationNode(Node):
         if self.weak is not None and isinstance(self.value.value, FuncCallNode) and \
                 self.value.value.type == self.value.value.func_name:    # detecting a constructor here
             tc.error(E.weak_cant_assign_constructor, self.weak)
+            raise ErrorException()
+
+        if self.static and self.parent != self.find_parent_class(tc):
+            # was not declared in the object's scope and its static
+            tc.error(E.static_not_in_class_scope, self)
             raise ErrorException()
 
         if check_generics:
@@ -1219,12 +1247,13 @@ class ScopedNode(Node):
 
 
 class FuncDeclarationNode(ScopedNode):
-    def __init__(self, ret_type: Token, name: Token, args: List[VarDeclarationNode] = None):
+    def __init__(self, ret_type: Token, name: Token, args: List[VarDeclarationNode] = None, static=False):
         super().__init__(start=name.start, end=name.end, line=name.line)
         self.parent_obj = None
         self.type_tok = ret_type
         self.type = ret_type.value
         self.name = name
+        self.static = static
         if args is None:
             self.args = []
         else:
@@ -1246,8 +1275,19 @@ class FuncDeclarationNode(ScopedNode):
             if self.parent_obj is None or self.type != self.parent_obj.type:  # constructor outside its class definition
                 tc.error(E.constructor_outside_class, self, self.type)
                 raise ErrorException()
+            elif self.parent_obj.static:
+                tc.error(E.static_class_no_constructor, self)
+                raise ErrorException()
             else:
-                self.parent_obj.constructors[(self.type, self.get_arg_types())] = self
+                self.parent_obj.constructors[(self.type, self.get_arg_types(parent_obj=self.parent_obj))] = self
+
+        if self.static:
+            if self.parent != self.parent_obj:  # was not declared in the object's scope and its static
+                tc.error(E.static_not_in_class_scope, self)
+                raise ErrorException()
+        elif not self.constructor:
+            var_type = Token(TT.word, None, None, None, self.parent_obj.type)
+            self.args.insert(0, VarDeclarationNode(var_type, this.value))
 
         for i, arg in enumerate(self.args):
             self.vars[arg.name.value] = arg
@@ -1282,8 +1322,11 @@ class FuncDeclarationNode(ScopedNode):
             self.body.append(ReturnNode(null, Token(TT.return_, self.end, self.end, self.line)))
         return self
 
-    def get_arg_types(self) -> Tuple[str]:
-        args = []
+    def get_arg_types(self, parent_obj: 'ObjectDeclarationNode' = None) -> Tuple[str]:
+        if parent_obj is None or parent_obj.static or self.static:
+            args = []
+        else:
+            args = [parent_obj.type]
         for arg in self.args:
             args.append(arg.type)
         return tuple(args)
@@ -1301,13 +1344,44 @@ class FuncDeclarationNode(ScopedNode):
 
 
 class ObjectDeclarationNode(ScopedNode):
-    def __init__(self, name: Token, generics: List[Union[ValueNode, VarDeclarationNode]], parent_class: Token = None):
+    def __init__(self, name: Token, generics: List[Union[ValueNode, VarDeclarationNode]], parent_class: Token = None,
+                 static=False):
         super().__init__(start=name.start, end=name.end, line=name.line)
         self.name = name
-        self.type = name.value
+        if name.value.startswith('__') and name.value.endswith('__') and name.value[2:-2] in default_types:
+            self.type = name.value[2:-2]     # removing __type__
+        else:
+            self.type = name.value
         self.generics = generics
+        self.static = static
+        self.static_vars: Dict[Tuple[str, Tuple[str]]] = {}
         self.constructors: Dict[Tuple[str, Tuple[str]], FuncDeclarationNode] = {}
+        self.deconstructor: (FuncDeclarationNode, None) = None
         self.parent_class = parent_class
+        return
+
+    def assign_body(self, body: List[Node] = None):
+        if body is None:
+            self.body = []
+        else:
+            self.body = body
+            for b in body:
+                b.assign_parent(self)
+                if isinstance(b, VarDeclarationNode):
+                    if self.static:
+                        b.static = True
+                    if b.static:
+                        self.static_vars[b.name.value] = b
+                    else:
+                        self.vars[b.name.value] = b
+                elif isinstance(b, FuncDeclarationNode):
+                    if self.static:
+                        b.static = True
+                    self.funcs[(b.name.value, b.get_arg_types(parent_obj=self))] = b
+                elif isinstance(b, ObjectDeclarationNode):
+                    self.types[b.name.value] = b
+        if len(body) > 0:
+            self.end = self.body[-1].end
         return
 
     def lower(self, tc: 'TypeChecker') -> 'ObjectDeclarationNode':
@@ -1324,26 +1398,34 @@ class ObjectDeclarationNode(ScopedNode):
             return
         parent_class_def = tc.types[self.parent_class.value]
         vars_copy = parent_class_def.vars.copy()
+        static_vars_copy = parent_class_def.static_vars.copy()
         funcs_copy = parent_class_def.funcs.copy()
         types_copy = parent_class_def.types.copy()
 
         vars_copy.update(self.vars)
+        static_vars_copy.update(self.static_vars)
         funcs_copy.update(self.funcs)
         types_copy.update(self.types)
 
         self.vars = vars_copy
+        self.static_vars = static_vars_copy
         self.funcs = funcs_copy
         self.types = types_copy
         return
 
-    def has_attribute(self, name: str) -> bool:
-        return name in self.vars or name in self.types or self.contains_func_name(name)
+    def has_attribute(self, name: str, static=False) -> bool:
+        if static or self.static:
+            return name in self.static_vars or name in self.types or self.contains_func_name(name)
+        else:
+            return name in self.static_vars or name in self.vars or name in self.types or self.contains_func_name(name)
 
-    def get_attribute_type(self, name) -> str:
+    def get_attribute_type(self, name, static=False) -> str:
         if self.contains_func_name(name):
             # return self.funcs[name].type
             return TT.func.value
-        if name in self.vars and isinstance(self.vars[name], VarDeclarationNode):
+        if static and name in self.static_vars:
+            return self.static_vars[name]
+        if name in self.vars:
             return self.vars[name].type
         if name in self.types:
             return self.types[name].type
@@ -1379,9 +1461,14 @@ class ObjectDeclarationNode(ScopedNode):
                 return True
         return False
 
-    def get_func(self, func_name, args) -> (FuncDeclarationNode, None):
+    def get_func(self, func_name, args, static_func_args=None) -> (FuncDeclarationNode, None):
         if (func_name, args) in self.funcs:
             return self.funcs[(func_name, args)]
+
+        elif static_func_args is not None and (func_name, static_func_args) in self.funcs:
+            func = self.funcs[(func_name, static_func_args)]
+            if func.static:
+                return func
         else:
             return None
 
@@ -1431,6 +1518,7 @@ class FuncCallNode(Node):
             arg.assign_parent(self.parent)
             self.args[i] = arg.lower(tc)
 
+        static_func_args = None
         if isinstance(self.func, ValueNode):
             if self.func.value.type in default_ops:  # the function name is either a word or the name of the type
                 self.func_name = default_ops[self.func.value.type]
@@ -1439,12 +1527,13 @@ class FuncCallNode(Node):
         elif isinstance(self.func, DotOpNode):
             self.func_name = self.func.property.value.value
             if not (isinstance(self.func.object, ValueNode) and self.func.object.value.value in tc.types):
+                static_func_args = tuple(self.args)  # saving a copy of the function's original args in case it's static
                 self.args.insert(0, self.func.object)
         else:
             raise ErrorException()
 
         args = self.get_arg_types()
-        self.func_declaration = tc.get_func(self.func_name, args)
+        self.func_declaration = tc.get_func(self.func_name, args, static_func_args)
 
         if self.func_declaration is None:
             tc.error(E.undefined_function, self.func)
@@ -1748,6 +1837,12 @@ class Parser:
 
     def next_statement(self) -> List[Node]:
         tt = self.peak.type
+        if tt == TT.static:
+            self.advance()
+            tt = self.peak.type
+            if tt == TT.static:
+                self.error(E.identifier_expected, self.peak)
+
         if tt == TT.func:
             return [self.func_def()]
 
@@ -1960,6 +2055,9 @@ class Parser:
     # processing keywords
 
     def assign_var(self, func_def=False) -> (VarDeclarationNode, Node):
+        static = False
+        if self.last is not None and self.last.type == TT.static:
+            static = True
         is_weak = None
         if self.peak.type == TT.weak:
             is_weak = self.peak
@@ -1979,12 +2077,15 @@ class Parser:
         name = self.peak
         expression = self.make_expression()
         if isinstance(expression, AssignNode):
-            declair_node = VarDeclarationNode(var_type, name, expression, weak=is_weak)
+            declair_node = VarDeclarationNode(var_type, name, expression, weak=is_weak, static=static)
         else:
-            declair_node = VarDeclarationNode(var_type, name, weak=is_weak)
+            declair_node = VarDeclarationNode(var_type, name, weak=is_weak, static=static)
         return declair_node
 
     def func_def(self) -> Node:
+        static = False
+        if self.last is not None and self.last.type == TT.static:
+            static = True
         self.advance()
         ret_type = self.peak
         if ret_type.type != TT.word and ret_type.value not in default_types and ret_type.type != TT.null:
@@ -1998,6 +2099,7 @@ class Parser:
             ret_type.generics, ret_type.generic_end = self.make_generics()
 
         if self.peak.type == TT.lpa:  # then it's a constructor
+            static = True   # constructors should be static even tho the user doesn't need to say it
             func_name = ret_type
         elif self.peak.type != TT.word:
             self.error(E.identifier_expected, self.peak)
@@ -2015,7 +2117,7 @@ class Parser:
             args.append(self.assign_var(func_def=True))
 
         self.advance()
-        node = FuncDeclarationNode(ret_type, func_name, args)
+        node = FuncDeclarationNode(ret_type, func_name, args, static)
         self.scope.append(node)
         body = self.next_statements()
         self.scope.pop()
@@ -2023,6 +2125,9 @@ class Parser:
         return node
 
     def make_class(self) -> Node:
+        static = False
+        if self.last is not None and self.last.type == TT.static:
+            static = True
         self.advance()
         if self.peak.type != TT.word:
             self.error(E.identifier_expected, self.peak)
@@ -2044,7 +2149,7 @@ class Parser:
             else:
                 self.advance()
 
-        node = ObjectDeclarationNode(name, generics, parent_class)
+        node = ObjectDeclarationNode(name, generics, parent_class, static=static)
         self.scope.append(node)
         body = self.next_statements()
         self.scope.pop()
@@ -2370,13 +2475,18 @@ class TypeChecker:
                 return True
         return False
 
-    def get_func(self, func_name, args) -> (FuncDeclarationNode, None):
+    def get_func(self, func_name, args, static_func_args=None) -> (FuncDeclarationNode, None):
         if (func_name, args) in self.funcs:
             return self.funcs[(func_name, args)]
+        elif static_func_args is not None and (func_name, static_func_args) in self.funcs:
+            func = self.funcs[(func_name, static_func_args)]
+            if func.static or func.constructor:
+                return func
+
         for obj in self.types.values():
             if obj is None:
                 continue
-            func = obj.get_func(func_name, args)
+            func = obj.get_func(func_name, args, static_func_args)
             if func is not None:
                 return func
         return None
