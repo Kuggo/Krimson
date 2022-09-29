@@ -1,0 +1,19 @@
+//class vector<T> {
+//    static int bonus = 1
+//    int count
+//
+//    func vector() {
+//        count = 0
+//    }
+//
+//    static func int getBonus() {
+//        return bonus
+//    }
+//}
+
+//vector<int> var = vector()
+
+func null amogus() {
+    return null
+}
+

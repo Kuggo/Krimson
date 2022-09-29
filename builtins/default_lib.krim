@@ -1,9 +1,18 @@
+//Exception mapping
+macro NullPointer = 1
+macro IndexOutOfBounds = 2
+macro ArithmeticError = 3
+
+
 // built-in Global Variables
 macro BITS = 16
-macro FP_scale = 8
 
 
 // built-in functions
+
+func null __free__(T obj) {
+
+}
 
 func null print(int n) {
     urcl {
@@ -243,6 +252,8 @@ class __uint__ {
 }
 
 class __fixed__ {
+    macro FP_scale = 8
+
     // type conversions
     func int __fixed__() {
         return this >> FP_scale
@@ -361,7 +372,8 @@ class __char__ {
 }
 
 class __string__ {
-    func char __get__(uint index) {}
+
+    func null __del__() {}
 
     func string __add__(string other) {}
 
@@ -380,14 +392,65 @@ class __string__ {
     func bool __dif__(string other) {}
 
     func bool __equ__(string other) {}
+
+    func char __get__(uint index) {}
+
+    func char __get__(int index) {}
+
 }
 
 class __array__<T> {
+
+    func null __del__() {
+
+    }
+
     func array<T> __add__(array<T> other) {}
 
     func array<T> __add__(T other) {}
 
-    func bool __dif__(array other) {}
 
-    func bool __equ__(array other) {}
+    func bool __dif__(array other) {
+
+    }
+
+    func bool __equ__(array other) {
+
+    }
+
+    func T __get__(uint index) {
+        urcl {
+            "LLOD R1 SP 1"
+            "LLOD R1 R1 -4"
+            "SUB R1 R1 4"
+            "LLOD R2 SP 2"
+            "BRL ~+3 R2 R1"
+            "IMM R2 2"  // out of bounds exception
+            "RET"
+            "LLOD R1 SP 1"
+            "ADD R1 R1 R2"
+            "LOD R1 R1"
+        }
+    }
+
+    func T __get__(int index) {
+        urcl {
+            "LLOD R1 SP 1"
+            "LLOD R1 R1 -4"
+            "SUB R1 R1 4"
+            "LLOD R2 SP 2"
+            "BRP ~+5 R2"
+            "ADD R2 R2 R1"
+            "BRP ~+3 R2"
+            "IMM R2 2"  // out of bounds exception
+            "RET"
+            "BRL ~+3 R2 R1"
+            "IMM R2 2"  // out of bounds exception
+            "RET"
+            "LLOD R1 SP 1"
+            "ADD R1 R1 R2"
+            "LOD R1 R1"
+            "IMM R2 0"
+        }
+    }
 }
