@@ -1,0 +1,16 @@
+ValueNode: Literal | name
+Expression: ValueNode | BinaryOperatorNode | UnaryOperatorNode | FunctionCall
+UnaryOperatorNode: operator Expression
+BinaryOperatorNode: Expression operator Expression
+FunctionCall: word '(' {Expression} ')'
+WhileNode: 'while' Expression statement
+IfNode: 'if' Expression statement ['else' statement]
+ReturnNode: 'return' Expression
+ScopeNode: '{' statement* '}'
+BreakNode: 'break'
+SkipNode: 'skip'
+VarAssignNode: name '=' Expression
+VarDefineNode: name [name]
+FuncDefineNode: name '(' {VarDefineNode} ')' statement
+ClassDefineNode: 'class' name '{' (VarDefineNode | FuncDefineNode | ClassDefineNode)* '}'
+Statement: Expression | WhileNode | IfNode | ReturnNode | BreakNode | SkipNode | ScopeNode | VarAssignNode | VarDefineNode | FuncDefineNode | ClassDefineNode

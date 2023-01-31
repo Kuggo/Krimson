@@ -13,33 +13,8 @@ def main():
     if src_name == '--help':
         print('usage: krimson <source_file> <destination_file>')
 
-    source = '''
-    vector<int> var = vector()
-    
-    int num = var.getBonus()
-    num = var++
-    
-    class vector<int size> {
-        static int bonus = 1
-        int count
-        
-        func vector() {
-            count = 0
-        }
-        
-        static func int getBonus() {
-            return bonus
-        }
-        
-        func bool isFull() {
-            return count < size
-        }
-        
-        func int __inc__() {
-            this.count++
-            return count
-        }
-    }
+    source = '''int ver = 0
+    int var = ver[0]
     '''
 
     if src_name is not None:
@@ -79,8 +54,6 @@ def main():
 
     type_checker = TypeChecker(parser.output, source, src_name)
 
-    make_default_lib_helper(type_checker)  # if no errors so far lets load default types to began type checking
-
     type_checker.check()
 
     if len(type_checker.errors) > 0:
@@ -89,39 +62,7 @@ def main():
         exit(1)
 
     print(type_checker.asts, file=dest)
-
-    # TODO compile to urcl
     return
-
-
-def make_default_lib_helper(tc: 'TypeChecker'):
-    file_name = 'default_lib.krim'
-    try:
-        with open(file_name, 'r') as file:
-            try:
-                code = file.read()
-                lexer = Lexer(code, file_name)
-                lexer.tokenize()
-
-                parser = Parser(code, lexer.tokens, file_name)
-                parser.parse()
-                for t in parser.output:
-                    if isinstance(t, ObjectDeclarationNode):
-                        tc.types[t.name.value[2:-2]] = t
-                        t.type = t.name.value[2:-2]     # fixing the type so they dont have __type__ instead of type
-
-                    elif isinstance(t, FuncDeclarationNode):
-                        tc.funcs[t.name.value] = t
-
-                    elif isinstance(t, VarDeclarationNode) or isinstance(t, MacroDefNode):
-                        tc.vars[t.name.value] = t
-
-            except ErrorException as e:
-                print(e.error, file=stderr)
-                exit(1)
-    except OSError:
-        print('Unable to find built in type library', file=stderr)
-        exit(1)
 
 
 class TT(Enum):
@@ -931,7 +872,7 @@ class Node:
         self.parent.add_extra_nodes(nodes)
         return
 
-    def find_parent_class(self, tc: 'TypeChecker') -> ('ObjectDeclarationNode', None):
+    def find_parent_class(self, tc: 'TypeChecker') -> ('ClassDeclarationNode', None):
         if isinstance(self.parent, ObjectDeclarationNode):
             return self.parent
         elif self.parent is None:
@@ -1322,7 +1263,7 @@ class FuncDeclarationNode(ScopedNode):
             self.body.append(ReturnNode(null, Token(TT.return_, self.end, self.end, self.line)))
         return self
 
-    def get_arg_types(self, parent_obj: 'ObjectDeclarationNode' = None) -> Tuple[str]:
+    def get_arg_types(self, parent_obj: 'ClassDeclarationNode' = None) -> Tuple[str]:
         if parent_obj is None or parent_obj.static or self.static:
             args = []
         else:
@@ -1384,7 +1325,7 @@ class ObjectDeclarationNode(ScopedNode):
             self.end = self.body[-1].end
         return
 
-    def lower(self, tc: 'TypeChecker') -> 'ObjectDeclarationNode':
+    def lower(self, tc: 'TypeChecker') -> 'ClassDeclarationNode':
         if self.parent_class is not None and self.parent_class.value not in tc.types:
             tc.error(E.unknown_obj_type, self.parent_class)
             raise ErrorException()
