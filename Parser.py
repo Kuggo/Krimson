@@ -1,5 +1,15 @@
-from Lexer import *
+from Constants import *
 from ASTNodes import *
+
+
+class SyntaxError(Enum):
+    identifier_expected = 'Identifier expected'
+    symbol_expected = '{} expected'
+    symbol_expected_before = "'{}' expected before '{}'"
+    expression_expected = 'Expression expected'
+    type_expected = 'type expected'
+    generic_expected = 'Generic type/value expected'
+    cannot_assign_to_non_var = '{} is not a variable that can be assigned a value to'
 
 
 class Parser:
@@ -10,22 +20,43 @@ class Parser:
 
     def __init__(self, tokens: list[Token]):
         self.tokens: list[Token] = tokens + [Separators.eof.value]
+        """the token collection"""
+
         self.i: int = 0
+        """index on the token input of the current token"""
+
         self.peak: Token = self.tokens[self.i]
+        """current token pointed by index"""
+
+        self.length = len(self.tokens)
+        """length of the input token collection. To avoid calling ``len()`` on ``self.has_next()`` multiple times"""
+
         self.last = None
-        self.ast: Optional[ScopedNode] = None
+        """previous token pointed by index"""
+
+        self.ast: Optional[ScopeNode] = None
+        """output ScopeNode generated upon calling ``self.parse()``"""
+
         self.errors: list[Error] = []
+        """collection of Errors found by the Parser upon calling ``self.parse()``"""
+        return
 
     def parse(self):
         """ Entry function for the whole parsing process. The program is parsed as a scoped node (stream of statements).
 
-        program : scopeNode"""
+        program : scope"""
         if len(self.tokens) > 0:
             self.ast = self.scope()
         return
 
-    def scope(self) -> ScopedNode:
-        """"""
+    def scope(self) -> ScopeNode:
+        """Parses the next statements until it finds its end and returns the ScopeNode
+        
+        The end is the ``}`` separator
+        
+        scope : {statement}
+
+        :return: ScopeNode"""
 
         statements = []
         start_tok = self.peak
@@ -35,7 +66,7 @@ class Parser:
                 statements.append(statement)
 
         self.advance()
-        return ScopedNode(start_tok, statements)
+        return ScopeNode(start_tok, statements)
 
     def statement(self) -> Optional[Node]:
         """
@@ -56,7 +87,7 @@ class Parser:
                   | func_define_statement
                   | class_define_statement
 
-        :return: Node or None if the statement had syntax errors
+        :return: Node or None if an error occurred
         """
         if self.peak.tt == TT.KEYWORD:
             if self.peak.value == 'while':
@@ -104,7 +135,7 @@ class Parser:
             while i >= start and self.tokens[i].value in (')', ']'):
                 i -= 1
 
-            return i >= start and self.tokens[i].tt in (TT.NAME, TT.LITERAL)
+            return i >= start and self.tokens[i].tt in (TT.IDENTIFIER, TT.LITERAL)
 
         precedence = {  # TODO put all the operator precedences here
             '[]': 0,
@@ -114,6 +145,7 @@ class Parser:
             '/': 2,
             '^': 3,
             '&': 4,
+            '|': 5,
             '(': 0,
         }
         expression_queue: list[(Token, Node)] = []
@@ -123,7 +155,7 @@ class Parser:
             if self.peak.tt == TT.LITERAL:
                 expression_queue.append(self.peak)
 
-            elif self.peak.tt == TT.NAME:
+            elif self.peak.tt == TT.IDENTIFIER:
                 if self.preview().value == '(':
                     func_call = self.function_call()
                     if func_call is not None:
@@ -141,7 +173,7 @@ class Parser:
                     if len(operator_stack) > 0:
                         operator_stack.pop()
                     else:
-                        self.error(E.symbol_expected_before, self.peak, '(', ')')
+                        self.error(SyntaxError.symbol_expected_before, self.peak, '(', ')')
 
                 elif self.peak.value == '[':
                     if is_last_tok_value(start_index):
@@ -159,7 +191,7 @@ class Parser:
                     if len(operator_stack) > 0:
                         expression_queue.append(operator_stack.pop())
                     else:
-                        self.error(E.symbol_expected_before, self.peak, '[', ']')
+                        self.error(SyntaxError.symbol_expected_before, self.peak, '[', ']')
 
                 elif self.peak.value == '{':
                     dict_set = self.dict_set_literal()
@@ -182,7 +214,7 @@ class Parser:
                 assert False
 
             self.advance()
-            if self.peak.tt == TT.KEYWORD or (self.peak.tt in (TT.NAME, TT.LITERAL) and is_last_tok_value(start_index)):
+            if self.peak.tt == TT.KEYWORD or (self.peak.tt in (TT.IDENTIFIER, TT.LITERAL) and is_last_tok_value(start_index)):
                 break
 
         while len(operator_stack) > 0:
@@ -196,7 +228,7 @@ class Parser:
             elif tok.tt == TT.LITERAL:
                 operand_stack.append(ValueNode(tok))
 
-            elif tok.tt == TT.NAME:
+            elif tok.tt == TT.IDENTIFIER:
                 operand_stack.append(VariableNode(tok))
 
             elif tok.tt == TT.OPERATOR:
@@ -205,7 +237,7 @@ class Parser:
                         node = operand_stack.pop()
                         operand_stack.append(UnOpNode(tok, node))
                     else:
-                        self.error(E.expression_expected, tok)
+                        self.error(SyntaxError.expression_expected, tok)
                 else:
                     if len(operand_stack) >= 2:
                         node2 = operand_stack.pop()
@@ -221,7 +253,7 @@ class Parser:
                         else:
                             operand_stack.append(BinOpNode(tok, node1, node2))
                     else:
-                        self.error(E.expression_expected, tok)
+                        self.error(SyntaxError.expression_expected, tok)
 
             else:
                 print(tok)
@@ -234,7 +266,7 @@ class Parser:
     def function_call(self):
         pass
 
-    def while_statement(self) -> Node:
+    def while_statement(self) -> WhileNode:
         start = self.peak
         self.advance()
 
@@ -255,28 +287,59 @@ class Parser:
     def macro_define_statement(self):
         pass
 
-    def make_type(self) -> Token:
-        """find the next type and returns it"""
+    def make_type(self, generic=False) -> Optional[Type]:
+        """Parses the next type and returns it.
 
-        t = self.peak
+        Generics specified between <> will be added as part of the type. Nesting types in generics also works
+
+        type : identifier ['<' {type} '>']
+
+        :return: Type or None if an error occurred"""
+
+        if self.peak.tt != TT.IDENTIFIER and not generic:
+            self.error(SyntaxError.generic_expected, self.peak)
+            return None
+
+        if self.peak.tt not in (TT.IDENTIFIER, TT.LITERAL) and generic:
+            self.error(SyntaxError.generic_expected, self.peak)
+            return None
+
+        t = Type(self.peak)
         self.advance()
-        if self.peak == Operators.lt.value:
-            pass  # TODO for now no generics, but must add them later, and create a Type class that contains the
-            # information about the type
+
+        if self.peak == Operators.lt.value:     # it contains a generic type
+            self.advance()
+            generics = []
+            while self.has_next() and self.peak != Operators.gt.value:
+                generic_type = self.make_type(generic=True)
+                if generic_type is not None:
+                    generics.append(generic_type)
+                if self.peak.value in END_OF_EXPRESSION:
+                    self.advance()
+
+            self.advance()
+            t.generics = generics
+
         return t
 
     def var_define_statement(self) -> Optional[VarDefineNode]:
         """Parses the next variable declaration statement and returns its Node
 
-        var_define_statement : 'var' name
-                             | 'var' name '=' expression
+        var_define_statement : 'var' type identifier
+                             | 'var' type var_assign_statement
 
-        :return: VarAssignNode"""
+        :return: VarAssignNode or None if an error occurred"""
+        start = self.peak
         self.advance()
+        type_tok = self.peak
         var_type = self.make_type()
+        if var_type is None:
+            self.error(SyntaxError.type_expected, type_tok)
+            return None
+
         var_name = self.peak
-        if var_name.tt != TT.NAME:
-            self.error(E.name_expected, self.peak)
+        if var_name.tt != TT.IDENTIFIER:
+            self.error(SyntaxError.identifier_expected, self.peak)
             return None
 
         eq_symbol = self.preview()
@@ -284,18 +347,24 @@ class Parser:
         value = self.expression()
 
         if isinstance(value, AssignNode):
-            return VarDefineNode(var_type, var_type, value.var, value.value)
+            return VarDefineNode(start, var_type, value.var, value.value)
 
         elif isinstance(value, VariableNode):
-            return VarDefineNode(var_type, var_type, VariableNode(var_name), None)
+            return VarDefineNode(start, var_type, VariableNode(var_name), None)
 
         else:
-            self.error(E.symbol_expected, eq_symbol, '=')
+            self.error(SyntaxError.symbol_expected, eq_symbol, '=')
             return None
 
     def var_assign_statement(self, node1, node2, tok) -> Optional[ExpressionNode]:
+        """Parses the next variable assignment and returns its Node.
+        It expands operate and assign operations such as ``+=``.
+
+        var_assign_statement : identifier '=' expression
+
+        :return: AssignNode or None if an error occurred"""
         if not isinstance(node1, VariableNode):
-            self.error(E.cannot_assign_to_non_var, node1.repr_token, node1.repr_token.value)
+            self.error(SyntaxError.cannot_assign_to_non_var, node1.repr_token, node1.repr_token.value)
             return None
 
         if tok.value == '=':
@@ -311,6 +380,12 @@ class Parser:
         pass
 
     def array_literal(self) -> ValueNode:
+        """Parses and constructs an Array Literal from the next tokens and returns it.
+
+        array : '[' {literal} ']'
+
+        :return: ValueNode array literal"""
+
         start_tok = self.peak
         self.advance()
         elements = []
@@ -319,7 +394,7 @@ class Parser:
 
         return ValueNode(Token(TT.LITERAL, elements, start_tok.start, self.peak.end, start_tok.line))
 
-    def dict_set_literal(self) -> Optional[ValueNode]:
+    def dict_set_literal(self):     # TODO
         pass
         """start = self.peak
         self.advance()
@@ -333,10 +408,12 @@ class Parser:
         while self.has_next() and self.last != Separators.rcb.value:
             pass"""
 
-    def error(self, error: E, tok: Token, *args):
-        self.errors.append(Error(error, tok.start, tok.end, tok.line, PROGRAM_LINES[tok.line - 1], args))
+    def error(self, error: SyntaxError, tok: Token, *args):
+        """Creates a new Error and adds it to the error collection of tokens ``self.errors``"""
+        self.errors.append(Error(error, tok.start, tok.end, tok.line, global_vars.PROGRAM_LINES[tok.line - 1], args))
 
     def advance(self, i=1):
+        """Moves the index to i tokens ahead and updates all state variables"""
         if self.i + i < len(self.tokens):
             self.i += i
             self.last = self.peak
@@ -345,10 +422,12 @@ class Parser:
             self.peak = Separators.eof.value
 
     def preview(self, i=1) -> Token:
+        """returns the token after ``i`` positions of current token"""
         if self.has_next(i):
             return self.tokens[self.i + i]
         else:
             return Separators.eof.value
 
     def has_next(self, i=0):
-        return self.peak != Separators.eof.value and self.i + i < len(self.tokens)
+        """checks if there are more tokens to be processed"""
+        return self.peak != Separators.eof.value and self.i + i < self.length

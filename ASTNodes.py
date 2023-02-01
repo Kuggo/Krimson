@@ -1,10 +1,24 @@
-from Lexer import Token
+from Constants import Token
 from typing import Optional
 
 
+class Type:
+    def __init__(self, name: Token, generics: Optional[list['Type']] = None):
+        self.name: Token = name
+        self.generics: Optional[list['Type']] = generics
+
+    def __repr__(self):
+        if self.generics is None:
+            return f'{self.name.value}'
+        else:
+            return f'{self.name.value}<{self.generics.__repr__()[1:-1]}>'
+
+
+# Category Nodes (DO NOT construct these nodes!)
+
 class Node:
     def __init__(self, repr_tok: Token, parent_node=None):
-        self.parent: Optional[ScopedNode] = parent_node
+        self.parent: Optional[ScopeNode] = parent_node
         self.repr_token = repr_tok
         return
 
@@ -12,7 +26,37 @@ class Node:
         return f'<{self.repr_token}>'
 
 
-class ScopedNode(Node):
+class ExpressionNode(Node):
+    def __init__(self, repr_tok: Token):
+        super().__init__(repr_tok)
+        return
+
+
+class NameDefineNode(Node):
+    def __init__(self, repr_tok: Token):
+        super().__init__(repr_tok)
+
+
+# Base NODES
+
+class ValueNode(ExpressionNode):
+    def __init__(self, tok: Token):
+        super().__init__(tok)
+
+    def __repr__(self):
+        return f'{self.repr_token.value}'
+
+
+class VariableNode(ExpressionNode):
+    def __init__(self, repr_tok: Token):
+        super().__init__(repr_tok)
+        return
+
+    def __repr__(self):
+        return f'{self.repr_token.value}'
+
+
+class ScopeNode(Node):
     def __init__(self, start_tok: Token, child_nodes: list[Node]):
         super().__init__(start_tok)
         self.child_nodes: list[Node] = child_nodes
@@ -25,18 +69,17 @@ class ScopedNode(Node):
         return string + '}'
 
 
-class ExpressionNode(Node):
-    def __init__(self, repr_tok: Token):
-        super().__init__(repr_tok)
+# Operation Nodes
+
+class AssignNode(ExpressionNode):
+    def __init__(self, var: VariableNode, value: ExpressionNode):
+        super().__init__(var.repr_token)
+        self.var: VariableNode = var
+        self.value: ExpressionNode = value
         return
 
-
-class ValueNode(ExpressionNode):
-    def __init__(self, tok: Token):
-        super().__init__(tok)
-
     def __repr__(self):
-        return f'{self.repr_token.value}'
+        return f'<{self.var.repr_token.value} = {self.value}>'
 
 
 class UnOpNode(ExpressionNode):
@@ -62,15 +105,6 @@ class BinOpNode(ExpressionNode):
         return f'<{self.left_child} {self.op.value} {self.right_child}>'
 
 
-class VariableNode(ExpressionNode):
-    def __init__(self, repr_tok: Token):
-        super().__init__(repr_tok)
-        return
-
-    def __repr__(self):
-        return f'{self.repr_token.value}'
-
-
 class DotOperatorNode(VariableNode):
     def __init__(self, repr_tok: Token, var: VariableNode, field: Token):
         super().__init__(repr_tok)
@@ -91,26 +125,59 @@ class IndexOperatorNode(VariableNode):
         return f'{self.collection}[{self.index}]'
 
 
-class AssignNode(ExpressionNode):
-    def __init__(self, var: VariableNode, value: ExpressionNode):
-        super().__init__(var.repr_token)
-        self.var: VariableNode = var
-        self.value: ExpressionNode = value
-        return
+# Definition Nodes
 
-    def __repr__(self):
-        return f'<{self.var.repr_token.value} = {self.value}>'
+class MacroDefineNode(NameDefineNode):  # TODO left undone for now
+    pass
 
 
-class VarDefineNode(ExpressionNode):
-    def __init__(self, repr_tok: Token, var_type: Token, var: VariableNode, value: Optional[ExpressionNode]):
+class VarDefineNode(NameDefineNode, ExpressionNode):
+    def __init__(self, repr_tok: Token, var_type: Type, var: VariableNode, value: Optional[ExpressionNode]):
         super().__init__(repr_tok)
         self.var: VariableNode = var
-        self.var_type: Token = var_type
+        self.var_type: Type = var_type
         self.value: Optional[ExpressionNode] = value
 
     def __repr__(self):
         if self.value is None:
-            return f'<{self.var_type.value} {self.var.repr_token.value}>'
+            return f'<{self.var_type} {self.var.repr_token.value}>'
         else:
-            return f'<{self.var_type.value} {self.var.repr_token.value} = {self.value}>'
+            return f'<{self.var_type} {self.var.repr_token.value} = {self.value}>'
+
+
+class FuncDefineNode(NameDefineNode):
+    pass
+
+
+class ClassDefineNode(NameDefineNode):
+    pass
+
+
+# Control Flow
+
+class IfNode(Node):
+    pass
+
+
+class ElseNode(Node):
+    pass
+
+
+class WhileNode(Node):
+    pass
+
+
+class DoWhileNode(Node):  # TODO left undone for now
+    pass
+
+
+class ReturnNode(Node):
+    pass
+
+
+class BreakNode(Node):
+    pass
+
+
+class SkipNode(Node):
+    pass

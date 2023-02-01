@@ -1,7 +1,8 @@
 from sys import argv, stdout, stderr
 import os
-from Lexer import Lexer
-from Parser import Parser
+import Constants
+from Lexer import *
+from Parser import *
 
 
 def main():
@@ -11,9 +12,7 @@ def main():
     if src_name == '--help':
         print('usage: krimson <source_file> <destination_file>')
 
-    source = r'''var int i = 0
-    var int j = 1
-    '''
+    source = r'''var array<int> arr = []'''
 
     if src_name is not None:
         if os.path.isfile(src_name):
@@ -29,9 +28,8 @@ def main():
     else:
         dest = stdout
 
-    global PROGRAM_LINES, FILE_NAME
-    PROGRAM_LINES = source.split('\n')
-    FILE_NAME = src_name
+    Constants.global_vars.PROGRAM_LINES = source.split('\n')
+    Constants.global_vars.FILE_NAME = src_name
 
     lexer = Lexer(source)
     lexer.tokenize()
@@ -50,11 +48,6 @@ def main():
     print(parser.ast)
 
     return
-
-
-# global variables
-FILE_NAME = 'IDE'
-PROGRAM_LINES = []
 
 
 if __name__ == '__main__':
