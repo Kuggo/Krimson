@@ -32,6 +32,19 @@ UNARY_OPERATORS = {'!', '-', '~'}
 ASSIGN_OPERATORS = {'=', '+=', '-=', '*=', '/=', '%=', '<<=', '>>=', '|=', '&=', '^='}
 """Set of strings containing all the valid assign&operate operators"""
 
+operator_precedence = {  # TODO put all the operator precedences here
+    '[]': 0,
+    '+': 1,
+    '-': 1,
+    '*': 2,
+    '/': 2,
+    '^': 3,
+    '&': 4,
+    '|': 5,
+    '(': 0,
+}
+"""Dict mapping the operators and their precedence (all operators are left associative)"""
+
 
 class TT(Enum):
     """Basic Token types"""
@@ -111,6 +124,18 @@ class Separators(Enum):
     eof = Token(TT.SEPARATOR, 'eof')
 
 
+class Keywords(Enum):
+    if_ = Token(TT.KEYWORD, 'if')
+    else_ = Token(TT.KEYWORD, 'else')
+    break_ = Token(TT.KEYWORD, 'break')
+    skip = Token(TT.KEYWORD, 'skip')
+    while_ = Token(TT.KEYWORD, 'while')
+    return_ = Token(TT.KEYWORD, 'return')
+    class_ = Token(TT.KEYWORD, 'class')
+    func = Token(TT.KEYWORD, 'func')
+    var = Token(TT.KEYWORD, 'var')
+
+
 class E(Enum):
     duplicate_class = 'Duplicate class name'
     duplicate_func = 'Duplicate function declaration'
@@ -121,7 +146,6 @@ class E(Enum):
     string_expected = 'String expected'
     invalid_literal = 'Invalid literal'
     invalid_ret_type = 'Invalid return type'
-    if_expected = 'if keyword expected before else/elif'
     while_expected = 'while keyword expected'
     unexpected_argument = 'Unexpected argument'
     break_not_in_loop = 'break keyword found outside a loop body'

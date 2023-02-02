@@ -156,28 +156,69 @@ class ClassDefineNode(NameDefineNode):
 # Control Flow
 
 class IfNode(Node):
-    pass
+    def __init__(self, repr_tok: Token, condition: ExpressionNode, body: Node):
+        super().__init__(repr_tok)
+        self.condition = condition
+        self.body = body
 
 
 class ElseNode(Node):
-    pass
+    def __init__(self, repr_tok: Token, body: Node):
+        super().__init__(repr_tok)
+        self.body = body
 
 
 class WhileNode(Node):
-    pass
+    def __init__(self, repr_tok: Token, condition: ExpressionNode, body: Node):
+        super().__init__(repr_tok)
+        self.condition = condition
+        self.body = body
+
+    def __repr__(self):
+        return f'while {self.condition} {self.body}'
 
 
-class DoWhileNode(Node):  # TODO left undone for now
-    pass
+class DoWhileNode(Node):
+    def __init__(self, repr_tok: Token, condition: ExpressionNode, body: Node):
+        super().__init__(repr_tok)
+        self.condition = condition
+        self.body = body
+
+    def __repr__(self):
+        return f'do {self.body} while {self.condition}'
 
 
 class ReturnNode(Node):
-    pass
+    def __init__(self, repr_tok: Token, value: Optional[ExpressionNode] = None):
+        super().__init__(repr_tok)
+        self.value = value
+
+    def __repr__(self):
+        if self.value is None:
+            return f'return'
+        else:
+            return f'return {self.value}'
 
 
 class BreakNode(Node):
-    pass
+    def __init__(self, repr_tok: Token, value: int = 1):
+        super().__init__(repr_tok)
+        self.value = value
+
+    def __repr__(self):
+        if self.value is None:
+            return f'break'
+        else:
+            return f'break {self.value}'
 
 
 class SkipNode(Node):
-    pass
+    def __init__(self, repr_tok: Token, value: int = 1):
+        super().__init__(repr_tok)
+        self.value = value
+
+    def __repr__(self):
+        if self.value is None:
+            return f'skip'
+        else:
+            return f'skip {self.value}'
