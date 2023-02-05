@@ -12,7 +12,12 @@ def main():
     if src_name == '--help':
         print('usage: krimson <source_file> <destination_file>')
 
-    source = r'''var array<int> arr = []'''
+    source = r'''
+    /*func int main() {
+        var array[array[int]] arr = [[], []]
+    }*/
+    
+    print('e', 't') '''
 
     if src_name is not None:
         if os.path.isfile(src_name):
@@ -44,6 +49,11 @@ def main():
     parser = Parser(lexer.tokens)
 
     parser.parse()
+
+    if len(parser.errors) > 0:
+        for err in parser.errors:
+            print(err.__repr__(), file=stderr)
+        exit(1)
 
     print(parser.ast)
 

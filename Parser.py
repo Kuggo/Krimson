@@ -11,6 +11,8 @@ class SyntaxError(Enum):
     generic_expected = 'Generic type/value expected'
     cannot_assign_to_non_var = '{} is not a variable that can be assigned a value to'
     if_expected = 'if keyword expected before else'
+    statement_expected = 'Statement expected'
+    arg_expected = 'Function argument definition expected'
 
 
 class Parser:
@@ -63,18 +65,13 @@ class Parser:
         :return: ScopeNode
         """
 
-        statements = []
-        last_statement = None
         start_tok = self.peak
-        while self.has_next() and self.last != Separators.rcb.value:
-            statement = self.statement(last_statement=last_statement)
-            if statement is not None:
-                statements.append(statement)
-
+        statements = self.repeat_until_symbol(Separators.rcb.value.value, Parser.statement)
         self.advance()
+
         return ScopeNode(start_tok, statements)
 
-    def statement(self, last_statement: Optional[Node] = None) -> Optional[Node]:
+    def statement(self) -> Optional[Node]:
         """
         Parses the next statement until it find its end and returns the Node corresponding to the statement, or None if
         the statement contains syntax errors
@@ -102,7 +99,8 @@ class Parser:
             elif self.peak.value == 'if':
                 return self.if_statement()
             elif self.peak.value == 'else':
-                return self.else_statement(last_statement)
+                self.error(SyntaxError.if_expected, self.peak)
+                return None
             elif self.peak.value == 'return':
                 return self.return_statement()
             elif self.peak.value == 'break':
@@ -119,6 +117,7 @@ class Parser:
                 assert False
 
         elif self.peak == Separators.lcb.value:
+            self.advance()
             return self.scope()
 
         else:
@@ -136,35 +135,58 @@ class Parser:
                    | expression binary_operator expression
                    | function_call
 
+        :param: end_separator: Optional[str] char separator that can be expected to end the expression
         :return: ExpressionNode
         """
 
-        def is_last_tok_value(start):
-            """Detects if the last non separator token was a variable/literal, within a certain range"""
-            i = self.i - 1
-            while i >= start and self.tokens[i].value in (')', ']'):
-                i -= 1
+        def is_last_tok_value(last_operand_operator) -> bool:
+            """
+            Detects if the last non separator token was a variable/literal, within a certain range
 
-            return i >= start and self.tokens[i].tt in (TT.IDENTIFIER, TT.LITERAL)
+            :param last_operand_operator: the last Node/Token that has relevance to the expression
+            :return: True if the last non separator token was a variable/literal, False otherwise
+            """
+            if last_operand_operator is None:
+                return False
+
+            elif isinstance(last_operand_operator, Token) and last_operand_operator.tt == TT.OPERATOR:
+                return False
+
+            else:
+                return True
+
+        if self.peak == Separators.rpa.value:
+            self.error(SyntaxError.symbol_expected_before, self.peak, '(', ')')
+            return None
+        elif self.peak == Separators.rbr.value:
+            self.error(SyntaxError.symbol_expected_before, self.peak, '[', ']')
+            return None
+        elif self.peak == Separators.rcb.value:
+            self.error(SyntaxError.symbol_expected_before, self.peak, '{', '}')
+            return None
+
+        last_op = None
 
         expression_queue: list[(Token, Node)] = []
         operator_stack: list[Token] = []
-        start_index = self.i
         while self.has_next():
-            if self.peak.tt == TT.LITERAL:
-                expression_queue.append(self.peak)
+            if self.peak.tt == TT.KEYWORD or \
+                    (self.peak.tt in (TT.IDENTIFIER, TT.LITERAL) and is_last_tok_value(last_op)):
+                break
 
-            elif self.peak.tt == TT.IDENTIFIER:
-                if self.preview().value == '(':
-                    func_call = self.function_call()
-                    if func_call is not None:
-                        expression_queue.append(func_call)
-                else:
-                    expression_queue.append(self.peak)
+            if self.peak.tt in (TT.LITERAL, TT.IDENTIFIER):
+                expression_queue.append(self.peak)
+                last_op = self.peak
 
             elif self.peak.tt == TT.SEPARATOR:
                 if self.peak.value == '(':
-                    operator_stack.append(self.peak)
+                    if self.last.tt == TT.IDENTIFIER:   # it's a function call
+                        self.advance()
+                        args = self.repeat_until_symbol(')', Parser.expression, SyntaxError.expression_expected)
+                        expression_queue.append(args)   # functions and their arguments to function will be lists
+                        last_op = args
+                    else:
+                        operator_stack.append(self.peak)
 
                 elif self.peak.value == ')':
                     while len(operator_stack) > 0 and operator_stack[-1].value != '(':
@@ -172,59 +194,71 @@ class Parser:
                     if len(operator_stack) > 0:
                         operator_stack.pop()
                     else:
-                        self.error(SyntaxError.symbol_expected_before, self.peak, '(', ')')
+                        break
 
                 elif self.peak.value == '[':
-                    if is_last_tok_value(start_index):
+                    if is_last_tok_value(last_op):
                         self.peak.tt = TT.OPERATOR  # changing its status to operator
                         self.peak.value = '[]'
                         operator_stack.append(self.peak)
+                        last_op = self.peak
                     else:
                         arr = self.array_literal()
-                        if arr is not None:
-                            expression_queue.append(arr)
+                        expression_queue.append(arr)    # arrays/dict/set and other data structures will be ValueNodes
+                        last_op = arr
 
                 elif self.peak.value == ']':
-                    while len(operator_stack) > 0 and operator_stack[-1].value != '[':
+                    while len(operator_stack) > 0 and operator_stack[-1].value != '[]':
                         expression_queue.append(operator_stack.pop())
+
                     if len(operator_stack) > 0:
                         expression_queue.append(operator_stack.pop())
                     else:
-                        self.error(SyntaxError.symbol_expected_before, self.peak, '[', ']')
+                        break
 
                 elif self.peak.value == '{':
-                    dict_set = self.dict_set_literal()
+                    dict_set = self.dict_set_literal()  # arrays/dict/set and other data structures will be ValueNodes
                     if dict_set is not None:
                         expression_queue.append(dict_set)
+                        last_op = dict_set
 
                 else:
-                    self.advance()
                     break
 
             elif self.peak.tt == TT.OPERATOR:
-                if len(operator_stack) == 0 or operator_stack[-1].value == '(':
-                    operator_stack.append(self.peak)
-                else:
-                    while len(operator_stack) > 0 and \
-                            operator_precedence[self.peak.value] <= operator_precedence[operator_stack[-1].value]:
-                        expression_queue.append(operator_stack.pop())
-                    operator_stack.append(self.peak)
+                while len(operator_stack) > 0 and \
+                        operator_precedence[self.peak.value] <= operator_precedence[operator_stack[-1].value]:
+                    expression_queue.append(operator_stack.pop())
+                operator_stack.append(self.peak)
+                last_op = self.peak
 
             else:
                 assert False
 
             self.advance()
-            if self.peak.tt == TT.KEYWORD or \
-                    (self.peak.tt in (TT.IDENTIFIER, TT.LITERAL) and is_last_tok_value(start_index)):
-                break
 
         while len(operator_stack) > 0:
-            expression_queue.append(operator_stack.pop())
+            operator = operator_stack.pop()
+            if operator.value in symbol_pairs:
+                self.error(SyntaxError.symbol_expected, self.peak, symbol_pairs[operator.value])
+                return None
+            else:
+                expression_queue.append(operator)
 
         operand_stack: list[ExpressionNode] = []
         for tok in expression_queue:
-            if isinstance(tok, ExpressionNode):
+            if isinstance(tok, ExpressionNode):     # Array/Dict/Det or other data structure
                 operand_stack.append(tok)
+
+            elif isinstance(tok, list):             # function call
+                if len(operand_stack) >= 1:
+                    func = operand_stack.pop()
+                    if isinstance(func, VariableNode):
+                        operand_stack.append(FuncCallNode(func.repr_token, func, tuple(tok)))
+                    else:
+                        self.error()
+                else:
+                    self.error()
 
             elif tok.tt == TT.LITERAL:
                 operand_stack.append(ValueNode(tok))
@@ -265,8 +299,9 @@ class Parser:
         else:
             return operand_stack[0]
 
-    def function_call(self):
-        pass
+    def function_arguments(self):
+
+        return
 
     def while_statement(self) -> Optional[WhileNode]:
         """
@@ -304,23 +339,31 @@ class Parser:
         if body is None:
             return None
 
-        return IfNode(start, condition, body)
+        if_node = IfNode(start, condition, body)
 
-    def else_statement(self, last_statement: Optional[Node]) -> Optional[ElseNode]:
+        if self.peak == Keywords.else_.value:
+            self.else_statement(if_node)
+
+        return if_node
+
+    def else_statement(self, if_node: Optional[Node]) -> Optional[ElseNode]:
         """
         Parses the next else statement until its end
 
-        :param: last_statement: The last statement processed on the scope
+        :param: if_node: the if statement the else statement is bound to
         :return: ElseNode or None if error was found (no previous if statement error)
         """
-        if last_statement is not None and last_statement.repr_token != Keywords.if_:
-            self.error(SyntaxError.if_expected, self.peak)
-            return None
 
         start = self.peak
         self.advance()
         body = self.statement()
-        return ElseNode(start, body)
+        if body is None:
+            return None
+
+        else_node = ElseNode(start, body, if_node)
+        if_node.else_statement = else_node
+
+        return else_node
 
     def return_statement(self) -> ReturnNode:
         """
@@ -397,22 +440,15 @@ class Parser:
         t = Type(self.peak)
         self.advance()
 
-        if self.peak == Operators.lt.value:     # it contains a generic type
+        if self.peak == Separators.lbr.value:     # it contains a generic type
             self.advance()
-            generics = []
-            while self.has_next() and self.peak != Operators.gt.value:
-                generic_type = self.make_type(generic=True)
-                if generic_type is not None:
-                    generics.append(generic_type)
-                if self.peak.value in END_OF_EXPRESSION:
-                    self.advance()
-
+            generics = self.repeat_until_symbol(Separators.rbr.value.value, Parser.make_type, None, True)
             self.advance()
             t.generics = generics
 
         return t
 
-    def var_define_statement(self) -> Optional[VarDefineNode]:
+    def var_define_statement(self, inside_func_args: bool = False) -> Optional[VarDefineNode]:
         """
         Parses the next variable declaration statement and returns its Node
 
@@ -436,7 +472,10 @@ class Parser:
 
         eq_symbol = self.preview()
 
-        value = self.expression()
+        if inside_func_args:
+            value = self.expression()
+        else:
+            value = self.expression()
 
         if isinstance(value, AssignNode):
             return VarDefineNode(start, var_type, value.var, value.value)
@@ -470,8 +509,41 @@ class Parser:
             tok.value = tok.value[:-1]
             return AssignNode(node1, BinOpNode(tok, node1, node2))
 
-    def func_define_statement(self) -> Node:
-        pass
+    def func_define_statement(self) -> Optional[FuncDefineNode]:
+        """
+        Parses the next function declaration until its end is found, and returns its Node
+
+        :return: FuncDefineNode or None if an error occurred
+        """
+        start = self.peak
+        self.advance()
+
+        type_tok = self.peak
+        func_type = self.make_type()
+        if func_type is None:
+            self.error(SyntaxError.type_expected, type_tok)
+            return None
+
+        func_name = self.peak
+        if func_name.tt != TT.IDENTIFIER:
+            self.error(SyntaxError.identifier_expected, self.peak)
+            return None
+
+        self.advance()
+
+        if self.peak != Separators.lpa.value:
+            self.error(SyntaxError.symbol_expected, self.peak, '(')
+            return None
+
+        self.advance()
+        args = self.repeat_until_symbol(')', Parser.var_define_statement, SyntaxError.arg_expected)
+        self.advance()
+
+        body = self.statement()
+        if body is None:
+            return None
+
+        return FuncDefineNode(start, func_type, VariableNode(func_name), args, body)
 
     def class_define_statement(self) -> Node:
         pass
@@ -487,32 +559,46 @@ class Parser:
 
         start_tok = self.peak
         self.advance()
-        elements = []
-        if self.peak == Separators.rbr.value:   # empty array
-            return ValueNode(Token(TT.LITERAL, elements, start_tok.start, self.peak.end, start_tok.line))
-
-        while self.has_next() and (self.last.value != ']'):
-            value = self.expression()
-            if value is None:
-                self.error(SyntaxError.expression_expected, self.peak)
-            else:
-                elements.append(value)
+        elements = self.repeat_until_symbol(']', Parser.expression, SyntaxError.expression_expected)
 
         return ValueNode(Token(TT.LITERAL, elements, start_tok.start, self.peak.end, start_tok.line))
 
     def dict_set_literal(self):     # TODO
         pass
-        """start = self.peak
-        self.advance()
-        if self.peak == Separators.rcb.value:
-            return  # empty dict/set
 
-        key = self.expression()
-        is_dict = self.last == Separators.semi_col.value
-        value = self.expression()
+    # utils
 
-        while self.has_next() and self.last != Separators.rcb.value:
-            pass"""
+    def repeat_until_symbol(self, end_symbol: str, method, error: Optional[SyntaxError] = None, *args) -> list:
+        """
+        Parses an unknown amount of statements/expressions.
+
+        Given the Separator token to stop parsing at, this method will continue to loop for multiple occurrences of the
+        rule specified in the method passed. If error is specified then an error will be generated if the rule was not
+        found.
+
+        :param end_symbol: the separator character the pattern is meant to end at
+        :param method: the Parser method that checks/parses the rule.
+        :param error: if specified, what error message will be generated by not finding the rule expected
+        :return: list of nodes generated by the method
+        """
+
+        output = []
+        while self.has_next() and self.peak.value != end_symbol:
+            element = method(self, *args)
+
+            if element is None:
+                if error is not None:
+                    self.error(error, self.peak)
+            else:
+                output.append(element)
+
+            while self.has_next() and self.peak.value in END_OF_EXPRESSION:
+                self.advance()
+
+        if not self.has_next():
+            self.error(SyntaxError.symbol_expected, self.last, end_symbol)
+
+        return output
 
     def error(self, error: SyntaxError, tok: Token, *args) -> None:
         """

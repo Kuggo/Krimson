@@ -23,7 +23,7 @@ END_OF_EXPRESSION = {',', ';', ':'}
 KEYWORDS = {'if', 'else', 'break', 'skip', 'while', 'return', 'class', 'func', 'var'}
 """Set containing all the language's keywords"""
 
-SYMBOLS = {'&', '|', '+', '-', '*', '/', '=', '<', '>', '!', '(', ')', '{', '}', '[', ']', '.'}
+SYMBOLS = {'&', '|', '+', '-', '*', '/', '=', '<', '>', '!', '(', ')', '{', '}', '[', ']', '.', ',', ':', ';'}
 """Set of characters accepted as valid symbols"""
 
 UNARY_OPERATORS = {'!', '-', '~'}
@@ -33,17 +33,27 @@ ASSIGN_OPERATORS = {'=', '+=', '-=', '*=', '/=', '%=', '<<=', '>>=', '|=', '&=',
 """Set of strings containing all the valid assign&operate operators"""
 
 operator_precedence = {  # TODO put all the operator precedences here
-    '[]': 0,
-    '+': 1,
-    '-': 1,
-    '*': 2,
-    '/': 2,
-    '^': 3,
-    '&': 4,
-    '|': 5,
     '(': 0,
+    '[]': 0,
+    '+': 10,
+    '-': 10,
+    '*': 11,
+    '/': 11,
 }
 """Dict mapping the operators and their precedence (all operators are left associative)"""
+
+symbol_pairs = {
+    '(': ')',
+    '[]': ']',
+    # '{': '}',
+
+    ')': '(',
+    ']': '[',
+    # '}': '{',
+
+    '"': '"',
+}
+"""Dict mapping the symbols with their respective pair. Starting to ending and vice versa"""
 
 
 class TT(Enum):
@@ -142,7 +152,6 @@ class E(Enum):
     duplicate_var = 'Duplicate variable name'
     duplicate_macro = 'Duplicate macro'
     literal_expected = 'Literal expected'
-    statement_expected = 'Statement expected'
     string_expected = 'String expected'
     invalid_literal = 'Invalid literal'
     invalid_ret_type = 'Invalid return type'

@@ -347,9 +347,8 @@ class Lexer:
         :param args: extra arguments for custom error message formatting
         """
 
-        self.errors.append(
-            Error(error, start - self.line_offset, end - self.line_offset, self.line, global_vars.PROGRAM_LINES[self.line - 1],
-                  args))
+        self.errors.append(Error(error, start - self.line_offset, end - self.line_offset, self.line,
+                                 global_vars.PROGRAM_LINES[self.line - 1], args))
         self.advance()
         return
 
