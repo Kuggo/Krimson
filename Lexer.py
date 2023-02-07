@@ -348,7 +348,7 @@ class Lexer:
         """
 
         self.errors.append(Error(error, start - self.line_offset, end - self.line_offset, self.line,
-                                 global_vars.PROGRAM_LINES[self.line - 1], args))
+                                 global_vars.PROGRAM_LINES[self.line - 1], *args))
         self.advance()
         return
 

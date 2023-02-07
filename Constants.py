@@ -42,18 +42,8 @@ operator_precedence = {  # TODO put all the operator precedences here
 }
 """Dict mapping the operators and their precedence (all operators are left associative)"""
 
-symbol_pairs = {
-    '(': ')',
-    '[]': ']',
-    # '{': '}',
 
-    ')': '(',
-    ']': '[',
-    # '}': '{',
 
-    '"': '"',
-}
-"""Dict mapping the symbols with their respective pair. Starting to ending and vice versa"""
 
 
 class TT(Enum):

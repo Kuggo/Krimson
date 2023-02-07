@@ -14,10 +14,10 @@ def main():
 
     source = r'''
     /*func int main() {
-        var array[array[int]] arr = [[], []]
+        var array[array[int]] arr = [[1], [2]]
     }*/
     
-    print('e', 't') '''
+    print("yeet")[1] '''
 
     if src_name is not None:
         if os.path.isfile(src_name):

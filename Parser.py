@@ -13,6 +13,8 @@ class SyntaxError(Enum):
     if_expected = 'if keyword expected before else'
     statement_expected = 'Statement expected'
     arg_expected = 'Function argument definition expected'
+    not_a_func = 'Cannot call {}'
+    cannot_index_multiple = "Cannot index with multiple values. ']' expected"
 
 
 class Parser:
@@ -22,7 +24,7 @@ class Parser:
     reading the next token right away"""
 
     def __init__(self, tokens: list[Token]):
-        self.tokens: list[Token] = tokens + [Separators.eof.value]
+        self.tokens: list[Token] = tokens + [Separators.rcb.value, Separators.eof.value]
         """the token collection"""
 
         self.i: int = 0
@@ -198,10 +200,11 @@ class Parser:
 
                 elif self.peak.value == '[':
                     if is_last_tok_value(last_op):
-                        self.peak.tt = TT.OPERATOR  # changing its status to operator
-                        self.peak.value = '[]'
-                        operator_stack.append(self.peak)
-                        last_op = self.peak
+                        index = self.make_index(operator_stack)
+                        if index is not None:
+                            expression_queue.append(index)
+                            last_op = None
+
                     else:
                         arr = self.array_literal()
                         expression_queue.append(arr)    # arrays/dict/set and other data structures will be ValueNodes
@@ -239,8 +242,8 @@ class Parser:
 
         while len(operator_stack) > 0:
             operator = operator_stack.pop()
-            if operator.value in symbol_pairs:
-                self.error(SyntaxError.symbol_expected, self.peak, symbol_pairs[operator.value])
+            if operator == Separators.lpa.value:
+                self.error(SyntaxError.symbol_expected, self.peak, Separators.rpa.value.value)
                 return None
             else:
                 expression_queue.append(operator)
@@ -256,9 +259,9 @@ class Parser:
                     if isinstance(func, VariableNode):
                         operand_stack.append(FuncCallNode(func.repr_token, func, tuple(tok)))
                     else:
-                        self.error()
+                        self.error(SyntaxError.not_a_func, func.repr_token, func)
                 else:
-                    self.error()
+                    assert False
 
             elif tok.tt == TT.LITERAL:
                 operand_stack.append(ValueNode(tok))
@@ -299,9 +302,30 @@ class Parser:
         else:
             return operand_stack[0]
 
-    def function_arguments(self):
+    def make_index(self, operator_stack: list[Token]) -> Optional[ExpressionNode]:
+        """
+        Parses the next expression until the end of indexing was found.
 
-        return
+        If no expression is found, or more than 1 expression is found, then an error is detected.
+
+        :param operator_stack: list from the calling function (``self.expression()``)
+        :return: ExpressionNode or None if an error occurred
+        """
+
+        self.peak.tt = TT.OPERATOR  # changing its status to operator
+        self.peak.value = '[]'
+        operator_stack.append(self.peak)
+        self.advance()
+
+        index = self.repeat_until_symbol(Separators.rbr.value.value, Parser.expression, SyntaxError.expression_expected)
+
+        if len(index) == 0:
+            return None
+
+        if len(index) > 1:
+            self.error(SyntaxError.cannot_index_multiple, index[1].repr_token)  # error but accept the first expression
+
+        return index[0]
 
     def while_statement(self) -> Optional[WhileNode]:
         """
@@ -545,8 +569,19 @@ class Parser:
 
         return FuncDefineNode(start, func_type, VariableNode(func_name), args, body)
 
-    def class_define_statement(self) -> Node:
-        pass
+    def class_define_statement(self) -> Optional[ClassDefineNode]:
+        start = self.peak
+        self.advance()
+
+        class_type = self.make_type()
+
+        # TODO no inheritance for now
+
+        body = self.statement()
+        if body is None:
+            return None
+
+        return ClassDefineNode(start, VariableNode(class_type.name), class_type, body)
 
     def array_literal(self) -> ValueNode:
         """
@@ -563,7 +598,7 @@ class Parser:
 
         return ValueNode(Token(TT.LITERAL, elements, start_tok.start, self.peak.end, start_tok.line))
 
-    def dict_set_literal(self):     # TODO
+    def dict_set_literal(self) -> Optional[ValueNode]:     # TODO
         pass
 
     # utils
@@ -608,7 +643,7 @@ class Parser:
         :param tok: the token where it occurred
         :param args: extra arguments for custom error message formatting
         """
-        self.errors.append(Error(error, tok.start, tok.end, tok.line, global_vars.PROGRAM_LINES[tok.line - 1], args))
+        self.errors.append(Error(error, tok.start, tok.end, tok.line, global_vars.PROGRAM_LINES[tok.line - 1], *args))
 
     def advance(self, i=1) -> None:
         """
