@@ -4,16 +4,16 @@ from ASTNodes import *
 
 class SyntaxError(Enum):
     identifier_expected = 'Identifier expected'
-    symbol_expected = '{} expected'
+    symbol_expected = "'{}' expected"
     symbol_expected_before = "'{}' expected before '{}'"
     expression_expected = 'Expression expected'
     type_expected = 'type expected'
     generic_expected = 'Generic type/value expected'
-    cannot_assign_to_non_var = '{} is not a variable that can be assigned a value to'
+    cannot_assign_to_non_var = '"{}" is not a variable that can be assigned a value to'
     if_expected = 'if keyword expected before else'
     statement_expected = 'Statement expected'
     arg_expected = 'Function argument definition expected'
-    not_a_func = 'Cannot call {}'
+    not_a_func = 'Cannot call "{}"'
     cannot_index_multiple = "Cannot index with multiple values. ']' expected"
 
 
@@ -157,6 +157,156 @@ class Parser:
             else:
                 return True
 
+        def shunting_yard() -> Optional[list[(Token, Node)]]:
+            """
+            Parses an infix expression into a postfix expression using the shunting yard algorithm.
+
+             The expression is the stream of tokens until an end is found. End is defined as a keyword, repetition of
+             operands or separator symbols.
+
+            :return: list of operands/operators or None if an error was found
+            """
+            last_op = None
+            expression_queue: list[(Token, Node)] = []
+            operator_stack: list[Token] = []
+            while self.has_next():
+                if self.peak.tt == TT.KEYWORD or \
+                        (self.peak.tt in (TT.IDENTIFIER, TT.LITERAL) and is_last_tok_value(last_op)):
+                    break
+
+                if self.peak.tt in (TT.LITERAL, TT.IDENTIFIER):
+                    expression_queue.append(self.peak)
+                    last_op = self.peak
+
+                elif self.peak.tt == TT.SEPARATOR:
+                    if self.peak.value == '(':
+                        if self.last.tt == TT.IDENTIFIER:  # it's a function call
+                            self.advance()
+                            args = self.repeat_until_symbol(')', Parser.expression, SyntaxError.expression_expected)
+                            expression_queue.append(args)  # functions and their arguments to function will be lists
+                            last_op = args
+                        else:
+                            operator_stack.append(self.peak)
+
+                    elif self.peak.value == ')':
+                        while len(operator_stack) > 0 and operator_stack[-1].value != '(':
+                            expression_queue.append(operator_stack.pop())
+                        if len(operator_stack) > 0:
+                            operator_stack.pop()
+                        else:
+                            break
+
+                    elif self.peak.value == '[':
+                        if is_last_tok_value(last_op):
+                            index = self.make_index(operator_stack)
+                            if index is not None:
+                                expression_queue.append(index)
+                                last_op = None
+
+                        else:
+                            arr = self.array_literal()
+                            expression_queue.append(arr)  # arrays/dict/set and other data structures will be ValueNodes
+                            last_op = arr
+
+                    elif self.peak.value == ']':
+                        while len(operator_stack) > 0 and operator_stack[-1].value != '[]':
+                            expression_queue.append(operator_stack.pop())
+
+                        if len(operator_stack) > 0:
+                            expression_queue.append(operator_stack.pop())
+                        else:
+                            break
+
+                    elif self.peak.value == '{':
+                        dict_set = self.dict_set_literal()  # arrays/index and other data structures will be ValueNodes
+                        expression_queue.append(dict_set)
+                        last_op = dict_set
+
+                    else:
+                        break
+
+                elif self.peak.tt == TT.OPERATOR:
+                    while len(operator_stack) > 0 and \
+                            operator_precedence[self.peak.value] <= operator_precedence[operator_stack[-1].value]:
+                        expression_queue.append(operator_stack.pop())
+                    operator_stack.append(self.peak)
+                    last_op = self.peak
+
+                else:
+                    assert False
+
+                self.advance()
+
+            while len(operator_stack) > 0:
+                operator = operator_stack.pop()
+                if operator == Separators.lpa.value:
+                    self.error(SyntaxError.symbol_expected, self.peak, Separators.rpa.value.value)
+                    return None
+                else:
+                    expression_queue.append(operator)
+
+            return expression_queue
+
+        def make_ast() -> Optional[ExpressionNode]:
+            """
+            Parses a postfix expression (generated by ``shunting_yard``) and creates an ast of the respective nodes.
+
+            :return: ExpressionNode or None if an error occurred
+            """
+
+            operand_stack: list[ExpressionNode] = []
+            for tok in postfix_expression:
+                if isinstance(tok, ExpressionNode):  # Array/Dict/Det or other data structure
+                    operand_stack.append(tok)
+
+                elif isinstance(tok, list):  # function call
+                    if len(operand_stack) >= 1:
+                        func = operand_stack.pop()
+                        if isinstance(func, VariableNode):
+                            operand_stack.append(FuncCallNode(func.repr_token, func, tuple(tok)))
+                        else:
+                            self.error(SyntaxError.not_a_func, func.repr_token, func)
+                    else:
+                        assert False
+
+                elif tok.tt == TT.LITERAL:
+                    operand_stack.append(ValueNode(tok))
+
+                elif tok.tt == TT.IDENTIFIER:
+                    operand_stack.append(VariableNode(tok))
+
+                elif tok.tt == TT.OPERATOR:
+                    if tok.value in UNARY_OPERATORS:
+                        if len(operand_stack) >= 1:
+                            node = operand_stack.pop()
+                            operand_stack.append(UnOpNode(tok, node))
+                        else:
+                            self.error(SyntaxError.expression_expected, tok)
+                    else:
+                        if len(operand_stack) >= 2:
+                            node2 = operand_stack.pop()
+                            node1 = operand_stack.pop()
+                            if tok.value in ASSIGN_OPERATORS:
+                                var_assign = self.var_assign_statement(node1, node2, tok)
+                                if var_assign is not None:
+                                    operand_stack.append(var_assign)
+
+                            elif tok == Operators.index.value:
+                                operand_stack.append(IndexOperatorNode(tok, node1, node2))
+
+                            else:
+                                operand_stack.append(BinOpNode(tok, node1, node2))
+                        else:
+                            self.error(SyntaxError.expression_expected, tok)
+                else:
+                    print(tok)
+                    assert False
+
+            if len(operand_stack) != 1:
+                return None  # no expression found
+            else:
+                return operand_stack[0]
+
         if self.peak == Separators.rpa.value:
             self.error(SyntaxError.symbol_expected_before, self.peak, '(', ')')
             return None
@@ -167,140 +317,15 @@ class Parser:
             self.error(SyntaxError.symbol_expected_before, self.peak, '{', '}')
             return None
 
-        last_op = None
+        postfix_expression = shunting_yard()
+        if postfix_expression is None:
+            return None
 
-        expression_queue: list[(Token, Node)] = []
-        operator_stack: list[Token] = []
-        while self.has_next():
-            if self.peak.tt == TT.KEYWORD or \
-                    (self.peak.tt in (TT.IDENTIFIER, TT.LITERAL) and is_last_tok_value(last_op)):
-                break
+        ast = make_ast()
+        if ast is None:
+            return None
 
-            if self.peak.tt in (TT.LITERAL, TT.IDENTIFIER):
-                expression_queue.append(self.peak)
-                last_op = self.peak
-
-            elif self.peak.tt == TT.SEPARATOR:
-                if self.peak.value == '(':
-                    if self.last.tt == TT.IDENTIFIER:   # it's a function call
-                        self.advance()
-                        args = self.repeat_until_symbol(')', Parser.expression, SyntaxError.expression_expected)
-                        expression_queue.append(args)   # functions and their arguments to function will be lists
-                        last_op = args
-                    else:
-                        operator_stack.append(self.peak)
-
-                elif self.peak.value == ')':
-                    while len(operator_stack) > 0 and operator_stack[-1].value != '(':
-                        expression_queue.append(operator_stack.pop())
-                    if len(operator_stack) > 0:
-                        operator_stack.pop()
-                    else:
-                        break
-
-                elif self.peak.value == '[':
-                    if is_last_tok_value(last_op):
-                        index = self.make_index(operator_stack)
-                        if index is not None:
-                            expression_queue.append(index)
-                            last_op = None
-
-                    else:
-                        arr = self.array_literal()
-                        expression_queue.append(arr)    # arrays/dict/set and other data structures will be ValueNodes
-                        last_op = arr
-
-                elif self.peak.value == ']':
-                    while len(operator_stack) > 0 and operator_stack[-1].value != '[]':
-                        expression_queue.append(operator_stack.pop())
-
-                    if len(operator_stack) > 0:
-                        expression_queue.append(operator_stack.pop())
-                    else:
-                        break
-
-                elif self.peak.value == '{':
-                    dict_set = self.dict_set_literal()  # arrays/dict/set and other data structures will be ValueNodes
-                    if dict_set is not None:
-                        expression_queue.append(dict_set)
-                        last_op = dict_set
-
-                else:
-                    break
-
-            elif self.peak.tt == TT.OPERATOR:
-                while len(operator_stack) > 0 and \
-                        operator_precedence[self.peak.value] <= operator_precedence[operator_stack[-1].value]:
-                    expression_queue.append(operator_stack.pop())
-                operator_stack.append(self.peak)
-                last_op = self.peak
-
-            else:
-                assert False
-
-            self.advance()
-
-        while len(operator_stack) > 0:
-            operator = operator_stack.pop()
-            if operator == Separators.lpa.value:
-                self.error(SyntaxError.symbol_expected, self.peak, Separators.rpa.value.value)
-                return None
-            else:
-                expression_queue.append(operator)
-
-        operand_stack: list[ExpressionNode] = []
-        for tok in expression_queue:
-            if isinstance(tok, ExpressionNode):     # Array/Dict/Det or other data structure
-                operand_stack.append(tok)
-
-            elif isinstance(tok, list):             # function call
-                if len(operand_stack) >= 1:
-                    func = operand_stack.pop()
-                    if isinstance(func, VariableNode):
-                        operand_stack.append(FuncCallNode(func.repr_token, func, tuple(tok)))
-                    else:
-                        self.error(SyntaxError.not_a_func, func.repr_token, func)
-                else:
-                    assert False
-
-            elif tok.tt == TT.LITERAL:
-                operand_stack.append(ValueNode(tok))
-
-            elif tok.tt == TT.IDENTIFIER:
-                operand_stack.append(VariableNode(tok))
-
-            elif tok.tt == TT.OPERATOR:
-                if tok.value in UNARY_OPERATORS:
-                    if len(operand_stack) >= 1:
-                        node = operand_stack.pop()
-                        operand_stack.append(UnOpNode(tok, node))
-                    else:
-                        self.error(SyntaxError.expression_expected, tok)
-                else:
-                    if len(operand_stack) >= 2:
-                        node2 = operand_stack.pop()
-                        node1 = operand_stack.pop()
-                        if tok.value in ASSIGN_OPERATORS:
-                            var_assign = self.var_assign_statement(node1, node2, tok)
-                            if var_assign is not None:
-                                operand_stack.append(var_assign)
-
-                        elif tok == Operators.index.value:
-                            operand_stack.append(IndexOperatorNode(tok, node1, node2))
-
-                        else:
-                            operand_stack.append(BinOpNode(tok, node1, node2))
-                    else:
-                        self.error(SyntaxError.expression_expected, tok)
-
-            else:
-                print(tok)
-                assert False
-
-        if len(operand_stack) != 1:
-            return None     # no expression found
-        else:
-            return operand_stack[0]
+        return ast
 
     def make_index(self, operator_stack: list[Token]) -> Optional[ExpressionNode]:
         """
@@ -511,7 +536,7 @@ class Parser:
             self.error(SyntaxError.symbol_expected, eq_symbol, '=')
             return None
 
-    def var_assign_statement(self, node1, node2, tok) -> Optional[ExpressionNode]:
+    def var_assign_statement(self, node1, node2, tok, ) -> Optional[ExpressionNode]:
         """
         Parses the next variable assignment and returns its Node.
         It expands operate and assign operations such as ``+=``.
@@ -598,8 +623,38 @@ class Parser:
 
         return ValueNode(Token(TT.LITERAL, elements, start_tok.start, self.peak.end, start_tok.line))
 
-    def dict_set_literal(self) -> Optional[ValueNode]:     # TODO
-        pass
+    def dict_set_literal(self) -> ValueNode:
+        start_tok = self.peak
+        self.advance()
+        is_dict = True
+
+        rollback_index = self.i
+
+        elements = self.repeat_until_symbol('}', Parser.expression, SyntaxError.expression_expected)
+
+        if len(elements) > 0:   # detecting if its dict or set
+            i = self.i
+            self.i = rollback_index-1   # going 1 extra backwards to do advance afterwards
+            self.advance()  # updates all variables needed
+
+            error_number = len(self.errors)
+            self.expression()       # this might create errors
+            while len(self.errors) > error_number:
+                self.errors.pop()   # this will remove duplicate errors generated
+                self.expression()
+
+            is_dict = self.peak == Separators.colon.value
+
+            self.i = i
+
+        if is_dict:
+            dictionary = {}
+            for key, value in zip(*[iter(elements)] * 2):   # did some magic here I can't explain, stackoverflow can xD
+                dictionary[key] = value
+
+            return ValueNode(Token(TT.LITERAL, dictionary, start_tok.start, self.peak.end, start_tok.line))
+        else:
+            return ValueNode(Token(TT.LITERAL, set(elements), start_tok.start, self.peak.end, start_tok.line))
 
     # utils
 

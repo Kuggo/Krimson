@@ -13,11 +13,11 @@ def main():
         print('usage: krimson <source_file> <destination_file>')
 
     source = r'''
-    /*func int main() {
+    func int main() {
         var array[array[int]] arr = [[1], [2]]
-    }*/
+    }
     
-    print("yeet")[1] '''
+    var dict[int, int] d = {1+: 2+2, 3+3, 4+4}'''
 
     if src_name is not None:
         if os.path.isfile(src_name):
