@@ -1,0 +1,29 @@
+
+class bool {
+
+}
+
+class nat {     // aka uint
+
+}
+
+class int {
+
+}
+
+class frac {    // aka fixed. To be used instead of floats
+
+}
+
+class char {
+
+}
+
+class array {
+
+}
+
+class string {  // until interfaces and inheritance comes, this will have its own type
+
+}
+

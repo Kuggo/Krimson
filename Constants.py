@@ -20,8 +20,11 @@ SEPARATORS = {',', ':', ';', '{', '}', '[', ']', '(', ')'}
 END_OF_EXPRESSION = {',', ';', ':'}
 """Set of valid characters that end an expression"""
 
-KEYWORDS = {'if', 'else', 'break', 'skip', 'while', 'return', 'class', 'func', 'var'}
+KEYWORDS = {'if', 'else', 'break', 'skip', 'while', 'return', 'class', 'func', 'var', 'macro'}
 """Set containing all the language's keywords"""
+
+BOOLEANS = ['false', 'true']
+"""List of the 2 boolean values"""
 
 SYMBOLS = {'&', '|', '+', '-', '*', '/', '=', '<', '>', '!', '(', ')', '{', '}', '[', ']', '.', ',', ':', ';'}
 """Set of characters accepted as valid symbols"""
@@ -32,18 +35,31 @@ UNARY_OPERATORS = {'!', '-', '~'}
 ASSIGN_OPERATORS = {'=', '+=', '-=', '*=', '/=', '%=', '<<=', '>>=', '|=', '&=', '^='}
 """Set of strings containing all the valid assign&operate operators"""
 
-operator_precedence = {  # TODO put all the operator precedences here
+operator_precedence = {
     '(': 0,
     '[]': 0,
+    '=': 1,
+    '||': 2,
+    '&&': 3,
+    '!': 4,
+    '==': 5,
+    '!=': 5,
+    '<=': 5,
+    '>=': 5,
+    '>': 5,
+    '<': 5,
+    '|': 6,
+    '^': 7,
+    '&': 8,
+    '>>': 9,
+    '<<': 9,
     '+': 10,
     '-': 10,
     '*': 11,
     '/': 11,
+    '%': 11,
 }
 """Dict mapping the operators and their precedence (all operators are left associative)"""
-
-
-
 
 
 class TT(Enum):
@@ -134,6 +150,7 @@ class Keywords(Enum):
     class_ = Token(TT.KEYWORD, 'class')
     func = Token(TT.KEYWORD, 'func')
     var = Token(TT.KEYWORD, 'var')
+    macro = Token(TT.KEYWORD, 'macro')
 
 
 class E(Enum):

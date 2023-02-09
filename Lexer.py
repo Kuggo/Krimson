@@ -99,6 +99,9 @@ class Lexer:
         name = self.input_string[start:self.i]
         if name in KEYWORDS:
             token_type = TT.KEYWORD
+        elif name in BOOLEANS:
+            token_type = TT.LITERAL
+            name = name == BOOLEANS[1]
         else:
             token_type = TT.IDENTIFIER
 

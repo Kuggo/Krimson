@@ -17,7 +17,9 @@ def main():
         var array[array[int]] arr = [[1], [2]]
     }
     
-    var dict[int, int] d = {1+: 2+2, 3+3, 4+4}'''
+    var bool yeet = false && true
+    
+    '''
 
     if src_name is not None:
         if os.path.isfile(src_name):

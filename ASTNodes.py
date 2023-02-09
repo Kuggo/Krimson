@@ -1,17 +1,111 @@
-from Constants import Token
+from enum import Enum
+from Constants import Token, TT, Error, global_vars
 from typing import Optional
 
 
+# helper functions
+
+def convert_py_type(tok: Token) -> 'Type':
+    if isinstance(tok, int):
+        if tok < 0:
+            return Type(Token(TT.IDENTIFIER, 'int'))
+        else:
+            return Type(Token(TT.IDENTIFIER, 'nat'))
+    elif isinstance(tok, list):
+        return Type(Token(TT.IDENTIFIER, 'array'))
+    elif isinstance(tok, dict):
+        return Type(Token(TT.IDENTIFIER, 'dict'))
+    elif isinstance(tok, set):
+        return Type(Token(TT.IDENTIFIER, 'set'))
+    else:
+        assert False
+
+
+# Type
+
 class Type:
-    def __init__(self, name: Token, generics: Optional[list['Type']] = None):
+    def __init__(self, name: Token, generics: Optional[tuple['Type']] = None):
         self.name: Token = name
-        self.generics: Optional[list['Type']] = generics
+        self.generics: Optional[tuple['Type']] = generics
+        self.definition: Optional[ClassDefineNode] = None
+
+    def __eq__(self, other: 'Type'):
+        return self.name == other.name and self.generics == self.generics
+
+    def is_subtype(self, super_type: 'Type'):
+        if self.name == super_type.name:
+            return True
+
+        for gen, sup_gen in zip(self.generics, super_type.generics):
+            if not gen.is_subtype(sup_gen):
+                return False
+
+        return True
 
     def __repr__(self):
         if self.generics is None:
             return f'{self.name.value}'
         else:
             return f'{self.name.value}[{self.generics.__repr__()[1:-1]}]'
+
+
+# Errors
+
+class TypeError(Enum):
+    pass
+
+
+# AST level
+
+class Context:
+    """Compile Time context to process AST and type check"""
+    def __init__(self, down_scope: Optional['Context'] = None):
+        self.down_scope: Optional[Context] = down_scope
+        self.errors: list[Error] = []
+
+        if down_scope is None:
+            self.stack_map: dict[str, int] = {}
+            self.funcs: dict[tuple, FuncDefineNode] = {}
+            self.types: dict[Type, ClassDefineNode] = {}
+            self.vars: dict[str, (MacroDefineNode, VariableNode)] = {}
+        else:
+            self.stack_map: dict[str, int] = down_scope.stack_map.copy()
+            self.funcs: dict[tuple, FuncDefineNode] = down_scope.funcs.copy()
+            self.types: dict[Type, ClassDefineNode] = down_scope.types.copy()
+            self.vars: dict[str, (MacroDefineNode, VariableNode)] = down_scope.vars.copy()
+        return
+
+    def get_var(self, var: 'VariableNode') -> Optional['VarDefineNode']:
+        if var.name in self.vars:
+            return self.vars[var.name]
+        else:
+            return None
+
+    def stack_location(self, var: 'VariableNode') -> int:
+        if var.name in self.stack_map:
+            return self.stack_map[var.name]
+        else:
+            allocations = set(self.stack_map.values())
+            for i, j in enumerate(allocations):
+                if i != j:
+                    self.stack_map[var.name] = i
+                    return i
+
+            self.stack_map[var.name] = len(allocations)
+            return self.stack_map[var.name]
+
+    def stack_dealloc(self, var: 'VariableNode') -> None:
+        del self.stack_map[var.name]
+
+    def clone(self) -> 'Context':
+        c = Context(self)
+        self.down_scope = c
+        return c
+
+    def error(self, e: TypeError, node: 'Node', *args) -> None:
+        self.errors.append(Error(e, node.repr_token.start, node.repr_token.end, node.repr_token.line,
+                                 global_vars.PROGRAM_LINES[node.repr_token.line - 1], *args))
+        return
 
 
 # Category Nodes (DO NOT construct these nodes!)
@@ -23,6 +117,9 @@ class Node:
         self.repr_token = repr_tok
         return
 
+    def update(self, ctx: Context) -> Optional['Node']:
+        pass
+
     def __repr__(self):
         return f'<{self.repr_token}>'
 
@@ -30,13 +127,23 @@ class Node:
 class ExpressionNode(Node):
     def __init__(self, repr_tok: Token):
         super().__init__(repr_tok)
+        self.type: Optional[Type] = None
         return
+
+    def get_type(self):
+        return self.type
 
 
 class NameDefineNode(Node):
     def __init__(self, repr_tok: Token, name: 'VariableNode'):
         super().__init__(repr_tok)
         self.name: VariableNode = name
+
+    def get_id(self):
+        return self.name
+
+    def add_ctx(self, ctx: Context):
+        pass
 
 
 # Base NODES
@@ -45,6 +152,11 @@ class ValueNode(ExpressionNode):
     def __init__(self, tok: Token):
         super().__init__(tok)
 
+    def update(self, ctx: Context) -> Optional['Node']:
+        self.type = convert_py_type(self.repr_token)
+        self.type.definition = ctx.types[self.type]
+        return self
+
     def __repr__(self):
         return f'{self.repr_token.value}'
 
@@ -52,16 +164,31 @@ class ValueNode(ExpressionNode):
 class VariableNode(ExpressionNode):
     def __init__(self, repr_tok: Token):
         super().__init__(repr_tok)
+        self.name: str = repr_tok.value
+        self.offset: int = 0
         return
 
     def __repr__(self):
-        return f'{self.repr_token.value}'
+        return f'{self.name}'
 
 
 class ScopeNode(Node):
     def __init__(self, start_tok: Token, child_nodes: list[Node]):
         super().__init__(start_tok)
         self.child_nodes: list[Node] = child_nodes
+        return
+
+    def update(self, ctx: Context) -> Optional['Node']:
+        new_ctx = ctx.clone()
+        for node in self.child_nodes:
+            node.scope_level = self.scope_level + 1
+            if isinstance(node, NameDefineNode):
+                node.add_ctx(new_ctx)
+
+        for i, node in enumerate(self.child_nodes):
+
+            self.child_nodes[i] = node.update(new_ctx)
+
         return
 
     def __repr__(self):
@@ -139,8 +266,13 @@ class FuncCallNode(ExpressionNode):
 
 # Definition Nodes
 
-class MacroDefineNode(NameDefineNode):  # TODO left undone for now
-    pass
+class MacroDefineNode(NameDefineNode):
+    def __init__(self, repr_tok: Token, name: 'VariableNode', expression: ExpressionNode):
+        super().__init__(repr_tok, name)
+        self.value: ExpressionNode = expression
+
+    def __repr__(self):
+        return f'(macro) {self.name} = {self.value}'
 
 
 class VarDefineNode(NameDefineNode, ExpressionNode):
@@ -148,6 +280,9 @@ class VarDefineNode(NameDefineNode, ExpressionNode):
         super().__init__(repr_tok, var_name)
         self.var_type: Type = var_type
         self.value: Optional[ExpressionNode] = value
+
+    def add_ctx(self, ctx: Context) -> None:
+        ctx.vars[self.name.name] = self
 
     def __repr__(self):
         if self.value is None:
@@ -157,11 +292,18 @@ class VarDefineNode(NameDefineNode, ExpressionNode):
 
 
 class FuncDefineNode(NameDefineNode):
-    def __init__(self, repr_tok: Token, ret_type: Type, func_name: VariableNode, args: list[VarDefineNode], body: Node):
+    def __init__(self, repr_tok: Token, ret_type: Type, func_name: VariableNode, args: tuple[VarDefineNode], body: Node):
         super().__init__(repr_tok, func_name)
         self.ret_type: Type = ret_type
-        self.args: list[VarDefineNode] = args
+        self.args: tuple[VarDefineNode] = args
         self.body: Node = body
+
+    def get_id(self) -> tuple:
+        return self.name, self.args
+
+    def add_ctx(self, ctx: Context) -> None:
+        ctx.funcs[self.get_id()] = self
+        return
 
     def __repr__(self):
         return f'{self.ret_type} {self.name}({self.args.__repr__()[1:-1]}) {self.body}'
@@ -172,6 +314,11 @@ class ClassDefineNode(NameDefineNode):
         super().__init__(repr_tok, name)
         self.body: Node = body
         self.type: Type = class_type
+        self.type.definition = self
+
+    def add_ctx(self, ctx: Context) -> None:
+        ctx.types[self.type] = self
+        return
 
     def __repr__(self):
         return f'class {self.name} {self.body}'

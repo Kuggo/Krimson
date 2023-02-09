@@ -115,6 +115,8 @@ class Parser:
                 return self.func_define_statement()
             elif self.peak.value == 'class':
                 return self.class_define_statement()
+            elif self.peak.value == 'macro':
+                return self.macro_define_statement()
             else:
                 assert False
 
@@ -463,8 +465,24 @@ class Parser:
 
         return SkipNode(start, value)
 
-    def macro_define_statement(self):
-        pass
+    def macro_define_statement(self) -> Optional[MacroDefineNode]:
+        start = self.peak
+        self.advance()
+
+        macro_name = self.peak
+        if macro_name.tt != TT.IDENTIFIER:
+            self.error(SyntaxError.identifier_expected, self.peak)
+            return None
+
+        eq_symbol = self.preview()
+
+        value = self.expression()
+
+        if isinstance(value, AssignNode):
+            return MacroDefineNode(start, VariableNode(macro_name), value.value)
+        else:
+            self.error(SyntaxError.symbol_expected, eq_symbol, '=')
+            return None
 
     def make_type(self, generic=False) -> Optional[Type]:
         """
@@ -493,7 +511,7 @@ class Parser:
             self.advance()
             generics = self.repeat_until_symbol(Separators.rbr.value.value, Parser.make_type, None, True)
             self.advance()
-            t.generics = generics
+            t.generics = tuple(generics)
 
         return t
 
@@ -592,7 +610,7 @@ class Parser:
         if body is None:
             return None
 
-        return FuncDefineNode(start, func_type, VariableNode(func_name), args, body)
+        return FuncDefineNode(start, func_type, VariableNode(func_name), tuple(args), body)
 
     def class_define_statement(self) -> Optional[ClassDefineNode]:
         start = self.peak
