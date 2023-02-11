@@ -20,7 +20,7 @@ SEPARATORS = {',', ':', ';', '{', '}', '[', ']', '(', ')'}
 END_OF_EXPRESSION = {',', ';', ':'}
 """Set of valid characters that end an expression"""
 
-KEYWORDS = {'if', 'else', 'break', 'skip', 'while', 'return', 'class', 'func', 'var', 'macro'}
+KEYWORDS = {'if', 'else', 'break', 'skip', 'while', 'return', 'class', 'fn', 'var', 'macro'}
 """Set containing all the language's keywords"""
 
 BOOLEANS = ['false', 'true']
@@ -93,6 +93,10 @@ class Operators(Enum):
     lt = Token(TT.OPERATOR, '<')
     gte = Token(TT.OPERATOR, '>=')
     lte = Token(TT.OPERATOR, '<=')
+
+    and_ = Token(TT.OPERATOR, '&&')
+    or_ = Token(TT.OPERATOR, '||')
+    not_ = Token(TT.OPERATOR, '!')
 
     shl = Token(TT.OPERATOR, '<<')
     shr = Token(TT.OPERATOR, '>>')
@@ -173,7 +177,6 @@ class E(Enum):
     undefined_function = 'Undefined function for the given args'
     unknown_obj_type = 'Unknown object type'
     unknown_identifier = "No variable, class or function named '{}' is visible in scope"
-    no_attribute = "'{}' has no attribute '{}'"
     type_missmatch = "expected '{}' and got '{}'"
     type_incompatible = "Expected subtype of '{}' and got '{}'"
     bin_dunder_not_found = 'Cannot {} for {} and {}. No suitable declaration of {} exists anywhere'

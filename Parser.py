@@ -15,6 +15,7 @@ class SyntaxError(Enum):
     arg_expected = 'Function argument definition expected'
     not_a_func = 'Cannot call "{}"'
     cannot_index_multiple = "Cannot index with multiple values. ']' expected"
+    cannot_assign_to_arg = "Cannot assign values to function argument definitions"
 
 
 class Parser:
@@ -111,7 +112,7 @@ class Parser:
                 return self.skip_statement()
             elif self.peak.value == 'var':
                 return self.var_define_statement()
-            elif self.peak.value == 'func':
+            elif self.peak.value == 'fn':
                 return self.func_define_statement()
             elif self.peak.value == 'class':
                 return self.class_define_statement()
@@ -539,13 +540,14 @@ class Parser:
 
         eq_symbol = self.preview()
 
-        if inside_func_args:
-            value = self.expression()
-        else:
-            value = self.expression()
+        value = self.expression()
 
         if isinstance(value, AssignNode):
-            return VarDefineNode(start, var_type, value.var, value.value)
+            if inside_func_args:    # TODO no default arguments for now
+                self.error(SyntaxError.cannot_assign_to_arg, eq_symbol)
+                return None
+            else:
+                return VarDefineNode(start, var_type, value.var, value.value)
 
         elif isinstance(value, VariableNode):
             return VarDefineNode(start, var_type, VariableNode(var_name), None)
@@ -603,7 +605,7 @@ class Parser:
             return None
 
         self.advance()
-        args = self.repeat_until_symbol(')', Parser.var_define_statement, SyntaxError.arg_expected)
+        args = self.repeat_until_symbol(')', Parser.var_define_statement, SyntaxError.arg_expected, True)
         self.advance()
 
         body = self.statement()

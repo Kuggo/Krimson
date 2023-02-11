@@ -13,11 +13,7 @@ def main():
         print('usage: krimson <source_file> <destination_file>')
 
     source = r'''
-    func int main() {
-        var array[array[int]] arr = [[1], [2]]
-    }
-    
-    var bool yeet = false && true
+    var nat ver = 1
     
     '''
 
@@ -57,7 +53,25 @@ def main():
             print(err.__repr__(), file=stderr)
         exit(1)
 
-    print(parser.ast)
+    # print(parser.ast)
+
+    primitives_ctx = get_primitives()
+
+    context = Context(primitives_ctx)
+
+    ast = parser.ast.update(context)
+
+    if len(context.errors) > 0:
+        for err in context.errors:
+            print(err.__repr__(), file=stderr)
+        exit(1)
+
+    print(ast)
+
+    return
+
+
+def get_primitives() -> Context:
 
     return
 
