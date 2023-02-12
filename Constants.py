@@ -174,7 +174,6 @@ class E(Enum):
     unknown_var_type = 'Unknown variable type'
     undefined_variable = 'Undefined variable'
     var_before_assign = 'Variable might be used before assignment'
-    undefined_function = 'Undefined function for the given args'
     unknown_obj_type = 'Unknown object type'
     unknown_identifier = "No variable, class or function named '{}' is visible in scope"
     type_missmatch = "expected '{}' and got '{}'"

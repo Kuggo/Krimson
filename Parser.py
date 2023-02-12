@@ -16,6 +16,7 @@ class SyntaxError(Enum):
     not_a_func = 'Cannot call "{}"'
     cannot_index_multiple = "Cannot index with multiple values. ']' expected"
     cannot_assign_to_arg = "Cannot assign values to function argument definitions"
+    class_body_not_a_scope = "Class body must be defined between curly brackets { }"
 
 
 class Parser:
@@ -612,6 +613,9 @@ class Parser:
         if body is None:
             return None
 
+        if isinstance(body, ScopeNode):
+            body = IsolatedScopeNode.new_from_old(body)     # casting down scope node to func body node aka isolated
+
         return FuncDefineNode(start, func_type, VariableNode(func_name), tuple(args), body)
 
     def class_define_statement(self) -> Optional[ClassDefineNode]:
@@ -625,6 +629,11 @@ class Parser:
         body = self.statement()
         if body is None:
             return None
+
+        if isinstance(body, ScopeNode):
+            body = ClassBodyNode.new_from_old(body)     # casting down scope node to class body
+        else:
+            self.error(SyntaxError.class_body_not_a_scope, body.repr_token)
 
         return ClassDefineNode(start, VariableNode(class_type.name), class_type, body)
 

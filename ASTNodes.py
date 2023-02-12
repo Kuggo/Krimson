@@ -88,6 +88,7 @@ class Type:
 class TypeError(Enum):
     no_attribute = 'type "{}" has no attribute {}"'
     unk_var = 'Undefined variable "{}"'
+    undefined_function = 'Undefined function for the given args'
     def_statement_expected = 'Declaration statement expected inside a class body'
 
 
@@ -161,7 +162,10 @@ class Context:
             return self.stack_map[var.name]
 
     def stack_dealloc(self, var: 'VariableNode') -> None:
-        del self.stack_map[var.name]
+        if var.name in self.stack_map:
+            del self.stack_map[var.name]
+        else:
+            assert False
 
     def clone(self) -> 'Context':
         c = Context(self)
@@ -242,11 +246,11 @@ class ValueNode(ExpressionNode):
         return
 
     def update(self, ctx: Context) -> Optional['ValueNode']:
+        self.scope_level = ctx.scope_level
         self.type = convert_py_type(self.repr_token)
         t = ctx.get_class(self.type)
         if t is not None:
             self.type.size = t.size
-        self.scope_level = ctx.scope_level
         return self
 
     def __repr__(self):
@@ -349,6 +353,7 @@ class AssignNode(ExpressionNode):
 
     def alloc_vars(self, ctx: Context) -> None:
         self.value.alloc_vars(ctx)
+        self.var.alloc_vars(ctx)
         return
 
     def __repr__(self):
@@ -431,7 +436,7 @@ class DotOperatorNode(VariableNode):
             return None
 
         if t.has_field(self.field.value):
-            var = ctx.get_var(self.field.value)
+            var = ctx.get_var(self.field.value)     # TODO should ask the class and not the context right?
             if isinstance(var, VarDefineNode):
                 self.offset = var.offset
             return self
@@ -493,7 +498,7 @@ class FuncCallNode(ExpressionNode):
     def update(self, ctx: Context) -> Optional['FuncCallNode']:
         self.scope_level = ctx.scope_level
         args = []
-        if isinstance(self.name, DotOperatorNode):
+        if isinstance(self.name, DotOperatorNode):  # syntax sugar
             args.append(self.name)
 
         for arg in self.args:
@@ -502,7 +507,7 @@ class FuncCallNode(ExpressionNode):
 
         func = ctx.get_func(self)
         if func is None:
-            ctx.error(TypeError.unk_var, self, self.repr_token.value)
+            ctx.error(TypeError.undefined_function, self)
             return None
         return self
 
@@ -533,7 +538,7 @@ class MacroDefineNode(NameDefineNode):
 class VarDefineNode(NameDefineNode, ExpressionNode):
     def __init__(self, repr_tok: Token, var_type: Type, var_name: VariableNode, value: Optional[ExpressionNode]):
         super().__init__(repr_tok, var_name)
-        self.var_type: Type = var_type
+        self.type: Type = var_type
         self.value: Optional[ExpressionNode] = value
         self.offset: int = 0
 
@@ -542,6 +547,7 @@ class VarDefineNode(NameDefineNode, ExpressionNode):
         return
 
     def update(self, ctx: Context) -> Optional['VarDefineNode']:
+        self.scope_level = ctx.scope_level
         self.value = self.value.update(ctx)
         self.add_ctx(ctx)
         self.name = self.name.update(ctx)
@@ -553,23 +559,24 @@ class VarDefineNode(NameDefineNode, ExpressionNode):
 
     def alloc_vars(self, ctx: Context) -> None:
         self.value.alloc_vars(ctx)
+        self.offset = ctx.stack_location(self.name)
         ctx.stack_dealloc(self.name)    # first occurrence of this variable, prior to this point, this slot can be used
         return
 
     def __repr__(self):
         if self.value is None:
-            return f'{self.var_type} {self.name.repr_token.value}'
+            return f'{self.type} {self.name.repr_token.value}'
         else:
-            return f'{self.var_type} {self.name.repr_token.value} = {self.value}'
+            return f'loc:{self.offset} {self.type} {self.name.repr_token.value} = {self.value}'
 
 
 class FuncDefineNode(NameDefineNode):
     def __init__(self, repr_tok: Token, ret_type: Type, func_name: VariableNode, args: tuple[VarDefineNode, ...],
-                 body: Node):
+                 body: 'IsolatedScopeNode'):
         super().__init__(repr_tok, func_name)
         self.ret_type: Type = ret_type
         self.args: tuple[VarDefineNode, ...] = args
-        self.body: Node = body
+        self.body: IsolatedScopeNode = body
 
     def get_id(self) -> tuple[str, tuple[Type, ...]]:
         args: list[Type] = []
@@ -610,6 +617,10 @@ class IsolatedScopeNode(ScopeNode):
         super().__init__(start_tok, child_nodes)
         return
 
+    @classmethod
+    def new_from_old(cls, old: ScopeNode) -> 'IsolatedScopeNode':
+        return cls(old.repr_token, old.child_nodes)
+
     def create_context(self, ctx: Context) -> Context:
         """Creates a new context for a scope node via ctx.clone(), but isolates the variables defined in upper scope
         :param ctx: Context of the above scope
@@ -628,30 +639,42 @@ class IsolatedScopeNode(ScopeNode):
 
 
 class ClassDefineNode(NameDefineNode):
-    def __init__(self, repr_tok: Token, name: 'VariableNode', class_type: Type, body: Node):
+    def __init__(self, repr_tok: Token, name: 'VariableNode', class_type: Type, body: 'ClassBodyNode'):
         super().__init__(repr_tok, name)
-        self.body: Node = body
+        self.body: ClassBodyNode = body
         self.type: Type = class_type
         self.size: int = 0
+        return
 
-    def update(self, ctx: Context) -> Optional['Node']:
-        pass
+    def update(self, ctx: Context) -> Optional['ClassDefineNode']:
+        self.scope_level = ctx.scope_level
+        self.add_ctx(ctx)
+
+        self.body = self.body.update(ctx)
+        if self.body is None:
+            return None
+
+        return self
 
     def add_ctx(self, ctx: Context) -> None:
         ctx.types[self.type] = self
         return
 
-    def has_field(self, value):
+    def has_field(self, value) -> bool:
         pass
 
     def __repr__(self):
         return f'class {self.name} {self.body}'
 
 
-class ClassBodyNode(IsolatedScopeNode):
+class ClassBodyNode(ScopeNode):
     def __init__(self, start_tok: Token, child_nodes: list[Node]):
         super().__init__(start_tok, child_nodes)
         return
+
+    @classmethod
+    def new_from_old(cls, old: ScopeNode) -> 'ClassBodyNode':
+        return cls(old.repr_token, old.child_nodes)
 
     def process_body(self, ctx: Context) -> None:
         child_nodes = []
@@ -666,6 +689,26 @@ class ClassBodyNode(IsolatedScopeNode):
         self.child_nodes = child_nodes
         return
 
+    def create_context(self, ctx: Context) -> Context:
+        """Creates a new context for a scope node via ctx.clone(), but isolates the variables defined in upper scope.
+        Additionally, functions defined in the class's body will be visible on the class's definition scope.
+
+        :param ctx: Context of the above scope
+        :return: the new context of the current scope"""
+        new_ctx = ctx.clone()
+
+        new_ctx.stack_map = {}      # erasing pre existing variables
+        new_ctx.vars = {}           # same here
+
+        new_ctx.funcs = ctx.funcs   # methods need to be accessible outside of class
+        return new_ctx
+
+    def update(self, ctx: Context) -> Optional['ClassBodyNode']:
+        self.scope_level = ctx.scope_level
+        new_ctx = self.create_context(ctx)
+        self.process_body(new_ctx)
+        return self
+
 
 # Control Flow
 
@@ -675,6 +718,28 @@ class IfNode(Node):
         self.condition = condition
         self.body = body
         self.else_statement: Optional[ElseNode] = None
+        return
+
+    def update(self, ctx: Context) -> Optional['IfNode']:
+        self.scope_level = ctx.scope_level
+
+        self.condition = self.condition.update(ctx)
+
+        self.body = self.body.update(ctx)
+        if self.body is None or self.condition is None:
+            return None
+
+        if self.else_statement is not None:
+            self.else_statement = self.else_statement.update(ctx)
+
+        return self
+
+    def alloc_vars(self, ctx: Context) -> None:
+        if self.else_statement is not None:
+            self.else_statement.alloc_vars(ctx)
+        self.body.alloc_vars(ctx)
+        self.condition.alloc_vars(ctx)
+        return
 
     def __repr__(self):
         if self.else_statement is None:
@@ -689,6 +754,20 @@ class ElseNode(Node):
         super().__init__(repr_tok)
         self.body = body
         self.if_statement: Optional[IfNode] = if_statement
+        return
+
+    def update(self, ctx: Context) -> Optional['ElseNode']:
+        self.scope_level = ctx.scope_level
+
+        self.body = self.body.update(ctx)
+        if self.body is None:
+            return None
+
+        return self
+
+    def alloc_vars(self, ctx: Context) -> None:
+        self.body.alloc_vars(ctx)
+        return
 
     def __repr__(self):
         return f'else {self.body}'
@@ -699,16 +778,32 @@ class WhileNode(Node):
         super().__init__(repr_tok)
         self.condition = condition
         self.body = body
+        return
+
+    def update(self, ctx: Context) -> Optional['WhileNode']:
+        self.scope_level = ctx.scope_level
+
+        self.condition = self.condition.update(ctx)
+
+        self.body = self.body.update(ctx)
+        if self.body is None or self.condition is None:
+            return None
+
+        return self
+
+    def alloc_vars(self, ctx: Context) -> None:
+        self.body.alloc_vars(ctx)
+        self.condition.alloc_vars(ctx)
+        return
 
     def __repr__(self):
         return f'while {self.condition} {self.body}'
 
 
-class DoWhileNode(Node):
+class DoWhileNode(WhileNode):
     def __init__(self, repr_tok: Token, condition: ExpressionNode, body: Node):
-        super().__init__(repr_tok)
-        self.condition = condition
-        self.body = body
+        super().__init__(repr_tok, condition, body)
+        return
 
     def __repr__(self):
         return f'do {self.body} while {self.condition}'
@@ -718,6 +813,14 @@ class ReturnNode(Node):
     def __init__(self, repr_tok: Token, value: Optional[ExpressionNode] = None):
         super().__init__(repr_tok)
         self.value = value
+        return
+
+    def update(self, ctx: Context) -> Optional['Node']:
+        self.scope_level = ctx.scope_level
+        self.value = self.value.update(ctx)
+        if self.value is None:
+            return None
+        return self
 
     def __repr__(self):
         if self.value is None:
