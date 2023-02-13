@@ -35,9 +35,11 @@ UNARY_OPERATORS = {'!', '-', '~'}
 ASSIGN_OPERATORS = {'=', '+=', '-=', '*=', '/=', '%=', '<<=', '>>=', '|=', '&=', '^='}
 """Set of strings containing all the valid assign&operate operators"""
 
-operator_precedence = {
+OPERATOR_PRECENDENCE = {
     '(': 0,
     '[]': 0,
+    '()': 0,
+    '.': 0,
     '=': 1,
     '||': 2,
     '&&': 3,
@@ -112,6 +114,7 @@ class Operators(Enum):
     div = Token(TT.OPERATOR, '/')
     mod = Token(TT.OPERATOR, '%')
 
+    func = Token(TT.OPERATOR, '()')
     index = Token(TT.OPERATOR, '[]')
     dot = Token(TT.OPERATOR, '.')
 

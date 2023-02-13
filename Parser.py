@@ -187,7 +187,13 @@ class Parser:
                         if self.last.tt == TT.IDENTIFIER:  # it's a function call
                             self.advance()
                             args = self.repeat_until_symbol(')', Parser.expression, SyntaxError.expression_expected)
-                            expression_queue.append(args)  # functions and their arguments to function will be lists
+                            func = Operators.func.value
+
+                            while len(operator_stack) > 0 and OPERATOR_PRECENDENCE[func.value] <= OPERATOR_PRECENDENCE[operator_stack[-1].value]:
+                                expression_queue.append(operator_stack.pop())
+
+                            operator_stack.append(func)
+                            expression_queue.append(args)  # function arguments will be lists
                             last_op = args
                         else:
                             operator_stack.append(self.peak)
@@ -230,8 +236,7 @@ class Parser:
                         break
 
                 elif self.peak.tt == TT.OPERATOR:
-                    while len(operator_stack) > 0 and \
-                            operator_precedence[self.peak.value] <= operator_precedence[operator_stack[-1].value]:
+                    while len(operator_stack) > 0 and OPERATOR_PRECENDENCE[self.peak.value] <= OPERATOR_PRECENDENCE[operator_stack[-1].value]:
                         expression_queue.append(operator_stack.pop())
                     operator_stack.append(self.peak)
                     last_op = self.peak
@@ -260,18 +265,9 @@ class Parser:
 
             operand_stack: list[ExpressionNode] = []
             for tok in postfix_expression:
-                if isinstance(tok, ExpressionNode):  # Array/Dict/Det or other data structure
+                if isinstance(tok, ExpressionNode) or isinstance(tok, list):  # Array/Dict/Det or other data structure
+                    # noinspection PyTypeChecker
                     operand_stack.append(tok)
-
-                elif isinstance(tok, list):  # function call
-                    if len(operand_stack) >= 1:
-                        func = operand_stack.pop()
-                        if isinstance(func, VariableNode):
-                            operand_stack.append(FuncCallNode(func.repr_token, func, tuple(tok)))
-                        else:
-                            self.error(SyntaxError.not_a_func, func.repr_token, func)
-                    else:
-                        assert False
 
                 elif tok.tt == TT.LITERAL:
                     operand_stack.append(ValueNode(tok))
@@ -298,12 +294,24 @@ class Parser:
                             elif tok == Operators.index.value:
                                 operand_stack.append(IndexOperatorNode(tok, node1, node2))
 
+                            elif tok == Operators.dot.value:
+                                # noinspection PyTypeChecker
+                                operand_stack.append(DotOperatorNode(tok, node1, node2))
+
+                            elif tok == Operators.func.value:
+                                if not isinstance(node2, list):
+                                    assert False
+
+                                if isinstance(node1, VariableNode):
+                                    operand_stack.append(FuncCallNode(node1.repr_token, node1, tuple(node2)))
+                                else:
+                                    self.error(SyntaxError.not_a_func, node1.repr_token, node1)
+
                             else:
                                 operand_stack.append(BinOpNode(tok, node1, node2))
                         else:
                             self.error(SyntaxError.expression_expected, tok)
                 else:
-                    print(tok)
                     assert False
 
             if len(operand_stack) != 1:

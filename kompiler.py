@@ -1243,7 +1243,7 @@ class FuncDeclarationNode(ScopedNode):
             instance_vars: Set[str] = set()     # instance variable not assigned
             for node in self.parent_obj.vars.values():
                 if node.value is None:
-                    instance_vars.add(node.name.value)
+                    instance_vars.add(node.func_name.value)
                 else:
                     self.body.insert(0, node.value)
 

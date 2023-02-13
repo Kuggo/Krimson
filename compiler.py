@@ -13,7 +13,15 @@ def main():
         print('usage: krimson <source_file> <destination_file>')
 
     source = r'''
-    var nat ver = 1
+    class yeet {
+        var int ver;
+        
+        fn nat func() {
+            return 0
+        }
+    }
+    
+    yeet.func()
     
     '''
 
@@ -56,9 +64,10 @@ def main():
     # print(parser.ast)
 
     primitives_ctx = get_primitives()
-
     context = Context(primitives_ctx)
+    context.scope_level = 0
 
+    parser.ast.alloc_vars(context)  # top level execution needs this
     ast = parser.ast.update(context)
 
     if len(context.errors) > 0:
@@ -72,8 +81,27 @@ def main():
 
 
 def get_primitives() -> Context:
+    with open('primitives.krim', 'r') as f:
+        lexer = Lexer(f.read())
+        lexer.tokenize()
 
-    return
+        if len(lexer.errors) > 0:
+            for err in lexer.errors:
+                print(err.__repr__(), file=stderr)
+            exit(1)
+
+        parser = Parser(lexer.tokens)
+        parser.parse()
+
+        if len(parser.errors) > 0:
+            for err in parser.errors:
+                print(err.__repr__(), file=stderr)
+            exit(1)
+
+        context = Context()
+        parser.ast.process_body(context)    # skipping some parts on self.update()
+
+    return context
 
 
 if __name__ == '__main__':

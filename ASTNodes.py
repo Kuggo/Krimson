@@ -83,6 +83,9 @@ class Type:
             return f'{self.name.value}[{self.generics.__repr__()[1:-1]}]'
 
 
+class_type = Type(Token(TT.IDENTIFIER, 'class'))
+
+
 # Errors
 
 class TypeError(Enum):
@@ -105,7 +108,7 @@ class Context:
             self.stack_map: dict[str, int] = {}
             self.funcs: dict[tuple, FuncDefineNode] = {}
             self.types: dict[Type, ClassDefineNode] = {}
-            self.vars: dict[str, (MacroDefineNode, VariableNode)] = {}
+            self.vars: dict[str, (MacroDefineNode, VarDefineNode)] = {}
         else:
             self.scope_level: int = up_scope.scope_level + 1
             self.errors: list[Error] = up_scope.errors    # not a copy. All errors will go to the same collection
@@ -133,6 +136,24 @@ class Context:
             return self.types[t]
         else:
             return None
+
+    def get_class_by_name(self, name: str) -> Optional['ClassDefineNode']:
+        return self.get_class(Type(Token(TT.IDENTIFIER, name)))
+
+    def get_definition(self, name: str) -> Optional['NameDefineNode']:
+        var = self.get_var(name)
+        if var is not None:
+            return var
+
+        var = self.get_class_by_name(name)
+        if var is not None:
+            return var
+
+        for f in self.funcs.keys():
+            if f[0] == name:
+                return self.funcs[f]
+
+        return None
 
     def has_field(self, field: str) -> bool:
         if field in self.vars:
@@ -176,6 +197,9 @@ class Context:
         self.errors.append(Error(e, node.repr_token.start, node.repr_token.end, node.repr_token.line,
                                  global_vars.PROGRAM_LINES[node.repr_token.line - 1], *args))
         return
+
+    def __repr__(self):
+        return f'vars: {self.vars}\nfuncs: {self.funcs}\ntypes: {self.types}'
 
 
 # Category Nodes (DO NOT construct these nodes!)
@@ -224,9 +248,9 @@ class NameDefineNode(Node):
         self.name: VariableNode = name
         return
 
-    def get_id(self):
+    def get_id(self) -> str:
         """Returns the identifier of the Definition node to be used as key in the dictionary of namespace"""
-        return self.name
+        return self.name.name
 
     def add_ctx(self, ctx: Context) -> None:
         """Adds the definition to the current context dict"""
@@ -266,7 +290,7 @@ class VariableNode(ExpressionNode):
 
     def update(self, ctx: Context, use_dunder_func=False) -> Optional['VariableNode']:
         self.scope_level = ctx.scope_level
-        var = ctx.get_var(self.name)
+        var = ctx.get_definition(self.name)
         if isinstance(var, VarDefineNode):
             self.type = var.get_type()
             return self
@@ -274,6 +298,10 @@ class VariableNode(ExpressionNode):
         elif isinstance(var, MacroDefineNode):
             value = copy(var.value)
             return value.update(ctx)
+
+        elif isinstance(var, ClassDefineNode):
+            self.type = class_type
+            return self
 
         else:
             ctx.error(TypeError.unk_var, self, self.repr_token.value)
@@ -419,10 +447,11 @@ class BinOpNode(ExpressionNode):
 
 
 class DotOperatorNode(VariableNode):
-    def __init__(self, repr_tok: Token, var: VariableNode, field: Token):
+    def __init__(self, repr_tok: Token, var: VariableNode, field: VariableNode):
         super().__init__(repr_tok)
+        self.name = field.name
         self.var: VariableNode = var
-        self.field: Token = field
+        self.field: VariableNode = field
         return
 
     def update(self, ctx: Context, use_dunder_func=False) -> Optional['DotOperatorNode']:
@@ -431,17 +460,32 @@ class DotOperatorNode(VariableNode):
         if self.var is None:
             return None
 
-        t = ctx.get_class(self.var.type)
+        if self.var.type == class_type:
+            t = ctx.get_class_by_name(self.var.name)
+        else:
+            t = ctx.get_class(self.var.type)
+
         if t is None:
             return None
 
-        if t.has_field(self.field.value):
-            var = ctx.get_var(self.field.value)     # TODO should ask the class and not the context right?
-            if isinstance(var, VarDefineNode):
-                self.offset = var.offset
+        field = t.get_field(self.field.name)
+
+        if isinstance(field, VarDefineNode):
+            self.offset = field.offset
+            self.type = field.type
             return self
+
+        elif isinstance(field, ClassDefineNode):
+            self.offset = t.body.offset_map[self.field.name]
+            self.type = class_type
+            return self
+
+        elif isinstance(field, FuncDefineNode):
+            self.type = field.func_to_type()
+            return self
+
         else:
-            ctx.error(TypeError.no_attribute, self, self.var.type.name, self.field.value)
+            ctx.error(TypeError.no_attribute, self, self.var.type.name, self.field.name)
             return None
 
     def alloc_vars(self, ctx: Context) -> None:
@@ -485,7 +529,7 @@ class IndexOperatorNode(VariableNode):
 class FuncCallNode(ExpressionNode):
     def __init__(self, repr_tok: Token, func_name: VariableNode, args: tuple[ExpressionNode, ...]):
         super().__init__(repr_tok)
-        self.name: VariableNode = func_name
+        self.func_name: VariableNode = func_name
         self.args: tuple[ExpressionNode, ...] = args
 
     def get_id(self) -> tuple[str, tuple[Type, ...]]:
@@ -493,13 +537,19 @@ class FuncCallNode(ExpressionNode):
         for arg in self.args:
             if arg.type is not None:
                 args.append(arg.type)
-        return self.name.name, tuple(args)
+        return self.func_name.name, tuple(args)
 
     def update(self, ctx: Context) -> Optional['FuncCallNode']:
         self.scope_level = ctx.scope_level
+        self.func_name = self.func_name.update(ctx)
+        if self.func_name is None:
+            return None
+
         args = []
-        if isinstance(self.name, DotOperatorNode):  # syntax sugar
-            args.append(self.name)
+        if isinstance(self.func_name, DotOperatorNode):  # syntax sugar
+            t = ctx.get_class(self.func_name.var.type)
+            if t is not None and t != ctx.get_class_by_name(self.func_name.var.name):   # it's an instance and not the class itself
+                args.append(self.func_name.var)
 
         for arg in self.args:
             args.append(arg.update(ctx))
@@ -517,7 +567,7 @@ class FuncCallNode(ExpressionNode):
         return
 
     def __repr__(self):
-        return f'{self.name}{self.args}'
+        return f'{self.func_name}{self.args}'
 
 
 # Definition Nodes
@@ -548,11 +598,14 @@ class VarDefineNode(NameDefineNode, ExpressionNode):
 
     def update(self, ctx: Context) -> Optional['VarDefineNode']:
         self.scope_level = ctx.scope_level
-        self.value = self.value.update(ctx)
+        if self.value is not None:
+            self.value = self.value.update(ctx)
+            # if self.value is None:
+            #     return None
         self.add_ctx(ctx)
         self.name = self.name.update(ctx)
 
-        if self.name is None or self.value is None:
+        if self.name is None:
             return None
 
         return self
@@ -571,8 +624,7 @@ class VarDefineNode(NameDefineNode, ExpressionNode):
 
 
 class FuncDefineNode(NameDefineNode):
-    def __init__(self, repr_tok: Token, ret_type: Type, func_name: VariableNode, args: tuple[VarDefineNode, ...],
-                 body: 'IsolatedScopeNode'):
+    def __init__(self, repr_tok: Token, ret_type: Type, func_name: VariableNode, args: tuple[VarDefineNode, ...], body: 'IsolatedScopeNode'):
         super().__init__(repr_tok, func_name)
         self.ret_type: Type = ret_type
         self.args: tuple[VarDefineNode, ...] = args
@@ -584,6 +636,17 @@ class FuncDefineNode(NameDefineNode):
             if arg.type is not None:
                 args.append(arg.type)
         return self.name.name, tuple(args)
+
+    def func_to_type(self) -> Type:
+        args: list[Type] = []
+        for arg in self.args:
+            if arg.type is not None:
+                args.append(arg.type)
+
+        return Type(self.name.repr_token, tuple(args))
+
+    def get_func_label(self) -> str:
+        return ''   # TODO generate unique label identifier for the function
 
     def add_ctx(self, ctx: Context) -> None:
         ctx.funcs[self.get_id()] = self
@@ -607,6 +670,9 @@ class FuncDefineNode(NameDefineNode):
         self.body.alloc_vars(ctx)
 
         return self
+
+    def inline_func(self, func_call: FuncCallNode) -> ScopeNode:
+        pass    # TODO
 
     def __repr__(self):
         return f'{self.ret_type} {self.name}({self.args.__repr__()[1:-1]}) {self.body}'
@@ -639,10 +705,10 @@ class IsolatedScopeNode(ScopeNode):
 
 
 class ClassDefineNode(NameDefineNode):
-    def __init__(self, repr_tok: Token, name: 'VariableNode', class_type: Type, body: 'ClassBodyNode'):
+    def __init__(self, repr_tok: Token, name: 'VariableNode', c_type: Type, body: 'ClassBodyNode'):
         super().__init__(repr_tok, name)
         self.body: ClassBodyNode = body
-        self.type: Type = class_type
+        self.type: Type = c_type
         self.size: int = 0
         return
 
@@ -660,8 +726,44 @@ class ClassDefineNode(NameDefineNode):
         ctx.types[self.type] = self
         return
 
-    def has_field(self, value) -> bool:
-        pass
+    def get_id(self) -> Type:
+        return self.type
+
+    def get_var(self, var_name: str) -> Optional[VarDefineNode]:
+        if var_name in self.body.vars:
+            return self.body.vars[var_name]
+        else:
+            return None
+
+    def get_func(self, func: 'FuncCallNode') -> Optional['FuncDefineNode']:
+        func_id = func.get_id()
+        if func_id in self.body.funcs:
+            return self.body.funcs[func_id]
+        else:
+            return None
+
+    def get_class(self, t: Type) -> Optional['ClassDefineNode']:
+        if t in self.body.types:
+            return self.body.types[t]
+        else:
+            return None
+
+    def get_class_by_name(self, name: str) -> Optional['ClassDefineNode']:
+        return self.get_class(Type(Token(TT.IDENTIFIER, name)))
+
+    def get_field(self, field: str) -> Optional[NameDefineNode]:
+        if field in self.body.vars:
+            return self.body.vars[field]
+
+        t = self.get_class_by_name(field)
+        if t is not None:
+            return t
+
+        for f in self.body.funcs.keys():
+            if f[0] == field:
+                return self.body.funcs[f]
+
+        return None
 
     def __repr__(self):
         return f'class {self.name} {self.body}'
@@ -670,6 +772,10 @@ class ClassDefineNode(NameDefineNode):
 class ClassBodyNode(ScopeNode):
     def __init__(self, start_tok: Token, child_nodes: list[Node]):
         super().__init__(start_tok, child_nodes)
+        self.funcs: dict[tuple, FuncDefineNode] = {}
+        self.types: dict[Type, ClassDefineNode] = {}
+        self.vars: dict[str, (MacroDefineNode, VarDefineNode)] = {}
+        self.offset_map: dict[str, int] = {}
         return
 
     @classmethod
@@ -681,6 +787,20 @@ class ClassBodyNode(ScopeNode):
         for node in self.child_nodes:
             if isinstance(node, NameDefineNode):
                 node = node.update(ctx)
+
+                if isinstance(node, VarDefineNode):
+                    self.vars[node.name.name] = node
+                    self.offset_map[node.name.name] = len(self.offset_map)
+
+                elif isinstance(node, MacroDefineNode):
+                    self.vars[node.get_id()] = node
+
+                elif isinstance(node, ClassDefineNode):
+                    self.types[node.get_id()] = node
+
+                elif isinstance(node, FuncDefineNode):
+                    self.funcs[node.get_id()] = node
+
                 if node is not None:
                     child_nodes.append(node)
             else:
