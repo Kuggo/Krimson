@@ -23,6 +23,10 @@ def main():
     
     yeet.func()
     
+    var int ver
+    var int vir
+    ver = 0
+    
     '''
 
     if src_name is not None:
@@ -67,8 +71,8 @@ def main():
     context = Context(primitives_ctx)
     context.scope_level = 0
 
-    parser.ast.alloc_vars(context)  # top level execution needs this
     ast = parser.ast.update(context)
+    parser.ast.alloc_vars(context)  # top level execution needs this
 
     if len(context.errors) > 0:
         for err in context.errors:

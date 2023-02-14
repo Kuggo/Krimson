@@ -76,6 +76,15 @@ class Type:
 
         return True
 
+    def get_type_label(self) -> str:
+        if self.generics is None:
+            return self.name.value
+
+        string = self.name.value
+        for gen in self.generics:
+            string += f'.{gen.get_type_label()}'
+        return string
+
     def __repr__(self):
         if self.generics is None:
             return f'{self.name.value}'
@@ -173,14 +182,16 @@ class Context:
         if var.name in self.stack_map:
             return self.stack_map[var.name]
         else:
-            allocations = set(self.stack_map.values())
-            for i, j in enumerate(allocations):
-                if i != j:
-                    self.stack_map[var.name] = i
-                    return i
+            size = var.get_size()
+            i = 0
+            last_index = 0
+            for index in sorted(self.stack_map.values()):
+                if last_index + size <= index:
+                    self.stack_map[var.name] = last_index
+                    return last_index
 
-            self.stack_map[var.name] = len(allocations)
-            return self.stack_map[var.name]
+            self.stack_map[var.name] = i
+            return i
 
     def stack_dealloc(self, var: 'VariableNode') -> None:
         if var.name in self.stack_map:
@@ -238,7 +249,7 @@ class ExpressionNode(Node):
     def get_type(self):
         return self.type
 
-    def get_size(self):
+    def get_size(self) -> int:
         return self.type.size
 
 
@@ -611,7 +622,8 @@ class VarDefineNode(NameDefineNode, ExpressionNode):
         return self
 
     def alloc_vars(self, ctx: Context) -> None:
-        self.value.alloc_vars(ctx)
+        if self.value is not None:
+            self.value.alloc_vars(ctx)
         self.offset = ctx.stack_location(self.name)
         ctx.stack_dealloc(self.name)    # first occurrence of this variable, prior to this point, this slot can be used
         return
@@ -646,7 +658,10 @@ class FuncDefineNode(NameDefineNode):
         return Type(self.name.repr_token, tuple(args))
 
     def get_func_label(self) -> str:
-        return ''   # TODO generate unique label identifier for the function
+        string = self.name.name
+        for arg in self.args:
+            string += f'.{arg.type.get_type_label()}'
+        return string
 
     def add_ctx(self, ctx: Context) -> None:
         ctx.funcs[self.get_id()] = self
@@ -667,7 +682,12 @@ class FuncDefineNode(NameDefineNode):
         if self.body is None:
             return None
 
-        self.body.alloc_vars(ctx)
+        self.body.alloc_vars(ctx)   # allocating local variables on the stack
+
+        i = 0   # allocating arguments on the stack, above the BP
+        for arg in reversed(self.args):
+            arg.offset = i
+            i += arg.get_size()
 
         return self
 
@@ -710,6 +730,8 @@ class ClassDefineNode(NameDefineNode):
         self.body: ClassBodyNode = body
         self.type: Type = c_type
         self.size: int = 0
+
+        self.body.class_def = self
         return
 
     def update(self, ctx: Context) -> Optional['ClassDefineNode']:
@@ -720,6 +742,7 @@ class ClassDefineNode(NameDefineNode):
         if self.body is None:
             return None
 
+        self.type.size = self.size
         return self
 
     def add_ctx(self, ctx: Context) -> None:
@@ -776,6 +799,8 @@ class ClassBodyNode(ScopeNode):
         self.types: dict[Type, ClassDefineNode] = {}
         self.vars: dict[str, (MacroDefineNode, VarDefineNode)] = {}
         self.offset_map: dict[str, int] = {}
+        self.size: int = 0
+        self.class_def: Optional[ClassDefineNode] = None
         return
 
     @classmethod
@@ -790,7 +815,8 @@ class ClassBodyNode(ScopeNode):
 
                 if isinstance(node, VarDefineNode):
                     self.vars[node.name.name] = node
-                    self.offset_map[node.name.name] = len(self.offset_map)
+                    self.offset_map[node.name.name] = self.size
+                    self.size += node.type.size
 
                 elif isinstance(node, MacroDefineNode):
                     self.vars[node.get_id()] = node
