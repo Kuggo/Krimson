@@ -13,7 +13,7 @@ def main():
         print('usage: krimson <source_file> <destination_file>')
 
     source = r'''
-    class yeet {
+    /*class yeet {
         var int ver;
         
         fn nat func() {
@@ -21,11 +21,12 @@ def main():
         }
     }
     
-    yeet.func()
+    yeet.func()*/
     
     var int ver
     var int vir
-    ver = 0
+    ver = ver + vir
+    
     
     '''
 

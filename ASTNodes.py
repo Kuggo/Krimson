@@ -31,6 +31,8 @@ dunder_funcs = {
     Operators.index.value.value: Token(TT.IDENTIFIER, '__get__'),
 }
 
+self_tok = Token(TT.IDENTIFIER, 'self')
+
 
 # helper functions
 
@@ -100,6 +102,7 @@ class_type = Type(Token(TT.IDENTIFIER, 'class'))
 class TypeError(Enum):
     no_attribute = 'type "{}" has no attribute {}"'
     unk_var = 'Undefined variable "{}"'
+    unk_func = 'Function "{}" not defined or visible in scope'
     undefined_function = 'Undefined function for the given args'
     def_statement_expected = 'Declaration statement expected inside a class body'
 
@@ -154,15 +157,7 @@ class Context:
         if var is not None:
             return var
 
-        var = self.get_class_by_name(name)
-        if var is not None:
-            return var
-
-        for f in self.funcs.keys():
-            if f[0] == name:
-                return self.funcs[f]
-
-        return None
+        return self.get_class_by_name(name)
 
     def has_field(self, field: str) -> bool:
         if field in self.vars:
@@ -267,7 +262,7 @@ class NameDefineNode(Node):
         """Adds the definition to the current context dict"""
         pass
 
-    def update(self, ctx: Context) -> Optional['NameDefineNode']:
+    def update(self, ctx: Context, ) -> Optional['NameDefineNode']:
         self.scope_level = ctx.scope_level
         self.add_ctx(ctx)
         return self
@@ -299,7 +294,7 @@ class VariableNode(ExpressionNode):
         self.offset: int = 0
         return
 
-    def update(self, ctx: Context, use_dunder_func=False) -> Optional['VariableNode']:
+    def update(self, ctx: Context, use_dunder_func=True, func=False) -> Optional['VariableNode']:
         self.scope_level = ctx.scope_level
         var = ctx.get_definition(self.name)
         if isinstance(var, VarDefineNode):
@@ -314,9 +309,13 @@ class VariableNode(ExpressionNode):
             self.type = class_type
             return self
 
-        else:
+        elif isinstance(var, FuncDefineNode):
+            self.type = var.func_to_type()
+            return self
+
+        if not func:
             ctx.error(TypeError.unk_var, self, self.repr_token.value)
-            return None
+        return None
 
     def alloc_vars(self, ctx: Context) -> None:
         self.offset = ctx.stack_location(self)
@@ -378,7 +377,7 @@ class AssignNode(ExpressionNode):
 
     def update(self, ctx: Context) -> Optional['AssignNode']:
         self.scope_level = ctx.scope_level
-        self.var = self.var.update(ctx)     # cannot be None
+        self.var = self.var.update(ctx, use_dunder_func=False)  # cannot be None
         self.value = self.value.update(ctx)
         if self.var is None or self.value is None:
             return None
@@ -465,7 +464,7 @@ class DotOperatorNode(VariableNode):
         self.field: VariableNode = field
         return
 
-    def update(self, ctx: Context, use_dunder_func=False) -> Optional['DotOperatorNode']:
+    def update(self, ctx: Context, use_dunder_func=True, func=False) -> Optional['DotOperatorNode']:
         self.scope_level = ctx.scope_level
         self.var = self.var.update(ctx)
         if self.var is None:
@@ -514,7 +513,7 @@ class IndexOperatorNode(VariableNode):
         self.index: ExpressionNode = index
         return
 
-    def update(self, ctx: Context, use_dunder_func=False) -> Optional['IndexOperatorNode']:
+    def update(self, ctx: Context, use_dunder_func=True, func=False) -> Optional['IndexOperatorNode']:
         self.scope_level = ctx.scope_level
         self.collection = self.collection.update(ctx)
         self.index = self.index.update(ctx)
@@ -552,14 +551,11 @@ class FuncCallNode(ExpressionNode):
 
     def update(self, ctx: Context) -> Optional['FuncCallNode']:
         self.scope_level = ctx.scope_level
-        self.func_name = self.func_name.update(ctx)
-        if self.func_name is None:
-            return None
+        self.func_name.update(ctx, func=True)
 
         args = []
-        if isinstance(self.func_name, DotOperatorNode):  # syntax sugar
-            t = ctx.get_class(self.func_name.var.type)
-            if t is not None and t != ctx.get_class_by_name(self.func_name.var.name):   # it's an instance and not the class itself
+        if isinstance(self.func_name, DotOperatorNode):     # syntax sugar
+            if self.func_name.var.type != class_type:       # it's an instance and not the class itself
                 args.append(self.func_name.var)
 
         for arg in self.args:
@@ -597,11 +593,12 @@ class MacroDefineNode(NameDefineNode):
 
 
 class VarDefineNode(NameDefineNode, ExpressionNode):
-    def __init__(self, repr_tok: Token, var_type: Type, var_name: VariableNode, value: Optional[ExpressionNode]):
+    def __init__(self, repr_tok: Token, var_type: Type, var_name: VariableNode, value: Optional[ExpressionNode] = None):
         super().__init__(repr_tok, var_name)
         self.type: Type = var_type
         self.value: Optional[ExpressionNode] = value
         self.offset: int = 0
+        self.class_def: Optional[ClassDefineNode] = None
 
     def add_ctx(self, ctx: Context) -> None:
         ctx.vars[self.name.name] = self
@@ -636,11 +633,13 @@ class VarDefineNode(NameDefineNode, ExpressionNode):
 
 
 class FuncDefineNode(NameDefineNode):
-    def __init__(self, repr_tok: Token, ret_type: Type, func_name: VariableNode, args: tuple[VarDefineNode, ...], body: 'IsolatedScopeNode'):
+    def __init__(self, repr_tok: Token, ret_type: Type, func_name: VariableNode, args: tuple[VarDefineNode, ...], body: 'IsolatedScopeNode', static=True):
         super().__init__(repr_tok, func_name)
         self.ret_type: Type = ret_type
         self.args: tuple[VarDefineNode, ...] = args
         self.body: IsolatedScopeNode = body
+        self.static = static
+        self.class_def: Optional[ClassDefineNode] = None
 
     def get_id(self) -> tuple[str, tuple[Type, ...]]:
         args: list[Type] = []
@@ -669,14 +668,18 @@ class FuncDefineNode(NameDefineNode):
 
     def update(self, ctx: Context) -> Optional['FuncDefineNode']:
         self.scope_level = ctx.scope_level
-        self.add_ctx(ctx)
 
         args = []
+        if not self.static and self.class_def is not None:
+            args.append(self.get_self_arg())
+
         for arg in self.args:
             arg = arg.update(ctx)
             if arg is not None:
                 args.append(arg)
         self.args = tuple(args)
+
+        self.add_ctx(ctx)
 
         self.body = self.body.update(ctx)
         if self.body is None:
@@ -690,6 +693,9 @@ class FuncDefineNode(NameDefineNode):
             i += arg.get_size()
 
         return self
+
+    def get_self_arg(self) -> VarDefineNode:
+        return VarDefineNode(self_tok, self.class_def.type, VariableNode(self_tok))
 
     def inline_func(self, func_call: FuncCallNode) -> ScopeNode:
         pass    # TODO
@@ -810,27 +816,31 @@ class ClassBodyNode(ScopeNode):
     def process_body(self, ctx: Context) -> None:
         child_nodes = []
         for node in self.child_nodes:
-            if isinstance(node, NameDefineNode):
+            if isinstance(node, VarDefineNode):
+                node.class_def = self.class_def
                 node = node.update(ctx)
+                self.vars[node.name.name] = node
+                self.offset_map[node.name.name] = self.size
+                self.size += node.type.size
 
-                if isinstance(node, VarDefineNode):
-                    self.vars[node.name.name] = node
-                    self.offset_map[node.name.name] = self.size
-                    self.size += node.type.size
+            elif isinstance(node, MacroDefineNode):
+                node = node.update(ctx)
+                self.vars[node.get_id()] = node
 
-                elif isinstance(node, MacroDefineNode):
-                    self.vars[node.get_id()] = node
+            elif isinstance(node, ClassDefineNode):
+                node = node.update(ctx)
+                self.types[node.get_id()] = node
 
-                elif isinstance(node, ClassDefineNode):
-                    self.types[node.get_id()] = node
+            elif isinstance(node, FuncDefineNode):
+                node.class_def = self.class_def
+                node = node.update(ctx)
+                self.funcs[node.get_id()] = node
 
-                elif isinstance(node, FuncDefineNode):
-                    self.funcs[node.get_id()] = node
-
-                if node is not None:
-                    child_nodes.append(node)
             else:
                 ctx.error(TypeError.def_statement_expected, node)
+                continue
+
+            child_nodes.append(node)
 
         self.child_nodes = child_nodes
         return

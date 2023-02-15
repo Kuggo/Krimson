@@ -1,29 +1,291 @@
+// TODO add all the implementation for the methods if necessary
 
 class bool {
+    fn bool __or__(var bool other) {
 
+    }
+
+    fn bool __and__(var bool other) {
+
+    }
+
+    fn bool __xor__(var bool other) {
+
+    }
+
+    fn bool __not__() {
+
+    }
 }
 
 class nat {     // aka uint
 
+    fn nat __add__(var nat other) {
+
+    }
+
+    fn nat __sub__(var nat other) {
+
+    }
+
+    fn int __inc__() {
+
+    }
+
+    fn int __dec__() {
+
+    }
+
+    fn nat __shr__(var nat amount) {
+
+    }
+
+    fn nat __shl__(var nat amount) {
+
+    }
+
+    fn nat __mlt__(var nat other) {
+
+    }
+
+    fn nat __div__(var nat other) {
+
+    }
+
+    fn nat __neg__() {
+
+    }
+
+    fn nat __bor__(var nat other) {
+
+    }
+
+    fn nat __band__(var nat other) {
+
+    }
+
+    fn nat __bxor__(var nat other) {
+
+    }
+
+    fn nat __bnot__() {
+
+    }
+
+    fn bool __gt__(var nat other) {
+
+    }
+
+    fn bool __gte__(var nat other) {
+
+    }
+
+    fn bool __lt__(var nat other) {
+
+    }
+
+    fn bool __lte__(var nat other) {
+
+    }
+
+    fn bool __dif__(var nat other) {
+
+    }
+
+    fn bool __equ__(var nat other) {
+
+    }
 }
 
 class int {
 
+    fn int __add__(var int other) {
+
+    }
+
+    fn int __sub__(var int other) {
+
+    }
+
+    fn int __inc__() {
+
+    }
+
+    fn int __dec__() {
+
+    }
+
+    fn int __shr__(var nat amount) {
+
+    }
+
+    fn int __shl__(var nat amount) {
+
+    }
+
+    fn int __mlt__(var int other) {
+
+    }
+
+    fn int __div__(var int other) {
+
+    }
+
+    fn int __neg__() {
+
+    }
+
+    fn int __bor__(var int other) {
+
+    }
+
+    fn int __band__(var int other) {
+
+    }
+
+    fn int __bxor__(var int other) {
+
+    }
+
+    fn int __bnot__() {
+
+    }
+
+    fn bool __gt__(var int other) {
+
+    }
+
+    fn bool __gte__(var int other) {
+
+    }
+
+    fn bool __lt__(var int other) {
+
+    }
+
+    fn bool __lte__(var int other) {
+
+    }
+
+    fn bool __dif__(var int other) {
+
+    }
+
+    fn bool __equ__(var int other) {
+
+    }
 }
 
 class frac {    // aka fixed. To be used instead of floats
 
+    fn frac __add__(var frac other) {
+
+    }
+
+    fn frac __sub__(var frac other) {
+
+    }
+
+    fn int __inc__() {
+
+    }
+
+    fn int __dec__() {
+
+    }
+
+    fn frac __shr__(var nat amount) {
+
+    }
+
+    fn frac __shl__(var nat amount) {
+
+    }
+
+    fn frac __mlt__(var frac other) {
+
+    }
+
+    fn frac __div__(var frac other) {
+
+    }
+
+    fn frac __neg__() {
+
+    }
+
+    fn bool __gt__(var frac other) {
+
+    }
+
+    fn bool __gte__(var frac other) {
+
+    }
+
+    fn bool __lt__(var frac other) {
+
+    }
+
+    fn bool __lte__(var frac other) {
+
+    }
+
+    fn bool __dif__(var frac other) {
+
+    }
+
+    fn bool __equ__(var frac other) {
+
+    }
 }
 
 class char {
+    fn char __add__(var char other) {}
 
+    fn string __mlt__(var cint amount) {}
+
+    fn bool __gt__(var char other) {}
+
+    fn bool __gte__(var char other) {}
+
+    fn bool __lt__(var char other) {}
+
+    fn bool __lte__(var char other) {}
+
+    fn bool __dif__(var char other) {}
+
+    fn bool __equ__(var char other) {}
 }
 
 class array {
+    fn array[T] __add__(var array[T] other) {}
 
+    fn array[T] __add__(var T other) {}
+
+    fn bool __dif__(var array other) {}
+
+    fn bool __equ__(var array other) {}
 }
 
 class string {  // until interfaces and inheritance comes, this will have its own type
+    fn char __get__(var nat index) {}
 
+    fn string __add__(var string other) {}
+
+    fn string __add__(var char other) {}
+
+    fn string __mlt__(var int amount) {}
+
+    fn bool __gt__(var string other) {}
+
+    fn bool __gte__(var string other) {}
+
+    fn bool __lt__(var string other) {}
+
+    fn bool __lte__(var string other) {}
+
+    fn bool __dif__(var string other) {}
+
+    fn bool __equ__(var string other) {}
 }
 

@@ -536,6 +536,12 @@ class Parser:
         """
         start = self.peak
         self.advance()
+
+        static = True   # TODO make static work with class variables
+        if self.peak == Keywords.static.value:
+            static = False
+            self.advance()
+
         type_tok = self.peak
         var_type = self.make_type()
         if var_type is None:
@@ -559,7 +565,7 @@ class Parser:
                 return VarDefineNode(start, var_type, value.var, value.value)
 
         elif isinstance(value, VariableNode):
-            return VarDefineNode(start, var_type, VariableNode(var_name), None)
+            return VarDefineNode(start, var_type, VariableNode(var_name))
 
         else:
             self.error(SyntaxError.symbol_expected, eq_symbol, '=')
@@ -596,6 +602,11 @@ class Parser:
         start = self.peak
         self.advance()
 
+        static = False
+        if self.peak == Keywords.static.value:
+            static = True
+            self.advance()
+
         type_tok = self.peak
         func_type = self.make_type()
         if func_type is None:
@@ -624,13 +635,13 @@ class Parser:
         if isinstance(body, ScopeNode):
             body = IsolatedScopeNode.new_from_old(body)     # casting down scope node to func body node aka isolated
 
-        return FuncDefineNode(start, func_type, VariableNode(func_name), tuple(args), body)
+        return FuncDefineNode(start, func_type, VariableNode(func_name), tuple(args), body, static)
 
     def class_define_statement(self) -> Optional[ClassDefineNode]:
         start = self.peak
         self.advance()
 
-        class_type = self.make_type()
+        c_type = self.make_type()
 
         # TODO no inheritance for now
 
@@ -643,7 +654,7 @@ class Parser:
         else:
             self.error(SyntaxError.class_body_not_a_scope, body.repr_token)
 
-        return ClassDefineNode(start, VariableNode(class_type.name), class_type, body)
+        return ClassDefineNode(start, VariableNode(c_type.name), c_type, body)
 
     def array_literal(self) -> ValueNode:
         """
