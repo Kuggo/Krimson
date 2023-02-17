@@ -215,10 +215,7 @@ class Lexer:
                 self.advance()
                 self.token(TT.OPERATOR, '-=', start, self.i)
             else:
-                if self.tokens[-1].tt == TT.OPERATOR or self.tokens[-1].value == ')':
-                    self.token(TT.OPERATOR, '-', start, self.i)
-                else:
-                    self.token(TT.OPERATOR, '- ', start, self.i)
+                self.token(TT.OPERATOR, '- ', start, self.i)
 
         elif self.peak == '*':
             if self.preview() == '=':

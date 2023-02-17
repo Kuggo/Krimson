@@ -56,10 +56,12 @@ OPERATOR_PRECENDENCE = {
     '>>': 9,
     '<<': 9,
     '+': 10,
-    '-': 10,
+    '- ': 10,
     '*': 11,
     '/': 11,
     '%': 11,
+    '-': 12,
+    '~': 12,
 }
 """Dict mapping the operators and their precedence (all operators are left associative)"""
 
@@ -172,8 +174,6 @@ class E(Enum):
     invalid_ret_type = 'Invalid return type'
     while_expected = 'while keyword expected'
     unexpected_argument = 'Unexpected argument'
-    break_not_in_loop = 'break keyword found outside a loop body'
-    skip_not_in_loop = 'skip keyword found outside a loop body'
     return_not_in_func = 'return keyword found outside a function body'
     unknown_var_type = 'Unknown variable type'
     undefined_variable = 'Undefined variable'
