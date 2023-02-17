@@ -228,14 +228,20 @@ class Parser:
                             break
 
                     elif self.peak.value == '{':
-                        dict_set = self.dict_set_literal()  # arrays/index and other data structures will be ValueNodes
-                        expression_queue.append(dict_set)
-                        last_op = dict_set
+                        if is_last_tok_value(last_op):
+                            break
+                        else:
+                            dict_set = self.dict_set_literal()  # arrays/index and other data structures will be ValueNodes
+                            expression_queue.append(dict_set)
+                            last_op = dict_set
 
                     else:
                         break
 
                 elif self.peak.tt == TT.OPERATOR:
+                    if self.peak == Operators.sub.value and not is_last_tok_value(last_op): # its unary minus
+                        self.peak.value = '-'   # changing its value
+
                     while len(operator_stack) > 0 and OPERATOR_PRECENDENCE[self.peak.value] <= OPERATOR_PRECENDENCE[operator_stack[-1].value]:
                         expression_queue.append(operator_stack.pop())
                     operator_stack.append(self.peak)
@@ -279,7 +285,11 @@ class Parser:
                     if tok.value in UNARY_OPERATORS:
                         if len(operand_stack) >= 1:
                             node = operand_stack.pop()
-                            operand_stack.append(UnOpNode(tok, node))
+                            if isinstance(node, ValueNode) and isinstance(node.repr_token.value, int):  # optimisation
+                                node.repr_token.value = -node.repr_token.value
+                                operand_stack.append(node)
+                            else:
+                                operand_stack.append(UnOpNode(tok, node))
                         else:
                             self.error(SyntaxError.expression_expected, tok)
                     else:
@@ -453,8 +463,10 @@ class Parser:
         start = self.peak
         self.advance()
         value = None
+
         if self.peak.tt == TT.LITERAL and isinstance(self.peak.value, int):
-            value = self.peak.value
+            value = self.peak
+            self.advance()
 
         return BreakNode(start, value)
 
@@ -471,7 +483,8 @@ class Parser:
         self.advance()
         value = None
         if self.peak.tt == TT.LITERAL and isinstance(self.peak.value, int):
-            value = self.peak.value
+            value = self.peak
+            self.advance()
 
         return SkipNode(start, value)
 

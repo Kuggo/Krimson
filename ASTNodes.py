@@ -105,6 +105,9 @@ class TypeError(Enum):
     unk_func = 'Function "{}" not defined or visible in scope'
     undefined_function = 'Undefined function for the given args'
     def_statement_expected = 'Declaration statement expected inside a class body'
+    break_not_in_loop = 'break keyword found outside the specified loop body depth'
+    skip_not_in_loop = 'skip keyword found outside the specified loop body depth'
+    pos_int_expected = 'Positive integer expected'
 
 
 # AST level
@@ -217,8 +220,9 @@ class Node:
         self.repr_token = repr_tok
         return
 
-    def update(self, ctx: Context) -> Optional['Node']:
+    def update(self, ctx: Context, parent: 'Node') -> Optional['Node']:
         self.scope_level = ctx.scope_level
+        self.parent = parent
         return self
 
     def alloc_vars(self, ctx: Context) -> None:
@@ -230,6 +234,9 @@ class Node:
         :param ctx:
         :return: """
         pass
+
+    def get_up_class_def(self) -> Optional['ClassDefineNode']:
+        return self.parent.get_up_class_def()
 
     def __repr__(self):
         return f'<{self.repr_token}>'
@@ -262,8 +269,9 @@ class NameDefineNode(Node):
         """Adds the definition to the current context dict"""
         pass
 
-    def update(self, ctx: Context, ) -> Optional['NameDefineNode']:
+    def update(self, ctx: Context, parent: Optional[Node]) -> Optional['NameDefineNode']:
         self.scope_level = ctx.scope_level
+        self.parent = parent
         self.add_ctx(ctx)
         return self
 
@@ -275,8 +283,9 @@ class ValueNode(ExpressionNode):
         super().__init__(tok)
         return
 
-    def update(self, ctx: Context) -> Optional['ValueNode']:
+    def update(self, ctx: Context, parent: Optional[Node]) -> Optional['ValueNode']:
         self.scope_level = ctx.scope_level
+        self.parent = parent
         self.type = convert_py_type(self.repr_token)
         t = ctx.get_class(self.type)
         if t is not None:
@@ -294,8 +303,9 @@ class VariableNode(ExpressionNode):
         self.offset: int = 0
         return
 
-    def update(self, ctx: Context, use_dunder_func=True, func=False) -> Optional['VariableNode']:
+    def update(self, ctx: Context, parent: Optional[Node], use_dunder_func=True, func=False) -> Optional['VariableNode']:
         self.scope_level = ctx.scope_level
+        self.parent = parent
         var = ctx.get_definition(self.name)
         if isinstance(var, VarDefineNode):
             self.type = var.get_type()
@@ -303,7 +313,7 @@ class VariableNode(ExpressionNode):
 
         elif isinstance(var, MacroDefineNode):
             value = copy(var.value)
-            return value.update(ctx)
+            return value.update(ctx, self.parent)
 
         elif isinstance(var, ClassDefineNode):
             self.type = class_type
@@ -334,22 +344,23 @@ class ScopeNode(Node):
     def process_body(self, ctx: Context) -> None:
         for node in self.child_nodes:
             if isinstance(node, NameDefineNode) and not isinstance(node, VarDefineNode):
-                node.update(ctx)
+                node.update(ctx, self.parent)
 
         child_nodes = []
         for node in self.child_nodes:
             if isinstance(node, NameDefineNode) and not isinstance(node, VarDefineNode):
                 continue
 
-            node = node.update(ctx)
+            node = node.update(ctx, self.parent)
             if node is not None:
                 child_nodes.append(node)
 
         self.child_nodes = child_nodes
         return
 
-    def update(self, ctx: Context) -> Optional['Node']:
+    def update(self, ctx: Context, parent: Optional[Node]) -> Optional['ScopeNode']:
         self.scope_level = ctx.scope_level
+        self.parent = parent
         new_ctx = ctx.clone()
         self.process_body(new_ctx)
         return self
@@ -375,10 +386,11 @@ class AssignNode(ExpressionNode):
         self.value: ExpressionNode = value
         return
 
-    def update(self, ctx: Context) -> Optional['AssignNode']:
+    def update(self, ctx: Context, parent: Optional[Node]) -> Optional['AssignNode']:
         self.scope_level = ctx.scope_level
-        self.var = self.var.update(ctx, use_dunder_func=False)  # cannot be None
-        self.value = self.value.update(ctx)
+        self.parent = parent
+        self.var = self.var.update(ctx, self.parent)  # cannot be None
+        self.value = self.value.update(ctx, self.parent)
         if self.var is None or self.value is None:
             return None
 
@@ -405,15 +417,16 @@ class UnOpNode(ExpressionNode):
         self.child = child
         return
 
-    def update(self, ctx: Context) -> Optional['FuncCallNode']:
+    def update(self, ctx: Context, parent: Optional[Node]) -> Optional['FuncCallNode']:
         self.scope_level = ctx.scope_level
-        self.child = self.child.update(ctx)
+        self.parent = parent
+        self.child = self.child.update(ctx, self.parent)
         if self.child is None:
             return None
 
         if self.op.value in dunder_funcs:
             func_name = dunder_funcs[self.op.value]
-            return FuncCallNode(self.repr_token, VariableNode(func_name), (self.child,)).update(ctx)
+            return FuncCallNode(self.repr_token, VariableNode(func_name), (self.child,)).update(ctx, self.parent)
         else:
             assert False
 
@@ -433,17 +446,19 @@ class BinOpNode(ExpressionNode):
         self.op = op
         return
 
-    def update(self, ctx: Context) -> Optional['FuncCallNode']:
+    def update(self, ctx: Context, parent: Optional[Node]) -> Optional['FuncCallNode']:
         self.scope_level = ctx.scope_level
-        self.left_child = self.left_child.update(ctx)
-        self.right_child = self.right_child.update(ctx)
+        self.parent = parent
+        self.left_child = self.left_child.update(ctx, self.parent)
+        self.right_child = self.right_child.update(ctx, self.parent)
 
         if self.left_child is None or self.right_child is None:
             return None
 
         if self.op.value in dunder_funcs:
             fn_name = dunder_funcs[self.op.value]
-            return FuncCallNode(self.repr_token, VariableNode(fn_name), (self.left_child, self.right_child)).update(ctx)
+            return FuncCallNode(self.repr_token, VariableNode(fn_name), (self.left_child, self.right_child)).update(ctx,
+                                                                                                                    self.parent)
         else:
             assert False
 
@@ -464,9 +479,10 @@ class DotOperatorNode(VariableNode):
         self.field: VariableNode = field
         return
 
-    def update(self, ctx: Context, use_dunder_func=True, func=False) -> Optional['DotOperatorNode']:
+    def update(self, ctx: Context, parent: Optional[Node], use_dunder_func=True, func=False) -> Optional['DotOperatorNode']:
         self.scope_level = ctx.scope_level
-        self.var = self.var.update(ctx)
+        self.parent = parent
+        self.var = self.var.update(ctx, self.parent)
         if self.var is None:
             return None
 
@@ -513,17 +529,19 @@ class IndexOperatorNode(VariableNode):
         self.index: ExpressionNode = index
         return
 
-    def update(self, ctx: Context, use_dunder_func=True, func=False) -> Optional['IndexOperatorNode']:
+    def update(self, ctx: Context, parent: Optional[Node], use_dunder_func=True, func=False) -> Optional['IndexOperatorNode']:
         self.scope_level = ctx.scope_level
-        self.collection = self.collection.update(ctx)
-        self.index = self.index.update(ctx)
+        self.parent = parent
+        self.collection = self.collection.update(ctx, self.parent)
+        self.index = self.index.update(ctx, self.parent)
 
         if self.collection is None or self.index is None:
             return None
 
         if use_dunder_func:
             fn_name = dunder_funcs[Operators.index.value.value]
-            return FuncCallNode(self.repr_token, VariableNode(fn_name), (self.collection, self.index)).update(ctx)
+            return FuncCallNode(self.repr_token, VariableNode(fn_name), (self.collection, self.index)).update(ctx,
+                                                                                                              self.parent)
         else:
             return self
 
@@ -549,9 +567,10 @@ class FuncCallNode(ExpressionNode):
                 args.append(arg.type)
         return self.func_name.name, tuple(args)
 
-    def update(self, ctx: Context) -> Optional['FuncCallNode']:
+    def update(self, ctx: Context, parent: Optional[Node]) -> Optional['FuncCallNode']:
         self.scope_level = ctx.scope_level
-        self.func_name.update(ctx, func=True)
+        self.parent = parent
+        self.func_name.update(ctx, self.parent, func=True)
 
         args = []
         if isinstance(self.func_name, DotOperatorNode):     # syntax sugar
@@ -559,7 +578,7 @@ class FuncCallNode(ExpressionNode):
                 args.append(self.func_name.var)
 
         for arg in self.args:
-            args.append(arg.update(ctx))
+            args.append(arg.update(ctx, self.parent))
         self.args = tuple(args)
 
         func = ctx.get_func(self)
@@ -604,14 +623,15 @@ class VarDefineNode(NameDefineNode, ExpressionNode):
         ctx.vars[self.name.name] = self
         return
 
-    def update(self, ctx: Context) -> Optional['VarDefineNode']:
+    def update(self, ctx: Context, parent: Optional[Node]) -> Optional['VarDefineNode']:
         self.scope_level = ctx.scope_level
+        self.parent = parent
         if self.value is not None:
-            self.value = self.value.update(ctx)
+            self.value = self.value.update(ctx, self.parent)
             # if self.value is None:
             #     return None
         self.add_ctx(ctx)
-        self.name = self.name.update(ctx)
+        self.name = self.name.update(ctx, self.parent)
 
         if self.name is None:
             return None
@@ -666,22 +686,23 @@ class FuncDefineNode(NameDefineNode):
         ctx.funcs[self.get_id()] = self
         return
 
-    def update(self, ctx: Context) -> Optional['FuncDefineNode']:
+    def update(self, ctx: Context, parent: Optional[Node]) -> Optional['FuncDefineNode']:
         self.scope_level = ctx.scope_level
+        self.parent = parent
 
         args = []
         if not self.static and self.class_def is not None:
             args.append(self.get_self_arg())
 
         for arg in self.args:
-            arg = arg.update(ctx)
+            arg = arg.update(ctx, self)
             if arg is not None:
                 args.append(arg)
         self.args = tuple(args)
 
         self.add_ctx(ctx)
 
-        self.body = self.body.update(ctx)
+        self.body = self.body.update(ctx, self)
         if self.body is None:
             return None
 
@@ -723,8 +744,9 @@ class IsolatedScopeNode(ScopeNode):
         new_ctx.vars = {}       # same here
         return new_ctx
 
-    def update(self, ctx: Context) -> Optional['IsolatedScopeNode']:
+    def update(self, ctx: Context, parent: Optional[Node]) -> Optional['IsolatedScopeNode']:
         self.scope_level = ctx.scope_level
+        self.parent = parent
         new_ctx = self.create_context(ctx)
         self.process_body(new_ctx)
         return self
@@ -740,11 +762,15 @@ class ClassDefineNode(NameDefineNode):
         self.body.class_def = self
         return
 
-    def update(self, ctx: Context) -> Optional['ClassDefineNode']:
+    def get_up_class_def(self) -> Optional['ClassDefineNode']:
+        return self
+
+    def update(self, ctx: Context, parent: Optional[Node]) -> Optional['ClassDefineNode']:
         self.scope_level = ctx.scope_level
+        self.parent = parent
         self.add_ctx(ctx)
 
-        self.body = self.body.update(ctx)
+        self.body = self.body.update(ctx, self)
         if self.body is None:
             return None
 
@@ -818,22 +844,22 @@ class ClassBodyNode(ScopeNode):
         for node in self.child_nodes:
             if isinstance(node, VarDefineNode):
                 node.class_def = self.class_def
-                node = node.update(ctx)
+                node = node.update(ctx, self.parent)
                 self.vars[node.name.name] = node
                 self.offset_map[node.name.name] = self.size
                 self.size += node.type.size
 
             elif isinstance(node, MacroDefineNode):
-                node = node.update(ctx)
+                node = node.update(ctx, self.parent)
                 self.vars[node.get_id()] = node
 
             elif isinstance(node, ClassDefineNode):
-                node = node.update(ctx)
+                node = node.update(ctx, self.parent)
                 self.types[node.get_id()] = node
 
             elif isinstance(node, FuncDefineNode):
                 node.class_def = self.class_def
-                node = node.update(ctx)
+                node = node.update(ctx, self.parent)
                 self.funcs[node.get_id()] = node
 
             else:
@@ -859,8 +885,9 @@ class ClassBodyNode(ScopeNode):
         new_ctx.funcs = ctx.funcs   # methods need to be accessible outside of class
         return new_ctx
 
-    def update(self, ctx: Context) -> Optional['ClassBodyNode']:
+    def update(self, ctx: Context, parent: Optional[Node]) -> Optional['ClassBodyNode']:
         self.scope_level = ctx.scope_level
+        self.parent = parent
         new_ctx = self.create_context(ctx)
         self.process_body(new_ctx)
         return self
@@ -876,17 +903,18 @@ class IfNode(Node):
         self.else_statement: Optional[ElseNode] = None
         return
 
-    def update(self, ctx: Context) -> Optional['IfNode']:
+    def update(self, ctx: Context, parent: Optional[Node]) -> Optional['IfNode']:
         self.scope_level = ctx.scope_level
+        self.parent = parent
 
-        self.condition = self.condition.update(ctx)
+        self.condition = self.condition.update(ctx, self.parent)
 
-        self.body = self.body.update(ctx)
+        self.body = self.body.update(ctx, self.parent)
         if self.body is None or self.condition is None:
             return None
 
         if self.else_statement is not None:
-            self.else_statement = self.else_statement.update(ctx)
+            self.else_statement = self.else_statement.update(ctx, self.parent)
 
         return self
 
@@ -912,10 +940,11 @@ class ElseNode(Node):
         self.if_statement: Optional[IfNode] = if_statement
         return
 
-    def update(self, ctx: Context) -> Optional['ElseNode']:
+    def update(self, ctx: Context, parent: Optional[Node]) -> Optional['ElseNode']:
         self.scope_level = ctx.scope_level
+        self.parent = parent
 
-        self.body = self.body.update(ctx)
+        self.body = self.body.update(ctx, self.parent)
         if self.body is None:
             return None
 
@@ -936,12 +965,20 @@ class WhileNode(Node):
         self.body = body
         return
 
-    def update(self, ctx: Context) -> Optional['WhileNode']:
+    def get_loop(self) -> Optional['WhileNode']:
+        parent = self.parent
+        while not (parent is None or isinstance(parent, WhileNode)):
+            parent = parent.parent
+
+        return parent
+
+    def update(self, ctx: Context, parent: Optional[Node]) -> Optional['WhileNode']:
         self.scope_level = ctx.scope_level
+        self.parent = parent
 
-        self.condition = self.condition.update(ctx)
+        self.condition = self.condition.update(ctx, self)
 
-        self.body = self.body.update(ctx)
+        self.body = self.body.update(ctx, self)
         if self.body is None or self.condition is None:
             return None
 
@@ -971,9 +1008,10 @@ class ReturnNode(Node):
         self.value = value
         return
 
-    def update(self, ctx: Context) -> Optional['Node']:
+    def update(self, ctx: Context, parent: Optional[Node]) -> Optional['Node']:
         self.scope_level = ctx.scope_level
-        self.value = self.value.update(ctx)
+        self.parent = parent
+        self.value = self.value.update(ctx, self.parent)
         if self.value is None:
             return None
         return self
@@ -985,25 +1023,60 @@ class ReturnNode(Node):
             return f'return {self.value}'
 
 
-class BreakNode(Node):
-    def __init__(self, repr_tok: Token, value: int = 1):
+class LoopModifierNode(Node):
+    def __init__(self, repr_tok: Token, value: Optional[Token], error: TypeError):
         super().__init__(repr_tok)
-        self.value = value
+        self.loop: Optional[WhileNode] = None
+        self.error: TypeError = error
+        if value is None:
+            self.value: Optional[Token] = Token(TT.LITERAL, 1)
+        else:
+            self.value: Optional[Token] = value
+
+    def get_loop(self) -> Optional[WhileNode]:
+        parent = self.parent
+        while not (parent is None or isinstance(parent, WhileNode)):
+            parent = parent.parent
+
+        return parent
+
+    def update(self, ctx: Context, parent: Optional[Node]) -> Optional['LoopModifierNode']:
+        self.scope_level = ctx.scope_level
+        self.parent = parent
+
+        if self.value.value <= 0:
+            ctx.error(TypeError.pos_int_expected, self)
+            self.value.value = 1  # ignore and proceed as default
+
+        i = self.value.value
+        self.loop = self
+        while i > 0 and self.loop is not None:
+            self.loop = self.loop.get_loop()
+            i -= 1
+
+        if self.loop is None:
+            ctx.error(self.error, self) # maybe improve this error message
+
+        return self
+
+
+class BreakNode(LoopModifierNode):
+    def __init__(self, repr_tok: Token, value: Optional[Token] = None):
+        super().__init__(repr_tok, value, TypeError.break_not_in_loop)
 
     def __repr__(self):
         if self.value is None:
             return f'break'
         else:
-            return f'break {self.value}'
+            return f'break {self.value.value}'
 
 
-class SkipNode(Node):
-    def __init__(self, repr_tok: Token, value: int = 1):
-        super().__init__(repr_tok)
-        self.value = value
+class SkipNode(LoopModifierNode):
+    def __init__(self, repr_tok: Token, value: Optional[Token] = None):
+        super().__init__(repr_tok, value, TypeError.skip_not_in_loop)
 
     def __repr__(self):
         if self.value is None:
             return f'skip'
         else:
-            return f'skip {self.value}'
+            return f'skip {self.value.value}'

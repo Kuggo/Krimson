@@ -27,7 +27,7 @@ def main():
     var int vir
     ver = ver + vir
     
-    
+    while true {break}
     '''
 
     if src_name is not None:
@@ -72,7 +72,7 @@ def main():
     context = Context(primitives_ctx)
     context.scope_level = 0
 
-    ast = parser.ast.update(context)
+    ast = parser.ast.update(context, None)
     parser.ast.alloc_vars(context)  # top level execution needs this
 
     if len(context.errors) > 0:
