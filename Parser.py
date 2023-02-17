@@ -550,9 +550,9 @@ class Parser:
         start = self.peak
         self.advance()
 
-        static = True   # TODO make static work with class variables
+        static = None
         if self.peak == Keywords.static.value:
-            static = False
+            static = self.peak
             self.advance()
 
         type_tok = self.peak
@@ -578,13 +578,13 @@ class Parser:
                 return VarDefineNode(start, var_type, value.var, value.value)
 
         elif isinstance(value, VariableNode):
-            return VarDefineNode(start, var_type, VariableNode(var_name))
+            return VarDefineNode(start, var_type, VariableNode(var_name), static=static)
 
         else:
             self.error(SyntaxError.symbol_expected, eq_symbol, '=')
             return None
 
-    def var_assign_statement(self, node1, node2, tok, ) -> Optional[ExpressionNode]:
+    def var_assign_statement(self, node1, node2, tok) -> Optional[ExpressionNode]:
         """
         Parses the next variable assignment and returns its Node.
         It expands operate and assign operations such as ``+=``.
@@ -615,9 +615,9 @@ class Parser:
         start = self.peak
         self.advance()
 
-        static = False
+        static = None
         if self.peak == Keywords.static.value:
-            static = True
+            static = self.peak
             self.advance()
 
         type_tok = self.peak
@@ -648,11 +648,16 @@ class Parser:
         if isinstance(body, ScopeNode):
             body = IsolatedScopeNode.new_from_old(body)     # casting down scope node to func body node aka isolated
 
-        return FuncDefineNode(start, func_type, VariableNode(func_name), tuple(args), body, static)
+        return FuncDefineNode(start, func_type, VariableNode(func_name), tuple(args), body, static=static)
 
     def class_define_statement(self) -> Optional[ClassDefineNode]:
         start = self.peak
         self.advance()
+
+        static = None
+        if self.peak == Keywords.static.value:
+            static = self.peak
+            self.advance()
 
         c_type = self.make_type()
 
@@ -663,7 +668,7 @@ class Parser:
             return None
 
         if isinstance(body, ScopeNode):
-            body = ClassBodyNode.new_from_old(body)     # casting down scope node to class body
+            body = ClassBodyNode.new_from_old(body, static)     # casting down scope node to class body
         else:
             self.error(SyntaxError.class_body_not_a_scope, body.repr_token)
 

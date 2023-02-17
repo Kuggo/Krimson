@@ -191,7 +191,6 @@ class E(Enum):
     class_is_not_subtype = "class '{}' does not inherit from another class"
     instance_needed = "Cannot access fields of object '{}' without an instance of it"
     static_class_no_constructor = "Static class cannot have a constructor"
-    static_not_in_class_scope = 'Static modifier cannot be applied outside a Class definition scope'
     cannot_default_arg = "Cannot assign a default value to function argument '{}'"
 
     def __repr__(self) -> str:

@@ -13,7 +13,7 @@ def main():
         print('usage: krimson <source_file> <destination_file>')
 
     source = r'''
-    /*class yeet {
+    class static yeet {
         var int ver;
         
         fn nat func() {
@@ -21,13 +21,11 @@ def main():
         }
     }
     
-    yeet.func()*/
+    yeet.func()
     
     var int ver
     var int vir
     ver = ver + vir
-    
-    while true {break}
     '''
 
     if src_name is not None:
