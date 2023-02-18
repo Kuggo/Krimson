@@ -32,6 +32,7 @@ dunder_funcs = {
 }
 
 self_tok = Token(TT.IDENTIFIER, 'self')
+constructor_name_tok = Token(TT.IDENTIFIER, 'new')
 
 
 # helper functions
@@ -337,6 +338,9 @@ class VariableNode(ExpressionNode):
     def get_name(self) -> Node:
         return self
 
+    def get_absolute_location(self) -> Node:
+        pass    # TODO find the references of variables at compile time to be written to
+
     def __repr__(self):
         return f'{self.name}'
 
@@ -507,7 +511,7 @@ class DotOperatorNode(VariableNode):
             return self
 
         elif isinstance(field, ClassDefineNode):
-            self.offset = t.body.offset_map[self.field.name]
+            # self.offset = t.body.offset_map[self.field.name]
             self.type = class_type
             return self
 
@@ -582,6 +586,10 @@ class FuncCallNode(ExpressionNode):
         self.func_name.update(ctx, self.parent, func=True)
 
         args = []
+        if self.func_name.type is not None and self.func_name.type == class_type:   # it's a constructor
+            self.func_name.name = constructor_name_tok.value
+            # args.append()     # TODO append the location of where its going to get created
+
         if isinstance(self.func_name, DotOperatorNode):     # syntax sugar
             if self.func_name.var.type != class_type:       # it's an instance and not the class itself
                 args.append(self.func_name.var)
@@ -712,7 +720,9 @@ class FuncDefineNode(NameDefineNode):
             ctx.error(TypeError.static_not_in_class, Node(self.static_tok))
             self.static = False
         elif not self.static and self.class_def is not None:
-            args.append(self.get_self_arg())
+            self_arg = self.get_self_arg()
+            self_arg.add_ctx(ctx)
+            args.append(self_arg)
 
         for arg in self.args:
             arg = arg.update(ctx, self)
@@ -877,6 +887,8 @@ class ClassBodyNode(ScopeNode):
 
                 node.class_def = self.class_def
                 node = node.update(ctx, self.parent)
+                if node is None:
+                    continue
                 if node.static:
                     self.static_vars[node.get_id()] = node
                     self.static_offset_map[node.get_id()] = self.static_size
@@ -888,10 +900,14 @@ class ClassBodyNode(ScopeNode):
 
             elif isinstance(node, MacroDefineNode):
                 node = node.update(ctx, self.parent)
+                if node is None:
+                    continue
                 self.vars[node.get_id()] = node
 
             elif isinstance(node, ClassDefineNode):
                 node = node.update(ctx, self.parent)
+                if node is None:
+                    continue
                 self.types[node.get_id()] = node
 
             elif isinstance(node, FuncDefineNode):
@@ -901,6 +917,8 @@ class ClassBodyNode(ScopeNode):
 
                 node.class_def = self.class_def
                 node = node.update(ctx, self.parent)
+                if node is None:
+                    continue
                 self.funcs[node.get_id()] = node
 
             else:

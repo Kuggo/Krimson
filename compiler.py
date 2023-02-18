@@ -13,19 +13,22 @@ def main():
         print('usage: krimson <source_file> <destination_file>')
 
     source = r'''
-    class static yeet {
+    class yeet {
+        class E {
+            fn nat f() 
+                return 0
+        }
         var int ver;
+        
+        fn yeet new()
+            return self
         
         fn nat func() {
             return 0
         }
     }
     
-    yeet.func()
-    
-    var int ver
-    var int vir
-    ver = ver + vir
+    yeet()
     '''
 
     if src_name is not None:
