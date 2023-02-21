@@ -1,0 +1,17 @@
+
+class yeet {
+    class E {
+        fn nat f()
+            return 0
+    }
+    var int ver;
+
+    fn yeet new()
+        return self
+
+    fn nat func() {
+        return 0
+    }
+}
+
+yeet()

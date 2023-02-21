@@ -12,24 +12,8 @@ def main():
     if src_name == '--help':
         print('usage: krimson <source_file> <destination_file>')
 
-    source = r'''
-    class yeet {
-        class E {
-            fn nat f() 
-                return 0
-        }
-        var int ver;
-        
-        fn yeet new()
-            return self
-        
-        fn nat func() {
-            return 0
-        }
-    }
-    
-    yeet()
-    '''
+    source = r''''''
+    src_name = 'input.krim'
 
     if src_name is not None:
         if os.path.isfile(src_name):

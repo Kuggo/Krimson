@@ -27,6 +27,27 @@ If an operation needs more than 1 operand, the B register will be used as well.
 BP is used as a means to better deal with local vars, and arguments on each function scope.
 
 
+## Calling convention
+
+1. save (push) BP
+2. push arguments (reverse order) (args_size > index >= 2)
+3. push output address (index 1)
+4. copy SP into BP
+5. push return address (index 0)
+6. branch to function label
+7. Function's scope
+   - Allocate local variables (index <= 0)
+   - Operations and expressions (>= locals_size)
+8. move SP upwards to deallocate all below BP (args, out addr, ret addr)
+9. restore (pop) BP
 
 
+## Operations
+
+- add
+- sub
+- mlt
+- div
+- mod
+- neg
 
