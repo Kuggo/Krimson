@@ -14,4 +14,4 @@ class yeet {
     }
 }
 
-yeet()
+var yeet ver = yeet()

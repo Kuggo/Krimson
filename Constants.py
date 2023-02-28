@@ -36,11 +36,11 @@ ASSIGN_OPERATORS = {'=', '+=', '-=', '*=', '/=', '%=', '<<=', '>>=', '|=', '&=',
 """Set of strings containing all the valid assign&operate operators"""
 
 OPERATOR_PRECENDENCE = {
+    '=': -1,
     '(': 0,
     '[]': 0,
     '()': 0,
     '.': 0,
-    '=': 1,
     '||': 2,
     '&&': 3,
     '!': 4,

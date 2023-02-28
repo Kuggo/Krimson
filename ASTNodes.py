@@ -1,38 +1,6 @@
-from enum import Enum
 from Constants import Token, TT, Error, global_vars, Operators
-from typing import Optional
 from copy import copy
-
-
-# constants
-
-dunder_funcs = {
-    Operators.not_.value.value: Token(TT.IDENTIFIER, '__not__'),
-    Operators.b_not.value.value: Token(TT.IDENTIFIER, '__bnot__'),
-    Operators.neg.value.value: Token(TT.IDENTIFIER, '__neg__'),
-    Operators.mlt.value.value: Token(TT.IDENTIFIER, '__mlt__'),
-    Operators.div.value.value: Token(TT.IDENTIFIER, '__div__'),
-    Operators.mod.value.value: Token(TT.IDENTIFIER, '__mod__'),
-    Operators.add.value.value: Token(TT.IDENTIFIER, '__add__'),
-    Operators.sub.value.value: Token(TT.IDENTIFIER, '__sub__'),
-    Operators.shr.value.value: Token(TT.IDENTIFIER, '__shr__'),
-    Operators.shl.value.value: Token(TT.IDENTIFIER, '__shl__'),
-    Operators.gt.value.value: Token(TT.IDENTIFIER, '__gt__'),
-    Operators.gte.value.value: Token(TT.IDENTIFIER, '__gte__'),
-    Operators.lt.value.value: Token(TT.IDENTIFIER, '__lt__'),
-    Operators.lte.value.value: Token(TT.IDENTIFIER, '__lte__'),
-    Operators.dif.value.value: Token(TT.IDENTIFIER, '__dif__'),
-    Operators.equ.value.value: Token(TT.IDENTIFIER, '__equ__'),
-    Operators.b_and.value.value: Token(TT.IDENTIFIER, '__band__'),
-    Operators.b_xor.value.value: Token(TT.IDENTIFIER, '__bxor__'),
-    Operators.b_or.value.value: Token(TT.IDENTIFIER, '__bor__'),
-    Operators.and_.value.value: Token(TT.IDENTIFIER, '__and__'),
-    Operators.or_.value.value: Token(TT.IDENTIFIER, '__or__'),
-    Operators.index.value.value: Token(TT.IDENTIFIER, '__get__'),
-}
-
-self_tok = Token(TT.IDENTIFIER, 'self')
-constructor_name_tok = Token(TT.IDENTIFIER, 'new')
+from Instructions import *
 
 
 # helper functions
@@ -53,6 +21,10 @@ def convert_py_type(tok: Token) -> 'Type':
         return Type(Token(TT.IDENTIFIER, 'dict'))
     elif isinstance(tok.value, set):
         return Type(Token(TT.IDENTIFIER, 'set'))
+    elif isinstance(tok.value, str):
+        return Type(Token(TT.IDENTIFIER, 'string'))
+    elif isinstance(tok.value, Registers):
+        return any_type
     else:
         assert False
 
@@ -66,7 +38,8 @@ class Type:
         self.size = 1
 
     def __eq__(self, other: 'Type'):
-        return self.name == other.name and self.generics == self.generics
+        return (self.name == other.name and self.generics == self.generics) or \
+                (self.name == any_type.name or other.name == any_type.name)
 
     def __hash__(self):
         return self.name.value.__hash__()
@@ -95,9 +68,6 @@ class Type:
             return f'{self.name.value}'
         else:
             return f'{self.name.value}[{self.generics.__repr__()[1:-1]}]'
-
-
-class_type = Type(Token(TT.IDENTIFIER, 'class'))
 
 
 # Errors
@@ -241,6 +211,9 @@ class Node:
 
     def get_up_class_def(self) -> Optional['ClassDefineNode']:
         return self.parent.get_up_class_def()
+
+    def gen_ir(self):
+        pass
 
     def __repr__(self):
         return f'<{self.repr_token}>'
@@ -399,14 +372,15 @@ class AssignNode(ExpressionNode):
     def update(self, ctx: Context, parent: Optional[Node]) -> Optional['AssignNode']:
         self.scope_level = ctx.scope_level
         self.parent = parent
+        loc = self.var.get_absolute_location()
         self.var = self.var.update(ctx, self.parent)  # cannot be None
         self.value = self.value.update(ctx, self.parent)
         if self.var is None or self.value is None:
             return None
 
-        # TODO while no refs this is impossible:
-        # if isinstance(self.var, FuncCallNode) and self.var.name == '__get__':
-        #     self.var.name = '__set__'   # the index is not to get but to assign to
+        if isinstance(self.var, FuncCallNode) and self.var.name == '__get__':
+            self.var.name = '__set__'   # the index is not to get but to assign to
+            self.var.args = (loc,) + self.var.args
 
         self.type = self.value.get_type()
         return self
@@ -578,6 +552,7 @@ class FuncCallNode(ExpressionNode):
         for arg in self.args:
             if arg.type is not None:
                 args.append(arg.type)
+            continue
         return self.func_name.name, tuple(args)
 
     def update(self, ctx: Context, parent: Optional[Node]) -> Optional['FuncCallNode']:
@@ -587,8 +562,10 @@ class FuncCallNode(ExpressionNode):
 
         args = []
         if self.func_name.type is not None and self.func_name.type == class_type:   # it's a constructor
+            loc = copy(stack_head)
+            loc.type = ctx.get_class_by_name(self.func_name.name).type
+            args.append(loc)
             self.func_name.name = constructor_name_tok.value
-            # args.append()     # TODO append the location of where its going to get created
 
         if isinstance(self.func_name, DotOperatorNode):     # syntax sugar
             if self.func_name.var.type != class_type:       # it's an instance and not the class itself
@@ -1139,3 +1116,44 @@ class SkipNode(LoopModifierNode):
             return f'skip'
         else:
             return f'skip {self.value.value}'
+
+
+# constants
+
+dunder_funcs = {
+    Operators.not_.value.value: Token(TT.IDENTIFIER, '__not__'),
+    Operators.b_not.value.value: Token(TT.IDENTIFIER, '__bnot__'),
+    Operators.neg.value.value: Token(TT.IDENTIFIER, '__neg__'),
+    Operators.mlt.value.value: Token(TT.IDENTIFIER, '__mlt__'),
+    Operators.div.value.value: Token(TT.IDENTIFIER, '__div__'),
+    Operators.mod.value.value: Token(TT.IDENTIFIER, '__mod__'),
+    Operators.add.value.value: Token(TT.IDENTIFIER, '__add__'),
+    Operators.sub.value.value: Token(TT.IDENTIFIER, '__sub__'),
+    Operators.shr.value.value: Token(TT.IDENTIFIER, '__shr__'),
+    Operators.shl.value.value: Token(TT.IDENTIFIER, '__shl__'),
+    Operators.gt.value.value: Token(TT.IDENTIFIER, '__gt__'),
+    Operators.gte.value.value: Token(TT.IDENTIFIER, '__gte__'),
+    Operators.lt.value.value: Token(TT.IDENTIFIER, '__lt__'),
+    Operators.lte.value.value: Token(TT.IDENTIFIER, '__lte__'),
+    Operators.dif.value.value: Token(TT.IDENTIFIER, '__dif__'),
+    Operators.equ.value.value: Token(TT.IDENTIFIER, '__equ__'),
+    Operators.b_and.value.value: Token(TT.IDENTIFIER, '__band__'),
+    Operators.b_xor.value.value: Token(TT.IDENTIFIER, '__bxor__'),
+    Operators.b_or.value.value: Token(TT.IDENTIFIER, '__bor__'),
+    Operators.and_.value.value: Token(TT.IDENTIFIER, '__and__'),
+    Operators.or_.value.value: Token(TT.IDENTIFIER, '__or__'),
+    Operators.index.value.value: Token(TT.IDENTIFIER, '__get__'),
+}
+
+self_tok = Token(TT.IDENTIFIER, 'self')
+constructor_name_tok = Token(TT.IDENTIFIER, 'new')
+
+class_type = Type(Token(TT.IDENTIFIER, 'class'))
+ref_type = Type(Token(TT.IDENTIFIER, ''))
+any_type = Type(Token(TT.IDENTIFIER, ''))
+
+
+stack_head = ValueNode(Token(TT.LITERAL, Registers.SP))
+stack_head.type = any_type
+scope_base = ValueNode(Token(TT.LITERAL, Registers.BP))
+scope_base.type = any_type

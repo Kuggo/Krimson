@@ -289,3 +289,11 @@ class string {  // until interfaces and inheritance comes, this will have its ow
     fn bool __equ__(var string other) {}
 }
 
+/*
+class ref<T> {
+    fn T __deref__() {
+
+    }
+}
+*/
+
