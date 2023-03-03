@@ -1,4 +1,3 @@
-from Constants import Token, TT, Error, global_vars, Operators
 from copy import copy
 from Instructions import *
 
@@ -38,8 +37,8 @@ class Type:
         self.size = 1
 
     def __eq__(self, other: 'Type'):
-        return (self.name == other.name and self.generics == self.generics) or \
-                (self.name == any_type.name or other.name == any_type.name)
+        return other is not None and ((self.name == other.name and self.generics == self.generics) or
+                (self.name == any_type.name or other.name == any_type.name))
 
     def __hash__(self):
         return self.name.value.__hash__()
@@ -94,14 +93,14 @@ class Context:
         if up_scope is None:
             self.scope_level: int = 0
             self.errors: list[Error] = []
-            self.stack_map: dict[str, int] = {}
+            self.stack_map: dict[str, tuple[int, int]] = {}
             self.funcs: dict[tuple, FuncDefineNode] = {}
             self.types: dict[Type, ClassDefineNode] = {}
             self.vars: dict[str, (MacroDefineNode, VarDefineNode)] = {}
         else:
             self.scope_level: int = up_scope.scope_level + 1
             self.errors: list[Error] = up_scope.errors    # not a copy. All errors will go to the same collection
-            self.stack_map: dict[str, int] = up_scope.stack_map.copy()
+            self.stack_map: dict[str, tuple[int, int]] = up_scope.stack_map.copy()
             self.funcs: dict[tuple[str, tuple[Type, ...]], FuncDefineNode] = up_scope.funcs.copy()
             self.types: dict[Type, ClassDefineNode] = up_scope.types.copy()
             self.vars: dict[str, (MacroDefineNode, VariableNode)] = up_scope.vars.copy()
@@ -152,18 +151,20 @@ class Context:
 
     def stack_location(self, var: 'VariableNode') -> int:
         if var.name in self.stack_map:
-            return self.stack_map[var.name]
+            return self.stack_map[var.name][0]
         else:
             size = var.get_size()
-            i = 0
-            last_index = 0
-            for index in sorted(self.stack_map.values()):
-                if last_index + size <= index:
-                    self.stack_map[var.name] = last_index
-                    return last_index
+            index = 0
 
-            self.stack_map[var.name] = i
-            return i
+            for var_index, var_size in sorted(self.stack_map.values()):
+                if index + size <= var_index:
+                    self.stack_map[var.name] = (index, size)
+                    return index
+
+                index = var_index + var_size
+
+            self.stack_map[var.name] = (index, size)
+            return index
 
     def stack_dealloc(self, var: 'VariableNode') -> None:
         if var.name in self.stack_map:
@@ -225,8 +226,12 @@ class ExpressionNode(Node):
         self.type: Optional[Type] = None
         return
 
-    def get_type(self):
-        return self.type
+    def update_type(self, ctx: Context):
+        if self.type in ctx.types:
+            t = ctx.types[self.type].type
+            if t is not None:
+                self.type = t
+        return
 
     def get_size(self) -> int:
         return self.type.size
@@ -264,9 +269,11 @@ class ValueNode(ExpressionNode):
         self.scope_level = ctx.scope_level
         self.parent = parent
         self.type = convert_py_type(self.repr_token)
+        # self.update_type(ctx) # not needed because primitives
         t = ctx.get_class(self.type)
         if t is not None:
             self.type.size = t.size
+
         return self
 
     def __repr__(self):
@@ -277,7 +284,7 @@ class VariableNode(ExpressionNode):
     def __init__(self, repr_tok: Token):
         super().__init__(repr_tok)
         self.name: str = repr_tok.value
-        self.offset: int = 0
+        self.offset: OffsetNode = OffsetNode(Registers.SP, 0)
         return
 
     def update(self, ctx: Context, parent: Optional[Node], use_dunder_func=True, func=False) -> Optional['VariableNode']:
@@ -285,8 +292,9 @@ class VariableNode(ExpressionNode):
         self.parent = parent
         var = ctx.get_definition(self.name)
         if isinstance(var, VarDefineNode):
-            self.type = var.get_type()
-            return self
+            self.type = var.type
+            self.update_type(ctx)
+            self.offset = OffsetNode(Registers.BP, 0)
 
         elif isinstance(var, MacroDefineNode):
             value = copy(var.value)
@@ -294,25 +302,25 @@ class VariableNode(ExpressionNode):
 
         elif isinstance(var, ClassDefineNode):
             self.type = class_type
-            return self
 
         elif isinstance(var, FuncDefineNode):
             self.type = var.func_to_type()
-            return self
 
-        if not func:
-            ctx.error(TypeError.unk_var, self, self.repr_token.value)
-        return None
+        else:
+            if not func:
+                ctx.error(TypeError.unk_var, self, self.repr_token.value)
+            return None
+        return self
 
     def alloc_vars(self, ctx: Context) -> None:
-        self.offset = ctx.stack_location(self)
+        self.offset.offset = ctx.stack_location(self)
         return
 
     def get_name(self) -> Node:
         return self
 
-    def get_absolute_location(self) -> Node:
-        pass    # TODO find the references of variables at compile time to be written to
+    def get_absolute_location(self) -> 'OffsetNode':
+        return self.offset
 
     def __repr__(self):
         return f'{self.name}'
@@ -369,20 +377,22 @@ class AssignNode(ExpressionNode):
         self.value: ExpressionNode = value
         return
 
-    def update(self, ctx: Context, parent: Optional[Node]) -> Optional['AssignNode']:
+    def update(self, ctx: Context, parent: Optional[Node]) -> Optional['ExpressionNode']:
         self.scope_level = ctx.scope_level
         self.parent = parent
-        loc = self.var.get_absolute_location()
+        ref = RefNode(self.var)
         self.var = self.var.update(ctx, self.parent)  # cannot be None
         self.value = self.value.update(ctx, self.parent)
         if self.var is None or self.value is None:
             return None
 
+        self.update_type(ctx)
+
         if isinstance(self.var, FuncCallNode) and self.var.name == '__get__':
             self.var.name = '__set__'   # the index is not to get but to assign to
-            self.var.args = (loc,) + self.var.args
+            self.var.args = (ref,) + self.var.args
+            return self.var
 
-        self.type = self.value.get_type()
         return self
 
     def alloc_vars(self, ctx: Context) -> None:
@@ -480,21 +490,17 @@ class DotOperatorNode(VariableNode):
         field = t.get_field(self.field.name)
 
         if isinstance(field, VarDefineNode):
-            self.offset = field.offset
+            self.offset = OffsetNode(self.var.offset, field.offset.offset)
             self.type = field.type
-            return self
 
         elif isinstance(field, ClassDefineNode):
-            # self.offset = t.body.offset_map[self.field.name]
             self.type = class_type
-            return self
 
         elif isinstance(field, FuncDefineNode):
             self.type = field.func_to_type()
-            return self
 
         else:
-            ctx.error(TypeError.no_attribute, self, self.var.type.name, self.field.name)
+            ctx.error(TypeError.no_attribute, self, self.var.type.name.value, self.field.name)
             return None
 
     def alloc_vars(self, ctx: Context) -> None:
@@ -524,10 +530,11 @@ class IndexOperatorNode(VariableNode):
         if self.collection is None or self.index is None:
             return None
 
+        # TODO maybe add compile time accesses?
+
         if use_dunder_func:
             fn_name = dunder_funcs[Operators.index.value.value]
-            return FuncCallNode(self.repr_token, VariableNode(fn_name), (self.collection, self.index)).update(ctx,
-                                                                                                              self.parent)
+            return FuncCallNode(self.repr_token, VariableNode(fn_name), (self.collection, self.index)).update(ctx, self.parent)
         else:
             return self
 
@@ -562,14 +569,17 @@ class FuncCallNode(ExpressionNode):
 
         args = []
         if self.func_name.type is not None and self.func_name.type == class_type:   # it's a constructor
-            loc = copy(stack_head)
-            loc.type = ctx.get_class_by_name(self.func_name.name).type
-            args.append(loc)
+            ref = RefNode(self.func_name)
+            ref.offset = OffsetNode(Registers.SP, 0)
+            ref.type = ctx.get_class_by_name(self.func_name.name).type  # adding type field for func signature
+            args.append(ref)
             self.func_name.name = constructor_name_tok.value
 
         if isinstance(self.func_name, DotOperatorNode):     # syntax sugar
             if self.func_name.var.type != class_type:       # it's an instance and not the class itself
-                args.append(self.func_name.var)
+                ref = RefNode(self.func_name.var)
+                ref.type = self.func_name.var.type
+                args.append(ref)
 
         for arg in self.args:
             args.append(arg.update(ctx, self.parent))
@@ -610,7 +620,7 @@ class VarDefineNode(NameDefineNode, ExpressionNode):
         super().__init__(repr_tok, var_name)
         self.type: Type = var_type
         self.value: Optional[ExpressionNode] = value
-        self.offset: int = 0
+        self.offset: OffsetNode = OffsetNode(Registers.BP, 0)
         self.class_def: Optional[ClassDefineNode] = None
         self.static_tok: Optional[Token] = static
         self.static: bool = static is not None
@@ -637,20 +647,21 @@ class VarDefineNode(NameDefineNode, ExpressionNode):
         if self.name is None:
             return None
 
+        self.update_type(ctx)
         return self
 
     def alloc_vars(self, ctx: Context) -> None:
         if self.value is not None:
             self.value.alloc_vars(ctx)
-        self.offset = ctx.stack_location(self.name)
+        self.offset.offset = ctx.stack_location(self.name)
         ctx.stack_dealloc(self.name)    # first occurrence of this variable, prior to this point, this slot can be used
         return
 
     def __repr__(self):
         if self.value is None:
-            return f'{self.type} {self.name.repr_token.value}'
+            return f'loc:({self.offset}) {self.type} {self.name.repr_token.value}'
         else:
-            return f'loc:{self.offset} {self.type} {self.name.repr_token.value} = {self.value}'
+            return f'loc:({self.offset}) {self.type} {self.name.repr_token.value} = {self.value}'
 
 
 class FuncDefineNode(NameDefineNode):
@@ -717,7 +728,7 @@ class FuncDefineNode(NameDefineNode):
 
         i = 0   # allocating arguments on the stack, above the BP
         for arg in reversed(self.args):
-            arg.offset = i
+            arg.offset = OffsetNode(Registers.BP, i)
             i += arg.get_size()
 
         return self
@@ -781,7 +792,7 @@ class ClassDefineNode(NameDefineNode):
         if self.body is None:
             return None
 
-        self.type.size = self.size
+        self.type.size = self.size = self.body.size
         return self
 
     def add_ctx(self, ctx: Context) -> None:
@@ -966,7 +977,6 @@ class IfNode(Node):
             return f'if {self.condition} {self.body}'
         else:
             return f'if {self.condition} {self.body} \n{self.scope_level*"  "}{self.else_statement}'
-            # maybe add: ```` between body and else, to make formatting better
 
 
 class ElseNode(Node):
@@ -1118,6 +1128,49 @@ class SkipNode(LoopModifierNode):
             return f'skip {self.value.value}'
 
 
+### Instruction Nodes (translation process)
+
+class RefNode(VariableNode):
+    def __init__(self, var: VariableNode):
+        super().__init__(var.repr_token)
+        self.var: VariableNode = var
+        self.type = any_type
+        return
+
+    def alloc_vars(self, ctx: Context) -> None:
+        self.var.alloc_vars(ctx)
+        return
+
+    def __repr__(self):
+        return f'&{self.name}'
+
+
+class InstructionNode(Node):
+    def __init__(self, repr_tok: Token):
+        super().__init__(repr_tok)
+        return
+
+
+class OffsetNode(InstructionNode):
+    def __init__(self, base, offset: int):
+        if isinstance(base, Registers):
+            super().__init__(base.value)
+        else:
+            super().__init__(base.repr_tok)
+        self.base = base
+        self.offset: int = offset
+        return
+
+    def __add__(self, other):
+        return OffsetNode(self.base, self.offset+other)
+
+    def __repr__(self):
+        if isinstance(self.base, Registers):
+            return f'reg:{self.base.value.value}+{self.offset}'
+        else:
+            return f'{self.base}+{self.offset}'
+
+
 # constants
 
 dunder_funcs = {
@@ -1149,11 +1202,4 @@ self_tok = Token(TT.IDENTIFIER, 'self')
 constructor_name_tok = Token(TT.IDENTIFIER, 'new')
 
 class_type = Type(Token(TT.IDENTIFIER, 'class'))
-ref_type = Type(Token(TT.IDENTIFIER, ''))
 any_type = Type(Token(TT.IDENTIFIER, ''))
-
-
-stack_head = ValueNode(Token(TT.LITERAL, Registers.SP))
-stack_head.type = any_type
-scope_base = ValueNode(Token(TT.LITERAL, Registers.BP))
-scope_base.type = any_type

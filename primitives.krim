@@ -1,6 +1,8 @@
 // TODO add all the implementation for the methods if necessary
 
 class bool {
+    var bool _;
+
     fn bool __or__(var bool other) {
 
     }
@@ -19,6 +21,7 @@ class bool {
 }
 
 class nat {     // aka uint
+    var nat _;
 
     fn nat __add__(var nat other) {
 
@@ -98,6 +101,7 @@ class nat {     // aka uint
 }
 
 class int {
+    var int _;
 
     fn int __add__(var int other) {
 
@@ -177,6 +181,7 @@ class int {
 }
 
 class frac {    // aka fixed. To be used instead of floats
+    var frac _;
 
     fn frac __add__(var frac other) {
 
@@ -240,6 +245,8 @@ class frac {    // aka fixed. To be used instead of floats
 }
 
 class char {
+    var char _;
+
     fn char __add__(var char other) {}
 
     fn string __mlt__(var cint amount) {}
@@ -258,6 +265,8 @@ class char {
 }
 
 class array {
+    // TODO size of array must be T
+
     fn array[T] __add__(var array[T] other) {}
 
     fn array[T] __add__(var T other) {}
@@ -291,6 +300,8 @@ class string {  // until interfaces and inheritance comes, this will have its ow
 
 /*
 class ref<T> {
+    var ref _;
+
     fn T __deref__() {
 
     }

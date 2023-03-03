@@ -1,5 +1,6 @@
-from enum import Enum
 from typing import Optional
+
+from Constants import *
 
 
 class Instruction:
@@ -30,9 +31,9 @@ class Operations(Enum):
 
 
 class Registers(Enum):
-    BP = 'bp'
-    SP = 'sp'
-    PC = 'pc'
+    BP = Token(TT.IDENTIFIER, 'bp')
+    SP = Token(TT.IDENTIFIER, 'sp')
+    PC = Token(TT.IDENTIFIER, 'pc')
 
 
     
