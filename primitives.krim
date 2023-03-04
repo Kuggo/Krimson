@@ -249,7 +249,7 @@ class char {
 
     fn char __add__(var char other) {}
 
-    fn string __mlt__(var cint amount) {}
+    fn str __mlt__(var cint amount) {}
 
     fn bool __gt__(var char other) {}
 
@@ -264,42 +264,44 @@ class char {
     fn bool __equ__(var char other) {}
 }
 
-class array {
-    // TODO size of array must be T
-
+class array[T] {
     fn array[T] __add__(var array[T] other) {}
 
     fn array[T] __add__(var T other) {}
+
+    fn T __get__(var nat i) {}
+
+    fn none __set__(var nat i) {}
 
     fn bool __dif__(var array other) {}
 
     fn bool __equ__(var array other) {}
 }
 
-class string {  // until interfaces and inheritance comes, this will have its own type
+class str {  // until interfaces and inheritance comes, this will have its own type
     fn char __get__(var nat index) {}
 
-    fn string __add__(var string other) {}
+    fn str __add__(var str other) {}
 
-    fn string __add__(var char other) {}
+    fn str __add__(var char other) {}
 
-    fn string __mlt__(var int amount) {}
+    fn str __mlt__(var int amount) {}
 
-    fn bool __gt__(var string other) {}
+    fn bool __gt__(var str other) {}
 
-    fn bool __gte__(var string other) {}
+    fn bool __gte__(var str other) {}
 
-    fn bool __lt__(var string other) {}
+    fn bool __lt__(var str other) {}
 
-    fn bool __lte__(var string other) {}
+    fn bool __lte__(var str other) {}
 
-    fn bool __dif__(var string other) {}
+    fn bool __dif__(var str other) {}
 
-    fn bool __equ__(var string other) {}
+    fn bool __equ__(var str other) {}
 }
 
 /*
-class ref<T> {
+class ref[T] {
     var ref _;
 
     fn T __deref__() {
@@ -307,4 +309,8 @@ class ref<T> {
     }
 }
 */
+
+fn nat print(var str s) {
+    return 0
+}
 

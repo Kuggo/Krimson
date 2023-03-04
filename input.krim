@@ -1,9 +1,9 @@
 
-class yeet {
-    /*class E {
+/*class yeet {
+    class E {
         fn nat f()
             return 0
-    }*/
+    }
     var int ver;
     var int vir;
 
@@ -13,9 +13,7 @@ class yeet {
     fn nat func() {
         return 0
     }
-}
+}*/
 
-var nat vir = 0
-var yeet ver
-vir += 1
-ver.new()
+var array[array[nat]] arr = [0, 1, 2];
+

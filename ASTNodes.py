@@ -3,29 +3,7 @@ from Instructions import *
 
 
 # helper functions
-
-def convert_py_type(tok: Token) -> 'Type':
-    if isinstance(tok.value, bool):
-        return Type(Token(TT.IDENTIFIER, 'bool'))
-    elif isinstance(tok.value, int):
-        if tok.value < 0:
-            return Type(Token(TT.IDENTIFIER, 'int'))
-        else:
-            return Type(Token(TT.IDENTIFIER, 'nat'))
-    elif isinstance(tok.value, float):
-        return Type(Token(TT.IDENTIFIER, 'frac'))
-    elif isinstance(tok.value, list):
-        return Type(Token(TT.IDENTIFIER, 'array'))
-    elif isinstance(tok.value, dict):
-        return Type(Token(TT.IDENTIFIER, 'dict'))
-    elif isinstance(tok.value, set):
-        return Type(Token(TT.IDENTIFIER, 'set'))
-    elif isinstance(tok.value, str):
-        return Type(Token(TT.IDENTIFIER, 'string'))
-    elif isinstance(tok.value, Registers):
-        return any_type
-    else:
-        assert False
+pass
 
 
 # Type
@@ -69,6 +47,22 @@ class Type:
             return f'{self.name.value}[{self.generics.__repr__()[1:-1]}]'
 
 
+class_type = Type(Token(TT.IDENTIFIER, 'class'))
+any_type = Type(Token(TT.IDENTIFIER, ''))
+
+
+class Types(Enum):
+    bool = Type(Token(TT.IDENTIFIER, 'bool'))
+    nat = Type(Token(TT.IDENTIFIER, 'nat'))
+    int = Type(Token(TT.IDENTIFIER, 'int'))
+    frac = Type(Token(TT.IDENTIFIER, 'frac'))
+    char = Type(Token(TT.IDENTIFIER, 'char'))
+    array = Type(Token(TT.IDENTIFIER, 'array'))
+    str = Type(Token(TT.IDENTIFIER, 'str'))
+    dict = Type(Token(TT.IDENTIFIER, 'dict'))
+    set = Type(Token(TT.IDENTIFIER, 'set'))
+
+
 # Errors
 
 class TypeError(Enum):
@@ -81,6 +75,10 @@ class TypeError(Enum):
     skip_not_in_loop = 'skip keyword found outside the specified loop body depth'
     pos_int_expected = 'Positive integer expected'
     static_not_in_class = 'Static modifier cannot be applied outside a Class definition scope'
+
+    # Compile_time detected runtime errors
+    out_of_bounds = 'Index is out of bounds'
+    no_element = 'No element with such key'
 
 
 # AST level
@@ -268,13 +266,47 @@ class ValueNode(ExpressionNode):
     def update(self, ctx: Context, parent: Optional[Node]) -> Optional['ValueNode']:
         self.scope_level = ctx.scope_level
         self.parent = parent
-        self.type = convert_py_type(self.repr_token)
-        # self.update_type(ctx) # not needed because primitives
-        t = ctx.get_class(self.type)
-        if t is not None:
-            self.type.size = t.size
-
+        self.type = self.convert_py_type()
         return self
+
+    def get_size(self) -> int:
+        if isinstance(self.repr_token.value, str):
+            return len(self.repr_token.value)
+        if isinstance(self.repr_token.value, list):
+            size = 0
+            for item in self.repr_token.value:
+                size += item.get_size()
+
+            return size
+        else:
+            return 1    # primitive size is 1
+
+    def convert_py_type(self) -> 'Type':
+        if isinstance(self.repr_token.value, bool):
+            return copy(Types.bool.value)
+        elif isinstance(self.repr_token.value, int):
+            if self.repr_token.value < 0:
+                return copy(Types.int.value)
+            else:
+                return copy(Types.nat.value)
+        elif isinstance(self.repr_token.value, float):
+            return copy(Types.frac.value)
+        elif isinstance(self.repr_token.value, list):
+            t = copy(Types.array.value)
+            t.size = self.get_size()
+            return t
+        elif isinstance(self.repr_token.value, dict):
+            return copy(Types.dict.value)
+        elif isinstance(self.repr_token.value, set):
+            return copy(Types.set.value)
+        elif isinstance(self.repr_token.value, str):    # TODO this can be both char or string. It was detected in lexer
+            t = copy(Types.str.value)
+            t.size = self.get_size()
+            return t
+        elif isinstance(self.repr_token.value, Registers):
+            return any_type
+        else:
+            assert False
 
     def __repr__(self):
         return f'{self.repr_token.value}'
@@ -293,7 +325,6 @@ class VariableNode(ExpressionNode):
         var = ctx.get_definition(self.name)
         if isinstance(var, VarDefineNode):
             self.type = var.type
-            self.update_type(ctx)
             self.offset = OffsetNode(Registers.BP, 0)
 
         elif isinstance(var, MacroDefineNode):
@@ -530,13 +561,38 @@ class IndexOperatorNode(VariableNode):
         if self.collection is None or self.index is None:
             return None
 
-        # TODO maybe add compile time accesses?
+        optimised = self.optimise_ct(ctx)
+        if optimised is not None:
+            return optimised
 
         if use_dunder_func:
             fn_name = dunder_funcs[Operators.index.value.value]
             return FuncCallNode(self.repr_token, VariableNode(fn_name), (self.collection, self.index)).update(ctx, self.parent)
         else:
             return self
+
+    def optimise_ct(self, ctx: Context):
+        if not isinstance(self.index, ValueNode):
+            return None
+
+        if self.collection.type == Types.dict.value:
+            if isinstance(self.collection, ValueNode):  # can access the element at compile time
+                if self.index.repr_token.value in self.collection.repr_token.value:
+                    return self.collection.repr_token.value[self.index.repr_token.value]
+                else:
+                    ctx.error(TypeError.no_element, self)
+
+        elif self.collection.type in {Types.str.value, Types.array.value}:
+            if isinstance(self.index.repr_token.value, int):
+                if not (0 <= abs(self.index.repr_token.value) < len(self.collection.repr_token.value)): # bound check
+                    ctx.error(TypeError.out_of_bounds, self.index)
+
+                if isinstance(self.collection, ValueNode):  # can access the element at compile time
+                    return self.collection.repr_token.value[self.index.repr_token.value]
+                else:
+                    return self    # can return an unsafe array access, and it will be just fine
+
+        return None
 
     def alloc_vars(self, ctx: Context) -> None:
         self.index.alloc_vars(ctx)
@@ -637,17 +693,15 @@ class VarDefineNode(NameDefineNode, ExpressionNode):
             ctx.error(TypeError.static_not_in_class, Node(self.static_tok))
             self.static = False
 
-        if self.value is not None:
-            self.value = self.value.update(ctx, self.parent)
-            # if self.value is None:
-            #     return None
         self.add_ctx(ctx)
         self.name = self.name.update(ctx, self.parent)
-
         if self.name is None:
             return None
 
-        self.update_type(ctx)
+        if self.value is not None:
+            self.value = self.value.update(ctx, self.parent)
+            self.name.type = self.type = self.value.type
+
         return self
 
     def alloc_vars(self, ctx: Context) -> None:
@@ -1200,6 +1254,3 @@ dunder_funcs = {
 
 self_tok = Token(TT.IDENTIFIER, 'self')
 constructor_name_tok = Token(TT.IDENTIFIER, 'new')
-
-class_type = Type(Token(TT.IDENTIFIER, 'class'))
-any_type = Type(Token(TT.IDENTIFIER, ''))
