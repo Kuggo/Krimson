@@ -1,4 +1,5 @@
 from enum import Enum
+from typing import Optional
 
 
 # global variables
@@ -25,6 +26,9 @@ KEYWORDS = {'if', 'else', 'break', 'skip', 'while', 'return', 'class', 'fn', 'va
 
 BOOLEANS = ['false', 'true']
 """List of the 2 boolean values"""
+
+NULL = 'null'
+"""Text representation of Null value"""
 
 SYMBOLS = {'&', '|', '+', '-', '*', '/', '=', '<', '>', '!', '(', ')', '{', '}', '[', ']', '.', ',', ':', ';'}
 """Set of characters accepted as valid symbols"""
@@ -88,6 +92,13 @@ class Token:
 
     def __repr__(self):
         return f'<{self.line}:{self.start}:{self.end}: {self.tt.name}, {self.value}>'
+
+
+class Literal(Token):
+    def __init__(self, value, t: 'Type', start=-1, end=-1, line=-1):
+        super().__init__(TT.LITERAL, value, start, end, line)
+        self.literal_type: Type = t
+        return
 
 
 class Operators(Enum):
@@ -215,3 +226,61 @@ class Error(Exception):
         string += ' ' * (self.start - 1)
         string += '^' * (self.end - self.start + 1)
         return string
+
+
+# Type
+
+class Type:
+    def __init__(self, name: Token, generics: Optional[tuple['Type', ...]] = None):
+        self.name: Token = name
+        self.generics: Optional[tuple['Type', ...]] = generics
+        self.size = 1
+
+    def __eq__(self, other: 'Type'):
+        return other is not None and ((self.name == other.name and self.generics == self.generics) or
+                (self.name == any_type.name or other.name == any_type.name))
+
+    def __hash__(self):
+        return self.name.value.__hash__()
+
+    def is_subtype(self, super_type: 'Type'):
+        if self.name == super_type.name:
+            return True
+
+        for gen, sup_gen in zip(self.generics, super_type.generics):
+            if not gen.is_subtype(sup_gen):
+                return False
+
+        return True
+
+    def get_type_label(self) -> str:
+        if self.generics is None:
+            return self.name.value
+
+        string = self.name.value
+        for gen in self.generics:
+            string += f'.{gen.get_type_label()}'
+        return string
+
+    def __repr__(self):
+        if self.generics is None:
+            return f'{self.name.value}'
+        else:
+            return f'{self.name.value}[{self.generics.__repr__()[1:-1]}]'
+
+
+class_type = Type(Token(TT.IDENTIFIER, 'class'))
+any_type = Type(Token(TT.IDENTIFIER, ''))
+
+
+class Types(Enum):
+    null = Type(Token(TT.IDENTIFIER, 'null'))
+    bool = Type(Token(TT.IDENTIFIER, 'bool'))
+    nat = Type(Token(TT.IDENTIFIER, 'nat'))
+    int = Type(Token(TT.IDENTIFIER, 'int'))
+    frac = Type(Token(TT.IDENTIFIER, 'frac'))
+    char = Type(Token(TT.IDENTIFIER, 'char'))
+    array = Type(Token(TT.IDENTIFIER, 'array'))
+    str = Type(Token(TT.IDENTIFIER, 'str'))
+    dict = Type(Token(TT.IDENTIFIER, 'dict'))
+    set = Type(Token(TT.IDENTIFIER, 'set'))

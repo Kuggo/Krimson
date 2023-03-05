@@ -6,63 +6,6 @@ from Instructions import *
 pass
 
 
-# Type
-
-class Type:
-    def __init__(self, name: Token, generics: Optional[tuple['Type', ...]] = None):
-        self.name: Token = name
-        self.generics: Optional[tuple['Type', ...]] = generics
-        self.size = 1
-
-    def __eq__(self, other: 'Type'):
-        return other is not None and ((self.name == other.name and self.generics == self.generics) or
-                (self.name == any_type.name or other.name == any_type.name))
-
-    def __hash__(self):
-        return self.name.value.__hash__()
-
-    def is_subtype(self, super_type: 'Type'):
-        if self.name == super_type.name:
-            return True
-
-        for gen, sup_gen in zip(self.generics, super_type.generics):
-            if not gen.is_subtype(sup_gen):
-                return False
-
-        return True
-
-    def get_type_label(self) -> str:
-        if self.generics is None:
-            return self.name.value
-
-        string = self.name.value
-        for gen in self.generics:
-            string += f'.{gen.get_type_label()}'
-        return string
-
-    def __repr__(self):
-        if self.generics is None:
-            return f'{self.name.value}'
-        else:
-            return f'{self.name.value}[{self.generics.__repr__()[1:-1]}]'
-
-
-class_type = Type(Token(TT.IDENTIFIER, 'class'))
-any_type = Type(Token(TT.IDENTIFIER, ''))
-
-
-class Types(Enum):
-    bool = Type(Token(TT.IDENTIFIER, 'bool'))
-    nat = Type(Token(TT.IDENTIFIER, 'nat'))
-    int = Type(Token(TT.IDENTIFIER, 'int'))
-    frac = Type(Token(TT.IDENTIFIER, 'frac'))
-    char = Type(Token(TT.IDENTIFIER, 'char'))
-    array = Type(Token(TT.IDENTIFIER, 'array'))
-    str = Type(Token(TT.IDENTIFIER, 'str'))
-    dict = Type(Token(TT.IDENTIFIER, 'dict'))
-    set = Type(Token(TT.IDENTIFIER, 'set'))
-
-
 # Errors
 
 class TypeError(Enum):
@@ -282,6 +225,9 @@ class ValueNode(ExpressionNode):
             return 1    # primitive size is 1
 
     def convert_py_type(self) -> 'Type':
+        if isinstance(self.repr_token, Literal):
+            return self.repr_token.literal_type
+
         if isinstance(self.repr_token.value, bool):
             return copy(Types.bool.value)
         elif isinstance(self.repr_token.value, int):

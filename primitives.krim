@@ -1,5 +1,9 @@
 // TODO add all the implementation for the methods if necessary
 
+class null {
+    var null _;
+}
+
 class bool {
     var bool _;
 

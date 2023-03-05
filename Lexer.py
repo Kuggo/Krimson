@@ -100,8 +100,11 @@ class Lexer:
         if name in KEYWORDS:
             token_type = TT.KEYWORD
         elif name in BOOLEANS:
-            token_type = TT.LITERAL
-            name = name == BOOLEANS[1]
+            self.literal(name == BOOLEANS[1], Types.bool.value, start, self.i - 1)
+            return
+        elif name == NULL:
+            self.literal(None, Types.null.value, start, self.i - 1)
+            return
         else:
             token_type = TT.IDENTIFIER
 
@@ -119,7 +122,10 @@ class Lexer:
         while self.has_next() and self.peak.isdigit():
             self.advance()
         value = int(self.input_string[start:self.i], 0)
-        self.token(TT.LITERAL, value, start, self.i - 1)
+        if value < 0:
+            self.literal(value, Types.int.value, start, self.i - 1)
+        else:
+            self.literal(value, Types.nat.value, start, self.i - 1)
         return
 
     def make_symbol(self) -> None:
@@ -268,7 +274,7 @@ class Lexer:
             self.error(LexicalError.invalid_escape_code, start, self.i, self.input_string[start:self.i])
             return
 
-        self.token(TT.LITERAL, string, start - 1, self.i)
+        self.literal(string, Types.str.value, start - 1, self.i)
         self.advance()
         return
 
@@ -295,7 +301,7 @@ class Lexer:
         if len(char) != 1:
             self.error(LexicalError.invalid_char, start - 1, self.i)
         else:
-            self.token(TT.LITERAL, char, start - 1, self.i)
+            self.literal(char, Types.char.value, start - 1, self.i)
             self.advance()
         return
 
@@ -334,6 +340,21 @@ class Lexer:
         """
 
         tok = Token(tt, value, start - self.line_offset, end - self.line_offset, self.line)
+        self.tokens.append(tok)
+        return tok
+
+    def literal(self, value, literal_type: Type, start, end) -> Token:
+        """
+        Creates a new Literal Token and adds it to the output collection of tokens ``self.tokens``
+
+        :param value: value of the token
+        :param literal_type: type of the literal
+        :param start: start index of the token
+        :param end: end index of the token
+        :return: the recently created token
+        """
+
+        tok = Literal(value, literal_type, start - self.line_offset, end - self.line_offset, self.line)
         self.tokens.append(tok)
         return tok
 

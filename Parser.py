@@ -518,6 +518,11 @@ class Parser:
         :return: Type or None if an error occurred
         """
 
+        if self.peak.tt == TT.LITERAL and self.peak.value is None:  # dealing with the null special case
+            t = Type(self.peak)
+            self.advance()
+            return t
+
         if self.peak.tt != TT.IDENTIFIER and not generic:
             self.error(SyntaxError.generic_expected, self.peak)
             return None
