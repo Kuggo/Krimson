@@ -213,42 +213,20 @@ class ValueNode(ExpressionNode):
         return self
 
     def get_size(self) -> int:
-        if isinstance(self.repr_token.value, str):
-            return len(self.repr_token.value)
         if isinstance(self.repr_token.value, list):
             size = 0
             for item in self.repr_token.value:
                 size += item.get_size()
-
             return size
         else:
             return 1    # primitive size is 1
 
     def convert_py_type(self) -> 'Type':
         if isinstance(self.repr_token, Literal):
-            return self.repr_token.literal_type
+            if isinstance(self.repr_token.value, list):
+                self.repr_token.literal_type.size = self.get_size()
 
-        if isinstance(self.repr_token.value, bool):
-            return copy(Types.bool.value)
-        elif isinstance(self.repr_token.value, int):
-            if self.repr_token.value < 0:
-                return copy(Types.int.value)
-            else:
-                return copy(Types.nat.value)
-        elif isinstance(self.repr_token.value, float):
-            return copy(Types.frac.value)
-        elif isinstance(self.repr_token.value, list):
-            t = copy(Types.array.value)
-            t.size = self.get_size()
-            return t
-        elif isinstance(self.repr_token.value, dict):
-            return copy(Types.dict.value)
-        elif isinstance(self.repr_token.value, set):
-            return copy(Types.set.value)
-        elif isinstance(self.repr_token.value, str):    # TODO this can be both char or string. It was detected in lexer
-            t = copy(Types.str.value)
-            t.size = self.get_size()
-            return t
+            return self.repr_token.literal_type
         elif isinstance(self.repr_token.value, Registers):
             return any_type
         else:

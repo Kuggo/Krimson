@@ -655,6 +655,11 @@ class Parser:
         return FuncDefineNode(start, func_type, VariableNode(func_name), tuple(args), body, static=static)
 
     def class_define_statement(self) -> Optional[ClassDefineNode]:
+        """
+        Parses the next class declaration until its end is found, and returns its Node
+
+        :return: ClassDefineNode or None if an error occurred
+        """
         start = self.peak
         self.advance()
 
@@ -682,7 +687,7 @@ class Parser:
         """
         Parses and constructs an Array Literal from the next tokens and returns it.
 
-        array : '[' {literal} ']'
+        array : '[' {expression} ']'
 
         :return: ValueNode array literal
         """
@@ -691,9 +696,18 @@ class Parser:
         self.advance()
         elements = self.repeat_until_symbol(']', Parser.expression, SyntaxError.expression_expected)
 
-        return ValueNode(Token(TT.LITERAL, elements, start_tok.start, self.peak.end, start_tok.line))
+        return ValueNode(Literal(elements, copy(Types.array.value), start_tok.start, self.peak.end, start_tok.line))
 
     def dict_set_literal(self) -> ValueNode:
+        """
+        Parses and constructs either a Dict or Set Literal from the next tokens and returns it, correctly identifying
+        which one being defined. Empty set will result in empty dict
+
+        dict : '{' {expression ':' expression} '}'
+        set : '{' {expression} '}'
+
+        :return: ValueNode dict or set literal
+        """
         start_tok = self.peak
         self.advance()
         is_dict = True
@@ -722,9 +736,9 @@ class Parser:
             for key, value in zip(*[iter(elements)] * 2):   # did some magic here I can't explain, stackoverflow can xD
                 dictionary[key] = value
 
-            return ValueNode(Token(TT.LITERAL, dictionary, start_tok.start, self.peak.end, start_tok.line))
+            return ValueNode(Literal(dictionary, copy(Types.dict.value), start_tok.start, self.peak.end, start_tok.line))
         else:
-            return ValueNode(Token(TT.LITERAL, set(elements), start_tok.start, self.peak.end, start_tok.line))
+            return ValueNode(Literal(set(elements), copy(Types.set.value), start_tok.start, self.peak.end, start_tok.line))
 
     # utils
 

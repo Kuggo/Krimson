@@ -275,7 +275,7 @@ class array[T] {
 
     fn T __get__(var nat i) {}
 
-    fn none __set__(var nat i) {}
+    fn null __set__(var nat i) {}
 
     fn bool __dif__(var array other) {}
 
@@ -303,6 +303,29 @@ class str {  // until interfaces and inheritance comes, this will have its own t
 
     fn bool __equ__(var str other) {}
 }
+
+class set[T] {
+    fn set[T] __add__(var set[T] other) {}
+
+    fn set[T] __add__(var T other) {}
+
+    fn bool __dif__(var set other) {}
+
+    fn bool __equ__(var set other) {}
+}
+
+class dict[K, V] {
+    fn dict[T] __add__(var dict[T] other) {}
+
+    fn T __get__(var nat i) {}
+
+    fn null __set__(var nat i) {}
+
+    fn bool __dif__(var dict other) {}
+
+    fn bool __equ__(var dict other) {}
+}
+
 
 /*
 class ref[T] {

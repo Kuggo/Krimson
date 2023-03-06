@@ -1,10 +1,13 @@
 from Constants import *
+from copy import copy
 
 
 class LexicalError(Enum):
     invalid_char = 'Invalid character'
     miss_close_sym = 'Missing single quote {}'
     invalid_escape_code = "Invalid escape sequence code '{}'"
+    too_many_points = 'Too many radix points in number literal'
+    invalid_num = 'Invalid numeric literal'
 
 
 class Lexer:
@@ -100,10 +103,10 @@ class Lexer:
         if name in KEYWORDS:
             token_type = TT.KEYWORD
         elif name in BOOLEANS:
-            self.literal(name == BOOLEANS[1], Types.bool.value, start, self.i - 1)
+            self.literal(name == BOOLEANS[1], copy(Types.bool.value), start, self.i - 1)
             return
         elif name == NULL:
-            self.literal(None, Types.null.value, start, self.i - 1)
+            self.literal(None, copy(Types.null.value), start, self.i - 1)
             return
         else:
             token_type = TT.IDENTIFIER
@@ -119,13 +122,35 @@ class Lexer:
         """
 
         start = self.i
-        while self.has_next() and self.peak.isdigit():
+        dot_count = 0
+        while self.has_next() and self.peak.isalnum():
             self.advance()
-        value = int(self.input_string[start:self.i], 0)
-        if value < 0:
-            self.literal(value, Types.int.value, start, self.i - 1)
+            if self.peak == '.':
+                dot_count += 1
+                if dot_count > 1:
+                    self.error(LexicalError.too_many_points, self.i, self.i)
+                    self.advance(-1)
+                    break   # will not reject what it found so far
+                self.advance()
+            continue
+
+        if dot_count == 0:
+            try:
+                value = int(self.input_string[start:self.i], 0)
+            except ValueError:
+                self.error(LexicalError.invalid_num, start, self.i-1)
+                return
+            if value < 0:
+                self.literal(value, copy(Types.int.value), start, self.i - 1)
+            else:
+                self.literal(value, copy(Types.nat.value), start, self.i - 1)
         else:
-            self.literal(value, Types.nat.value, start, self.i - 1)
+            try:
+                value = float(self.input_string[start:self.i])
+            except ValueError:
+                self.error(LexicalError.invalid_num, start, self.i-1)
+                return
+            self.literal(value, copy(Types.frac.value), start, self.i - 1)
         return
 
     def make_symbol(self) -> None:
@@ -274,7 +299,9 @@ class Lexer:
             self.error(LexicalError.invalid_escape_code, start, self.i, self.input_string[start:self.i])
             return
 
-        self.literal(string, Types.str.value, start - 1, self.i)
+        t = copy(Types.str.value)
+        t.size = len(string)
+        self.literal(string, t, start - 1, self.i)
         self.advance()
         return
 
@@ -301,7 +328,7 @@ class Lexer:
         if len(char) != 1:
             self.error(LexicalError.invalid_char, start - 1, self.i)
         else:
-            self.literal(char, Types.char.value, start - 1, self.i)
+            self.literal(char, copy(Types.char.value), start - 1, self.i)
             self.advance()
         return
 
