@@ -7,11 +7,16 @@ from typing import Optional
 class Globals:
     """Class used to be able to set dependable variables from external modules"""
     def __init__(self):
-        self.FILE_NAME = 'IDE'
-        self.PROGRAM_LINES = []
+        self.FILE_NAME: str = 'IDE'
+        """Name of the input file containing krimson code"""
+
+        self.PROGRAM_LINES: list[str] = []
+        """list containing the input program split between new line separators ``\\n``"""
+        return
 
 
 global_vars = Globals()
+"""Object that holds the variables related to the input code (to be configurable from other modules when compiling)"""
 
 
 # constants
@@ -67,7 +72,10 @@ OPERATOR_PRECENDENCE = {
     '-': 12,
     '~': 12,
 }
-"""Dict mapping the operators and their precedence (all operators are left associative)"""
+"""Dict mapping the operators and their precedence"""
+
+RIGHT_ASSOCIATIVE_OPERATORS = {'='}
+"""Set containing the operators that are right associative"""
 
 
 class TT(Enum):
@@ -80,12 +88,23 @@ class TT(Enum):
 
 
 class Token:
+    """Gathers all the information regarding a token object (location on source code), type and value"""
     def __init__(self, token_type, value, start=-1, end=-1, line=-1):
         self.tt: TT = token_type
+        """Token type"""
+
         self.value = value
-        self.start = start
-        self.end = end
-        self.line = line
+        """Value of token"""
+
+        self.start: int  = start
+        """index of the first character of the token on the source code"""
+
+        self.end: int = end
+        """index of last character of the token on the source code"""
+
+        self.line: int = line
+        """index of the line of the chars of the token on the source code"""
+        return
 
     def __eq__(self, other):
         return other is not None and self.tt == other.tt and self.value == other.value
@@ -95,13 +114,18 @@ class Token:
 
 
 class Literal(Token):
+    """Special Case of Token, that has a token type (tt) of ``TT.LITERAL``.
+
+    It contains an extra field ``self.literal_type`` for the krimson type of the literal value"""
     def __init__(self, value, t: 'Type', start=-1, end=-1, line=-1):
         super().__init__(TT.LITERAL, value, start, end, line)
         self.literal_type: Type = t
+        """krimson Type of the Literal value of the token"""
         return
 
 
 class Operators(Enum):
+    """Enum of all Operators"""
     dif = Token(TT.OPERATOR, '!=')
     equ = Token(TT.OPERATOR, '==')
     gt = Token(TT.OPERATOR, '>')
@@ -147,6 +171,7 @@ class Operators(Enum):
 
 
 class Separators(Enum):
+    """Enum of all separators"""
     comma = Token(TT.SEPARATOR, ',')
     colon = Token(TT.SEPARATOR, ':')
     # nln = Token(TT.SEPARATOR, '\n')
@@ -161,6 +186,7 @@ class Separators(Enum):
 
 
 class Keywords(Enum):
+    """Enum of all Keywords"""
     if_ = Token(TT.KEYWORD, 'if')
     else_ = Token(TT.KEYWORD, 'else')
     break_ = Token(TT.KEYWORD, 'break')
@@ -174,50 +200,32 @@ class Keywords(Enum):
     static = Token(TT.KEYWORD, 'static')
 
 
-class E(Enum):
-    duplicate_class = 'Duplicate class name'
-    duplicate_func = 'Duplicate function declaration'
-    duplicate_var = 'Duplicate variable name'
-    duplicate_macro = 'Duplicate macro'
-    literal_expected = 'Literal expected'
-    string_expected = 'String expected'
-    invalid_literal = 'Invalid literal'
-    invalid_ret_type = 'Invalid return type'
-    while_expected = 'while keyword expected'
-    unexpected_argument = 'Unexpected argument'
-    return_not_in_func = 'return keyword found outside a function body'
-    unknown_var_type = 'Unknown variable type'
-    undefined_variable = 'Undefined variable'
-    var_before_assign = 'Variable might be used before assignment'
-    unknown_obj_type = 'Unknown object type'
-    unknown_identifier = "No variable, class or function named '{}' is visible in scope"
-    type_missmatch = "expected '{}' and got '{}'"
-    type_incompatible = "Expected subtype of '{}' and got '{}'"
-    bin_dunder_not_found = 'Cannot {} for {} and {}. No suitable declaration of {} exists anywhere'
-    unary_dunder_not_found = 'Cannot {} for {}. No suitable declaration of {} exists anywhere'
-    constructor_outside_class = "Constructor for class '{}' found outside its class"
-    this_outside_class = 'this keyword found outside an class definition'
-    this_on_static = 'this keyword cannot be used in a static context'
-    super_outside_class = 'super keyword found outside an class definition'
-    class_is_not_subtype = "class '{}' does not inherit from another class"
-    instance_needed = "Cannot access fields of object '{}' without an instance of it"
-    static_class_no_constructor = "Static class cannot have a constructor"
-    cannot_default_arg = "Cannot assign a default value to function argument '{}'"
-
-    def __repr__(self) -> str:
-        return self.value
-
-
 class Error(Exception):
-    def __init__(self, error: Enum, start, end, line, code_line, *args):
-        self.e: Enum = error
-        self.start = start
-        self.end = end
-        self.line = line
-        self.code_line = code_line
-        self.file_name = global_vars.FILE_NAME
+    """Gathers all information about an error that occurred with compiling krimson code, such as the characters in the
+    file where it was detected and any additional information about it.
 
-        self.args = args
+    It gets formatted in a user-friendly way"""
+    def __init__(self, error: Enum, start: int, end: int, line: int, code_line: str, *args: str):
+        self.e: Enum = error
+        """Error enum (LexicalError | SyntaxError | TypeError) containing the message describing the error"""
+
+        self.start: int = start
+        """index of the first character where the error was detected on the source code"""
+
+        self.end: int = end
+        """index of last character where the error was detected on the source code"""
+
+        self.line: int = line
+        """index of the line of the chars where the error was detected on the source code"""
+
+        self.code_line: str = code_line
+        """Line containing the input krimson code where the error occurred"""
+
+        self.file_name: str = global_vars.FILE_NAME
+        """Name of the input file the error occurred"""
+
+        self.args: tuple[str, ...] = args
+        """Extra arguments needed for a better custom error message"""
         return
 
     def __repr__(self):
@@ -231,10 +239,18 @@ class Error(Exception):
 # Type
 
 class Type:
+    """Class containing all information regarding a type in krimson, such as the name of the type, and extra generic
+    types associated with it"""
     def __init__(self, name: Token, generics: Optional[tuple['Type', ...]] = None):
         self.name: Token = name
+        """name of the krimson type"""
+
         self.generics: Optional[tuple['Type', ...]] = generics
+        """extra types to be used as generic types"""
+
         self.size = 1
+        """compile-time size of an object of this type"""
+        return
 
     def __eq__(self, other: 'Type'):
         return other is not None and ((self.name == other.name and self.generics == self.generics) or
@@ -243,7 +259,13 @@ class Type:
     def __hash__(self):
         return self.name.value.__hash__()
 
-    def is_subtype(self, super_type: 'Type'):
+    def is_subtype(self, super_type: 'Type') -> bool:
+        """
+        checks if ``super_type`` is a subtype of ``self``. In other words, if ``super_type`` can be used when ``self``
+        type is required
+        :param super_type: the type to be checking
+        :return: true if ``super_type`` is a subtype of ``self``
+        """
         if self.name == super_type.name:
             return True
 
@@ -254,6 +276,10 @@ class Type:
         return True
 
     def get_type_label(self) -> str:
+        """
+        Generates and returns a string containing a unique label to represent the krimson type.
+        :return: a string label of the type
+        """
         if self.generics is None:
             return self.name.value
 
@@ -270,10 +296,14 @@ class Type:
 
 
 class_type = Type(Token(TT.IDENTIFIER, 'class'))
+"""Type object that represents the type of krimson Types"""
+
 any_type = Type(Token(TT.IDENTIFIER, ''))
+"""Type object that represents a type that bypasses all type requirements on compiler checks"""
 
 
 class Types(Enum):
+    """Enum containing all primitive types the compiler may need to use at compile-time"""
     null = Type(Token(TT.IDENTIFIER, 'null'))
     bool = Type(Token(TT.IDENTIFIER, 'bool'))
     nat = Type(Token(TT.IDENTIFIER, 'nat'))

@@ -2,6 +2,7 @@ from ASTNodes import *
 
 
 class SyntaxError(Enum):
+    """Enum containing all the custom error messages that the parser may generate."""
     identifier_expected = 'Identifier expected'
     symbol_expected = "'{}' expected"
     symbol_expected_before = "'{}' expected before '{}'"
@@ -160,6 +161,14 @@ class Parser:
             else:
                 return True
 
+        def must_pop(op_stack, tok: Token) -> bool:
+            if len(op_stack) == 0:
+                return False
+            p1 = OPERATOR_PRECENDENCE[tok.value]
+            p2 = OPERATOR_PRECENDENCE[op_stack[-1].value]
+            return p1 < p2 or (p1 == p2 and tok.value not in RIGHT_ASSOCIATIVE_OPERATORS)
+
+
         def shunting_yard() -> Optional[list[(Token, Node)]]:
             """
             Parses an infix expression into a postfix expression using the shunting yard algorithm.
@@ -188,7 +197,7 @@ class Parser:
                             args = self.repeat_until_symbol(')', Parser.expression, SyntaxError.expression_expected)
                             func = Operators.func.value
 
-                            while len(operator_stack) > 0 and OPERATOR_PRECENDENCE[func.value] <= OPERATOR_PRECENDENCE[operator_stack[-1].value]:
+                            while must_pop(operator_stack, func):
                                 expression_queue.append(operator_stack.pop())
 
                             operator_stack.append(func)
@@ -241,7 +250,7 @@ class Parser:
                     if self.peak == Operators.sub.value and not is_last_tok_value(last_op): # its unary minus
                         self.peak.value = '-'   # changing its value
 
-                    while len(operator_stack) > 0 and OPERATOR_PRECENDENCE[self.peak.value] <= OPERATOR_PRECENDENCE[operator_stack[-1].value]:
+                    while must_pop(operator_stack, self.peak):
                         expression_queue.append(operator_stack.pop())
                     operator_stack.append(self.peak)
                     last_op = self.peak

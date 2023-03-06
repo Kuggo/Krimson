@@ -3,6 +3,7 @@ from copy import copy
 
 
 class LexicalError(Enum):
+    """Enum containing all the custom error messages that the lexer may generate when tokenizing."""
     invalid_char = 'Invalid character'
     miss_close_sym = 'Missing single quote {}'
     invalid_escape_code = "Invalid escape sequence code '{}'"
