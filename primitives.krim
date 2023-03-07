@@ -1,343 +1,343 @@
 // TODO add all the implementation for the methods if necessary
 
 class null {
-    var null _;
+    null _;
 }
 
 class bool {
-    var bool _;
+    bool _;
 
-    fn bool __or__(var bool other) {
-
-    }
-
-    fn bool __and__(var bool other) {
+    bool __or__(bool other) {
 
     }
 
-    fn bool __xor__(var bool other) {
+    bool __and__(bool other) {
 
     }
 
-    fn bool __not__() {
+    bool __xor__(bool other) {
+
+    }
+
+    bool __not__() {
 
     }
 }
 
 class nat {     // aka uint
-    var nat _;
+    nat _;
 
-    fn nat __add__(var nat other) {
-
-    }
-
-    fn nat __sub__(var nat other) {
+    nat __add__(nat other) {
 
     }
 
-    fn int __inc__() {
+    nat __sub__(nat other) {
 
     }
 
-    fn int __dec__() {
+    int __inc__() {
 
     }
 
-    fn nat __shr__(var nat amount) {
+    int __dec__() {
 
     }
 
-    fn nat __shl__(var nat amount) {
+    nat __shr__(nat amount) {
 
     }
 
-    fn nat __mlt__(var nat other) {
+    nat __shl__(nat amount) {
 
     }
 
-    fn nat __div__(var nat other) {
+    nat __mlt__(nat other) {
 
     }
 
-    fn nat __neg__() {
+    nat __div__(nat other) {
 
     }
 
-    fn nat __bor__(var nat other) {
+    nat __neg__() {
 
     }
 
-    fn nat __band__(var nat other) {
+    nat __bor__(nat other) {
 
     }
 
-    fn nat __bxor__(var nat other) {
+    nat __band__(nat other) {
 
     }
 
-    fn nat __bnot__() {
+    nat __bxor__(nat other) {
 
     }
 
-    fn bool __gt__(var nat other) {
+    nat __bnot__() {
 
     }
 
-    fn bool __gte__(var nat other) {
+    bool __gt__(nat other) {
 
     }
 
-    fn bool __lt__(var nat other) {
+    bool __gte__(nat other) {
 
     }
 
-    fn bool __lte__(var nat other) {
+    bool __lt__(nat other) {
 
     }
 
-    fn bool __dif__(var nat other) {
+    bool __lte__(nat other) {
 
     }
 
-    fn bool __equ__(var nat other) {
+    bool __dif__(nat other) {
+
+    }
+
+    bool __equ__(nat other) {
 
     }
 }
 
 class int {
-    var int _;
+    int _;
 
-    fn int __add__(var int other) {
-
-    }
-
-    fn int __sub__(var int other) {
+    int __add__(int other) {
 
     }
 
-    fn int __inc__() {
+    int __sub__(int other) {
 
     }
 
-    fn int __dec__() {
+    int __inc__() {
 
     }
 
-    fn int __shr__(var nat amount) {
+    int __dec__() {
 
     }
 
-    fn int __shl__(var nat amount) {
+    int __shr__(nat amount) {
 
     }
 
-    fn int __mlt__(var int other) {
+    int __shl__(nat amount) {
 
     }
 
-    fn int __div__(var int other) {
+    int __mlt__(int other) {
 
     }
 
-    fn int __neg__() {
+    int __div__(int other) {
 
     }
 
-    fn int __bor__(var int other) {
+    int __neg__() {
 
     }
 
-    fn int __band__(var int other) {
+    int __bor__(int other) {
 
     }
 
-    fn int __bxor__(var int other) {
+    int __band__(int other) {
 
     }
 
-    fn int __bnot__() {
+    int __bxor__(int other) {
 
     }
 
-    fn bool __gt__(var int other) {
+    int __bnot__() {
 
     }
 
-    fn bool __gte__(var int other) {
+    bool __gt__(int other) {
 
     }
 
-    fn bool __lt__(var int other) {
+    bool __gte__(int other) {
 
     }
 
-    fn bool __lte__(var int other) {
+    bool __lt__(int other) {
 
     }
 
-    fn bool __dif__(var int other) {
+    bool __lte__(int other) {
 
     }
 
-    fn bool __equ__(var int other) {
+    bool __dif__(int other) {
+
+    }
+
+    bool __equ__(int other) {
 
     }
 }
 
 class frac {    // aka fixed. To be used instead of floats
-    var frac _;
+    frac _;
 
-    fn frac __add__(var frac other) {
-
-    }
-
-    fn frac __sub__(var frac other) {
+    frac __add__(frac other) {
 
     }
 
-    fn int __inc__() {
+    frac __sub__(frac other) {
 
     }
 
-    fn int __dec__() {
+    int __inc__() {
 
     }
 
-    fn frac __shr__(var nat amount) {
+    int __dec__() {
 
     }
 
-    fn frac __shl__(var nat amount) {
+    frac __shr__(nat amount) {
 
     }
 
-    fn frac __mlt__(var frac other) {
+    frac __shl__(nat amount) {
 
     }
 
-    fn frac __div__(var frac other) {
+    frac __mlt__(frac other) {
 
     }
 
-    fn frac __neg__() {
+    frac __div__(frac other) {
 
     }
 
-    fn bool __gt__(var frac other) {
+    frac __neg__() {
 
     }
 
-    fn bool __gte__(var frac other) {
+    bool __gt__(frac other) {
 
     }
 
-    fn bool __lt__(var frac other) {
+    bool __gte__(frac other) {
 
     }
 
-    fn bool __lte__(var frac other) {
+    bool __lt__(frac other) {
 
     }
 
-    fn bool __dif__(var frac other) {
+    bool __lte__(frac other) {
 
     }
 
-    fn bool __equ__(var frac other) {
+    bool __dif__(frac other) {
+
+    }
+
+    bool __equ__(frac other) {
 
     }
 }
 
 class char {
-    var char _;
+    char _;
 
-    fn char __add__(var char other) {}
+    char __add__(char other) {}
 
-    fn str __mlt__(var cint amount) {}
+    str __mlt__(cint amount) {}
 
-    fn bool __gt__(var char other) {}
+    bool __gt__(char other) {}
 
-    fn bool __gte__(var char other) {}
+    bool __gte__(char other) {}
 
-    fn bool __lt__(var char other) {}
+    bool __lt__(char other) {}
 
-    fn bool __lte__(var char other) {}
+    bool __lte__(char other) {}
 
-    fn bool __dif__(var char other) {}
+    bool __dif__(char other) {}
 
-    fn bool __equ__(var char other) {}
+    bool __equ__(char other) {}
 }
 
 class array[T] {
-    fn array[T] __add__(var array[T] other) {}
+    array[T] __add__(array[T] other) {}
 
-    fn array[T] __add__(var T other) {}
+    array[T] __add__(T other) {}
 
-    fn T __get__(var nat i) {}
+    T __get__(nat i) {}
 
-    fn null __set__(var nat i) {}
+    null __set__(nat i) {}
 
-    fn bool __dif__(var array other) {}
+    bool __dif__(array other) {}
 
-    fn bool __equ__(var array other) {}
+    bool __equ__(array other) {}
 }
 
 class str {  // until interfaces and inheritance comes, this will have its own type
-    fn char __get__(var nat index) {}
+    char __get__(nat index) {}
 
-    fn str __add__(var str other) {}
+    str __add__(str other) {}
 
-    fn str __add__(var char other) {}
+    str __add__(char other) {}
 
-    fn str __mlt__(var int amount) {}
+    str __mlt__(int amount) {}
 
-    fn bool __gt__(var str other) {}
+    bool __gt__(str other) {}
 
-    fn bool __gte__(var str other) {}
+    bool __gte__(str other) {}
 
-    fn bool __lt__(var str other) {}
+    bool __lt__(str other) {}
 
-    fn bool __lte__(var str other) {}
+    bool __lte__(str other) {}
 
-    fn bool __dif__(var str other) {}
+    bool __dif__(str other) {}
 
-    fn bool __equ__(var str other) {}
+    bool __equ__(str other) {}
 }
 
 class set[T] {
-    fn set[T] __add__(var set[T] other) {}
+    set[T] __add__(set[T] other) {}
 
-    fn set[T] __add__(var T other) {}
+    set[T] __add__(T other) {}
 
-    fn bool __dif__(var set other) {}
+    bool __dif__(set other) {}
 
-    fn bool __equ__(var set other) {}
+    bool __equ__(set other) {}
 }
 
 class dict[K, V] {
-    fn dict[T] __add__(var dict[T] other) {}
+    dict[T] __add__(dict[T] other) {}
 
-    fn T __get__(var nat i) {}
+    T __get__(nat i) {}
 
-    fn null __set__(var nat i) {}
+    null __set__(nat i) {}
 
-    fn bool __dif__(var dict other) {}
+    bool __dif__(dict other) {}
 
-    fn bool __equ__(var dict other) {}
+    bool __equ__(dict other) {}
 }
 
 
 /*
 class ref[T] {
-    var ref _;
+    ref _;
 
-    fn T __deref__() {
+    T __deref__() {
 
     }
 }
 */
 
-fn nat print(var str s) {
+nat print(str s) {
     return 0
 }
 

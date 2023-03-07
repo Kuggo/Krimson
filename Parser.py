@@ -111,10 +111,8 @@ class Parser:
                 return self.break_statement()
             elif self.peak.value == 'skip':
                 return self.skip_statement()
-            elif self.peak.value == 'var':
-                return self.var_define_statement()
-            elif self.peak.value == 'fn':
-                return self.func_define_statement()
+            elif self.peak.value == 'static':
+                return self.make_next_statement()
             elif self.peak.value == 'class':
                 return self.class_define_statement()
             elif self.peak.value == 'macro':
@@ -127,7 +125,8 @@ class Parser:
             return self.scope()
 
         else:
-            return self.expression()
+            return self.make_next_statement()
+
 
     def expression(self) -> Optional[ExpressionNode]:
         """
@@ -519,9 +518,9 @@ class Parser:
         """
         Parses the next type and returns it.
 
-        Generics specified between <> will be added as part of the type. Nesting types in generics also works
+        Generics specified between [] will be added as part of the type. Nesting types in generics also works
 
-        type : identifier ['<' {type} '>']
+        type : identifier ['[' {type} ']']
 
         :param: generic: if the type to be parsed is inside generic declarations
         :return: Type or None if an error occurred
@@ -551,7 +550,42 @@ class Parser:
 
         return t
 
-    def var_define_statement(self, inside_func_args: bool = False) -> Optional[VarDefineNode]:
+    def make_next_statement(self) -> Optional[Node]:
+        """
+        Parses the next statement (that does not start with a keyword) without knowing what kind of statement it is.
+        The difference is spotted on how the statement goes.
+
+        - It is an expression if not: type IDENTIFIER
+        - It is a var_define if not: type IDENTIFIER '('
+        - It is a func_define if not any of the above
+
+        :return: var_define_statement | func_define_statement | expression | None if an error occurred
+        """
+        index = self.i
+
+        static = None
+        if self.peak == Keywords.static.value:
+            static = self.peak
+            self.advance()
+
+        t = self.make_type()
+
+        if t is None:
+            self.i = index  # rollback to before the type
+            self.errors.pop()  # remove the error that was found
+            return self.expression()
+
+        name = self.peak
+        if name.tt != TT.IDENTIFIER:
+            self.i = index  # rollback to before the type
+            return self.expression()
+
+        if self.preview() == Separators.lpa.value:   # it's a function
+            return self.func_define_statement(name, t, static)
+        else:   # its a variable
+            return self.var_define_statement(name, t, static)
+
+    def var_define_statement(self, name: Token, var_type: Type, static: Optional[Token] = None) -> Optional[VarDefineNode]:
         """
         Parses the next variable declaration statement and returns its Node
 
@@ -560,38 +594,15 @@ class Parser:
 
         :return: VarAssignNode or None if an error occurred
         """
-        start = self.peak
-        self.advance()
-
-        static = None
-        if self.peak == Keywords.static.value:
-            static = self.peak
-            self.advance()
-
-        type_tok = self.peak
-        var_type = self.make_type()
-        if var_type is None:
-            self.error(SyntaxError.type_expected, type_tok)
-            return None
-
-        var_name = self.peak
-        if var_name.tt != TT.IDENTIFIER:
-            self.error(SyntaxError.identifier_expected, self.peak)
-            return None
 
         eq_symbol = self.preview()
-
         value = self.expression()
 
         if isinstance(value, AssignNode):
-            if inside_func_args:    # TODO no default arguments for now
-                self.error(SyntaxError.cannot_assign_to_arg, eq_symbol)
-                return None
-            else:
-                return VarDefineNode(start, var_type, value.var, value.value)
+            return VarDefineNode(name, var_type, value.var, value.value, static=static)
 
         elif isinstance(value, VariableNode):
-            return VarDefineNode(start, var_type, VariableNode(var_name), static=static)
+            return VarDefineNode(name, var_type, VariableNode(name), static=static)
 
         else:
             self.error(SyntaxError.symbol_expected, eq_symbol, '=')
@@ -619,39 +630,16 @@ class Parser:
             tok.value = tok.value[:-1]
             return AssignNode(node1, BinOpNode(tok, node1, node2))
 
-    def func_define_statement(self) -> Optional[FuncDefineNode]:
+    def func_define_statement(self, name: Token, func_type: Type, static: Optional[Token] = None) -> Optional[FuncDefineNode]:
         """
         Parses the next function declaration until its end is found, and returns its Node
 
         :return: FuncDefineNode or None if an error occurred
         """
-        start = self.peak
-        self.advance()
-
-        static = None
-        if self.peak == Keywords.static.value:
-            static = self.peak
-            self.advance()
-
-        type_tok = self.peak
-        func_type = self.make_type()
-        if func_type is None:
-            self.error(SyntaxError.type_expected, type_tok)
-            return None
-
-        func_name = self.peak
-        if func_name.tt != TT.IDENTIFIER:
-            self.error(SyntaxError.identifier_expected, self.peak)
-            return None
 
         self.advance()
-
-        if self.peak != Separators.lpa.value:
-            self.error(SyntaxError.symbol_expected, self.peak, '(')
-            return None
-
-        self.advance()
-        args = self.repeat_until_symbol(')', Parser.var_define_statement, SyntaxError.arg_expected, True)
+        self.advance()  # skipping the '(' char
+        args = self.repeat_until_symbol(')', Parser.arg_define_statement, SyntaxError.arg_expected)
         self.advance()
 
         body = self.statement()
@@ -661,7 +649,43 @@ class Parser:
         if isinstance(body, ScopeNode):
             body = IsolatedScopeNode.new_from_old(body)     # casting down scope node to func body node aka isolated
 
-        return FuncDefineNode(start, func_type, VariableNode(func_name), tuple(args), body, static=static)
+        return FuncDefineNode(name, func_type, VariableNode(name), tuple(args), body, static=static)
+
+    def arg_define_statement(self) -> Optional[VarDefineNode]:
+        """Parses the next var_define_statement assuming the next statement must be a variable declaration.
+        Used for arguments of functions
+
+        This function is identical to the ``self.var_define_statement()`` before the dedicated var keyword was removed
+        :return: VarDefineNode or None if an error occurred
+        """
+        static = None
+        if self.peak == Keywords.static.value:
+            static = self.peak
+            self.advance()
+
+        type_tok = self.peak
+        var_type = self.make_type()
+        if var_type is None:
+            self.error(SyntaxError.type_expected, type_tok)
+            return None
+
+        var_name = self.peak
+        if var_name.tt != TT.IDENTIFIER:
+            self.error(SyntaxError.identifier_expected, self.peak)
+            return None
+
+        eq_symbol = self.preview()
+
+        value = self.expression()
+
+        if isinstance(value, AssignNode):
+            # TODO no default arguments for now
+            self.error(SyntaxError.cannot_assign_to_arg, eq_symbol)
+
+        elif isinstance(value, VariableNode):
+            return VarDefineNode(var_name, var_type, VariableNode(var_name), static=static)
+
+        return None
 
     def class_define_statement(self) -> Optional[ClassDefineNode]:
         """
