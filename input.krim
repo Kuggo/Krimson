@@ -1,22 +1,23 @@
 
-/*class yeet {
-    class E {
-        fn nat f()
+class yeet {
+    /*class E {
+        nat f()
             return 0
-    }
-    var int ver;
-    var int vir;
+    }*/
+    int ver;
+    int vir;
 
-    fn yeet new()
+    yeet new()
         return self
 
-    fn nat func() {
+    nat func() {
         return 0
     }
-}*/
+}
 
-nat ver
+yeet var = yeet()
+nat ver = 1
 
-array[nat] arr = [0 1 2]
-dict[char, nat] d = {'a': 1 'b': 2}
-set[nat] s = {1 2 3 4 5}
+//array[nat] arr = [0 1 2]
+//dict[char, nat] d = {'a': 1 'b': 2}
+//set[nat] s = {1 2 3 4 5}

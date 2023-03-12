@@ -1,4 +1,4 @@
-from copy import copy
+from copy import copy, deepcopy
 from Instructions import *
 
 
@@ -95,14 +95,14 @@ class Context:
             return self.stack_map[var.name][0]
         else:
             size = var.get_size()
-            index = 0
+            index = - size
 
-            for var_index, var_size in sorted(self.stack_map.values()):
-                if index + size <= var_index:
+            for var_index, var_size in sorted(self.stack_map.values(), reverse=True):
+                if index >= var_index + var_size:
                     self.stack_map[var.name] = (index, size)
                     return index
 
-                index = var_index + var_size
+                index = var_index - size
 
             self.stack_map[var.name] = (index, size)
             return index
@@ -569,6 +569,7 @@ class FuncCallNode(ExpressionNode):
         if self.func is None:
             ctx.error(TypeError.undefined_function, self.func_name.get_name())
             return None
+        self.type = self.func.ret_type
         return self
 
     def alloc_vars(self, ctx: Context) -> None:
@@ -624,7 +625,8 @@ class VarDefineNode(NameDefineNode, ExpressionNode):
 
         if self.value is not None:
             self.value = self.value.update(ctx, self.parent)
-            self.name.type = self.type = self.value.type
+            if self.value is not None:
+                self.name.type = self.type = self.value.type
 
         return self
 
@@ -643,82 +645,122 @@ class VarDefineNode(NameDefineNode, ExpressionNode):
 
 
 class FuncDefineNode(NameDefineNode):
-    def __init__(self, repr_tok: Token, ret_type: Type, func_name: VariableNode, args: tuple[VarDefineNode, ...], body: 'IsolatedScopeNode', static: Optional[Token] = None):
+    def __init__(self, repr_tok: Token, ret_type: Type, func_name: VariableNode, params: tuple[VarDefineNode, ...], body: 'IsolatedScopeNode', static: Optional[Token] = None):
         super().__init__(repr_tok, func_name)
         self.ret_type: Type = ret_type
-        self.args: tuple[VarDefineNode, ...] = args
+        self.ret_dest: Optional[VariableNode] = None
+        self.params: tuple[VarDefineNode, ...] = params
         self.body: IsolatedScopeNode = body
         self.class_def: Optional[ClassDefineNode] = None
         self.static_tok: Optional[Token] = static
         self.static: bool = static is not None
+        return
 
     def get_id(self) -> tuple[str, tuple[Type, ...]]:
-        args: list[Type] = []
-        for arg in self.args:
-            if arg.type is not None:
-                args.append(arg.type)
-        return self.name.name, tuple(args)
+        params: list[Type] = []
+        for param in self.params:
+            if param.type is not None:
+                params.append(param.type)
+        return self.name.name, tuple(params)
 
     def func_to_type(self) -> Type:
-        args: list[Type] = []
-        for arg in self.args:
-            if arg.type is not None:
-                args.append(arg.type)
+        params: list[Type] = []
+        for param in self.params:
+            if param.type is not None:
+                params.append(param.type)
 
-        return Type(self.name.repr_token, tuple(args))
+        return Type(self.name.repr_token, tuple(params))
 
     def get_func_label(self) -> str:
         string = self.name.name
-        for arg in self.args:
-            string += f'.{arg.type.get_type_label()}'
+        for param in self.params:
+            string += f'.{param.type.get_type_label()}'
         return string
 
     def add_ctx(self, ctx: Context) -> None:
         ctx.funcs[self.get_id()] = self
         return
 
+    def create_context(self, ctx: Context) -> Context:
+        """Creates a new context for parameters and body via ctx.clone(), but isolates the variables defined in upper scope
+        :param ctx: Context of the above scope
+        :return: the new context of the current scope"""
+        new_ctx = ctx.clone()
+
+        new_ctx.stack_map = {}  # erasing pre existing variables
+        new_ctx.vars = {}       # same here
+        return new_ctx
+
     def update(self, ctx: Context, parent: Optional[Node]) -> Optional['FuncDefineNode']:
         self.scope_level = ctx.scope_level
         self.parent = parent
 
-        args = []
+        lower_ctx = self.create_context(ctx)
+
+        params = []
         if self.static and self.class_def is None:
             ctx.error(TypeError.static_not_in_class, Node(self.static_tok))
             self.static = False
         elif not self.static and self.class_def is not None:
-            self_arg = self.get_self_arg()
-            self_arg.add_ctx(ctx)
-            args.append(self_arg)
+            self_param = self.get_self_param()
+            self_param.add_ctx(lower_ctx)
+            params.append(self_param)
 
-        for arg in self.args:
-            arg = arg.update(ctx, self)
-            if arg is not None:
-                args.append(arg)
-        self.args = tuple(args)
+        for param in self.params:
+            param = param.update(lower_ctx, self)
+            if param is not None:
+                params.append(param)
+        self.params = tuple(params)
 
         self.add_ctx(ctx)
 
-        self.body = self.body.update(ctx, self)
+        self.body = self.body.update(lower_ctx, self)
         if self.body is None:
             return None
 
-        self.body.alloc_vars(ctx)   # allocating local variables on the stack
+        self.body.alloc_vars(lower_ctx)   # allocating local variables on the stack
 
         i = 0   # allocating arguments on the stack, above the BP
-        for arg in reversed(self.args):
-            arg.offset = OffsetNode(Registers.BP, i)
-            i += arg.get_size()
+        for param in reversed(self.params):
+            param.offset = OffsetNode(Registers.BP, i)
+            i += param.get_size()
 
+        self.ret_dest = VariableNode(self.repr_token)
+        self.ret_dest.offset = OffsetNode(Registers.BP, i)
+        self.ret_dest.type = copy(any_type)
         return self
 
-    def get_self_arg(self) -> VarDefineNode:
+    def get_self_param(self) -> VarDefineNode:
         return VarDefineNode(self_tok, self.class_def.type, VariableNode(self_tok))
 
     def inline_func(self, func_call: FuncCallNode) -> ScopeNode:
-        pass    # TODO
+        body: list[Node] = []
+        for param, arg in zip(self.params, func_call.args):
+            param = deepcopy(param)
+            param.value = arg
+            body.append(param)
+
+        if isinstance(self.body, ScopeNode):
+            for node in self.body.child_nodes:
+                if isinstance(node, ReturnNode):
+                    body.append(AssignNode(self.ret_dest, deepcopy(node.value)))
+                    body.append(BreakNode(func_call.repr_token))
+                else:
+                    body.append(deepcopy(node))
+        elif isinstance(self.body, ReturnNode):
+            body.append(AssignNode(self.ret_dest, deepcopy(self.body.value)))
+            body.append(BreakNode(func_call.repr_token))
+        else:
+            body.append(deepcopy(self.body))
+
+
+        body_node = ScopeNode(body[0].repr_token, body)
+        body_node.scope_level = func_call.scope_level
+        body_node.parent = func_call.parent
+        return body_node
 
     def __repr__(self):
-        return f'{self.ret_type} {self.name}({self.args.__repr__()[1:-1]}) {self.body}'
+        return f'{self.ret_type} {self.name}({self.params.__repr__()[1:-1]}) {self.body}'
 
 
 class IsolatedScopeNode(ScopeNode):
@@ -730,21 +772,10 @@ class IsolatedScopeNode(ScopeNode):
     def new_from_old(cls, old: ScopeNode) -> 'IsolatedScopeNode':
         return cls(old.repr_token, old.child_nodes)
 
-    def create_context(self, ctx: Context) -> Context:
-        """Creates a new context for a scope node via ctx.clone(), but isolates the variables defined in upper scope
-        :param ctx: Context of the above scope
-        :return: the new context of the current scope"""
-        new_ctx = ctx.clone()
-
-        new_ctx.stack_map = {}  # erasing pre existing variables
-        new_ctx.vars = {}       # same here
-        return new_ctx
-
     def update(self, ctx: Context, parent: Optional[Node]) -> Optional['IsolatedScopeNode']:
         self.scope_level = ctx.scope_level
         self.parent = parent
-        new_ctx = self.create_context(ctx)
-        self.process_body(new_ctx)
+        self.process_body(ctx)
         return self
 
 
@@ -1143,10 +1174,12 @@ class OffsetNode(InstructionNode):
         return OffsetNode(self.base, self.offset+other)
 
     def __repr__(self):
+        sign = '' if self.offset < 0 else '+'
+
         if isinstance(self.base, Registers):
-            return f'reg:{self.base.value.value}+{self.offset}'
+            return f'reg:{self.base.value.value}{sign}{self.offset}'
         else:
-            return f'{self.base}+{self.offset}'
+            return f'{self.base}{sign}{self.offset}'
 
 
 # constants

@@ -127,7 +127,6 @@ class Parser:
         else:
             return self.make_next_statement()
 
-
     def expression(self) -> Optional[ExpressionNode]:
         """
         Parses the next expression until it finds its end and returns an AST of the expression
@@ -571,13 +570,15 @@ class Parser:
         t = self.make_type()
 
         if t is None:
-            self.i = index  # rollback to before the type
+            self.i = index-1    # rollback to before the type
+            self.advance()
             self.errors.pop()  # remove the error that was found
             return self.expression()
 
         name = self.peak
         if name.tt != TT.IDENTIFIER:
-            self.i = index  # rollback to before the type
+            self.i = index-1    # rollback to before the type
+            self.advance()
             return self.expression()
 
         if self.preview() == Separators.lpa.value:   # it's a function
@@ -639,7 +640,7 @@ class Parser:
 
         self.advance()
         self.advance()  # skipping the '(' char
-        args = self.repeat_until_symbol(')', Parser.arg_define_statement, SyntaxError.arg_expected)
+        args = self.repeat_until_symbol(')', Parser.param_define_statement, SyntaxError.arg_expected)
         self.advance()
 
         body = self.statement()
@@ -651,7 +652,7 @@ class Parser:
 
         return FuncDefineNode(name, func_type, VariableNode(name), tuple(args), body, static=static)
 
-    def arg_define_statement(self) -> Optional[VarDefineNode]:
+    def param_define_statement(self) -> Optional[VarDefineNode]:
         """Parses the next var_define_statement assuming the next statement must be a variable declaration.
         Used for arguments of functions
 
