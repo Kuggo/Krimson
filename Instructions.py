@@ -26,6 +26,7 @@ class Operations(Enum):
     store_local = Instruction('store_local')
     load_ram = Instruction('load')
     store_ram = Instruction('store')
+    imm = Instruction('imm')
 
 
 class Registers(Enum):

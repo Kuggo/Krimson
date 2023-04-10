@@ -67,6 +67,10 @@ def main():
 
     print(ast)
 
+    ir: list = ast.gen_ir()
+
+    print(ir)
+
     return
 
 

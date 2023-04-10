@@ -1,9 +1,9 @@
 
-class yeet {
-    /*class E {
+/*class yeet {
+    class E {
         nat f()
             return 0
-    }*/
+    }
     int ver;
     int vir;
 
@@ -13,11 +13,19 @@ class yeet {
     nat func() {
         return 0
     }
+}*/
+
+nat var = 1
+nat ver = 2
+nat vir = var + ver
+
+nat collatz(nat n, nat i) {
+    if n == 1
+        return i
+
+    if n & 1 == 0
+        return collatz(n >> 1 i+1)
+    else
+        return collatz(n*3 + 1 i+1)
 }
 
-yeet var = yeet()
-nat ver = 1
-
-//array[nat] arr = [0 1 2]
-//dict[char, nat] d = {'a': 1 'b': 2}
-//set[nat] s = {1 2 3 4 5}

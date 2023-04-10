@@ -44,10 +44,48 @@ BP is used as a means to better deal with local vars, and arguments on each func
 
 ## Operations
 
+### Memory ops
+
+- load from arg (offset)
+- store to arg (offset)
+- load from local (offset)
+- store to local (offset)
+- load from ram addr
+- store to ram addr
+
+### Math ops
+
 - add
 - sub
 - mlt
 - div
 - mod
 - neg
+- inc
+- dec
 
+### Logic ops
+
+- AND
+- OR
+- XOR
+- NOT
+- RSH
+- LSH
+
+### I/O
+
+- Input (offset)
+- Output (offset)
+
+### IMM
+
+- IMM (extra byte)
+
+### Branch
+
+- Branch (cnd) (extra byte)
+
+### Call
+
+- CAL (extra byte)

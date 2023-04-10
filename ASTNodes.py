@@ -154,8 +154,8 @@ class Node:
     def get_up_class_def(self) -> Optional['ClassDefineNode']:
         return self.parent.get_up_class_def()
 
-    def gen_ir(self):
-        pass
+    def gen_ir(self) -> list[Instruction]:
+        return []
 
     def __repr__(self):
         return f'<{self.repr_token}>'
@@ -231,6 +231,31 @@ class ValueNode(ExpressionNode):
             return any_type
         else:
             assert False
+
+    def gen_ir(self) -> list[Instruction]:
+        ir = []
+
+        if isinstance(self.repr_token, Literal):
+            if self.repr_token.literal_type == Types.array.value or self.repr_token.literal_type == Types.str.value:
+                for item in reversed(self.repr_token.value):
+                    i: Instruction = copy(Operations.imm.value)
+                    i.imm = item
+                    ir.append(i)
+
+            elif self.repr_token.literal_type.size == 1:
+                i: Instruction = copy(Operations.imm.value)
+                i.imm = self.repr_token.value
+                ir.append(i)
+            else:
+                assert False
+
+        elif isinstance(self.repr_token.value, Registers):
+            assert False    # TODO IDK
+
+        else:
+            assert False
+
+        return ir
 
     def __repr__(self):
         return f'{self.repr_token.value}'
@@ -316,6 +341,12 @@ class ScopeNode(Node):
             node.alloc_vars(ctx)
         return
 
+    def gen_ir(self) -> list[Instruction]:
+        ir: list[Instruction] = []
+        for node in self.child_nodes:
+            ir += node.gen_ir()
+        return ir
+
     def __repr__(self):
         string = f'\n{self.scope_level*"  "}{{\n'
         for node in self.child_nodes:
@@ -354,6 +385,16 @@ class AssignNode(ExpressionNode):
         self.value.alloc_vars(ctx)
         self.var.alloc_vars(ctx)
         return
+
+    def gen_ir(self):
+        ir = []
+        loc = self.var.get_absolute_location()
+
+        for i in range(self.value.get_size()):
+
+            inst = copy(Operations.store_ram.value)
+
+        return ir
 
     def __repr__(self):
         return f'{self.var.repr_token.value} = {self.value}'
@@ -713,6 +754,7 @@ class FuncDefineNode(NameDefineNode):
         self.params = tuple(params)
 
         self.add_ctx(ctx)
+        self.add_ctx(lower_ctx)     # allows for recursive functions
 
         self.body = self.body.update(lower_ctx, self)
         if self.body is None:
@@ -1153,14 +1195,7 @@ class RefNode(VariableNode):
     def __repr__(self):
         return f'&{self.name}'
 
-
-class InstructionNode(Node):
-    def __init__(self, repr_tok: Token):
-        super().__init__(repr_tok)
-        return
-
-
-class OffsetNode(InstructionNode):
+class OffsetNode(Node):
     def __init__(self, base, offset: int):
         if isinstance(base, Registers):
             super().__init__(base.value)
@@ -1169,6 +1204,12 @@ class OffsetNode(InstructionNode):
         self.base = base
         self.offset: int = offset
         return
+
+    def get_absolute_offset(self):
+        if isinstance(self.base, OffsetNode):
+            return self.offset + self.base.get_absolute_offset()
+        else:
+            return self.offset
 
     def __add__(self, other):
         return OffsetNode(self.base, self.offset+other)
