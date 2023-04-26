@@ -17,7 +17,6 @@ class TypeError(Enum):
     break_not_in_loop = 'break keyword found outside the specified loop body depth'
     skip_not_in_loop = 'skip keyword found outside the specified loop body depth'
     pos_int_expected = 'Positive integer expected'
-    static_not_in_class = 'Static modifier cannot be applied outside a Class definition scope'
 
     # Compile_time detected runtime errors
     out_of_bounds = 'Index is out of bounds'
@@ -38,6 +37,8 @@ class Context:
             self.funcs: dict[tuple, FuncDefineNode] = {}
             self.types: dict[Type, ClassDefineNode] = {}
             self.vars: dict[str, (MacroDefineNode, VarDefineNode)] = {}
+            self.all_classes: set[ClassDefineNode] = set()
+            self.all_funcs: set[FuncDefineNode] = set()
         else:
             self.scope_level: int = up_scope.scope_level + 1
             self.errors: list[Error] = up_scope.errors    # not a copy. All errors will go to the same collection
@@ -45,6 +46,8 @@ class Context:
             self.funcs: dict[tuple[str, tuple[Type, ...]], FuncDefineNode] = up_scope.funcs.copy()
             self.types: dict[Type, ClassDefineNode] = up_scope.types.copy()
             self.vars: dict[str, (MacroDefineNode, VariableNode)] = up_scope.vars.copy()
+            self.all_classes: set[ClassDefineNode] = up_scope.all_classes
+            self.all_funcs: set[FuncDefineNode] = up_scope.all_funcs
         return
 
     def get_var(self, var_name: str) -> Optional['VarDefineNode']:
@@ -638,14 +641,13 @@ class MacroDefineNode(NameDefineNode):
 
 
 class VarDefineNode(NameDefineNode, ExpressionNode):
-    def __init__(self, repr_tok: Token, var_type: Type, var_name: VariableNode, value: Optional[ExpressionNode] = None, static: Optional[Token] = None):
+    def __init__(self, repr_tok: Token, var_type: Type, var_name: VariableNode, value: Optional[ExpressionNode] = None):
         super().__init__(repr_tok, var_name)
         self.type: Type = var_type
         self.value: Optional[ExpressionNode] = value
         self.offset: OffsetNode = OffsetNode(Registers.BP, 0)
         self.class_def: Optional[ClassDefineNode] = None
-        self.static_tok: Optional[Token] = static
-        self.static: bool = static is not None
+        return
 
     def add_ctx(self, ctx: Context) -> None:
         ctx.vars[self.name.name] = self
@@ -654,10 +656,6 @@ class VarDefineNode(NameDefineNode, ExpressionNode):
     def update(self, ctx: Context, parent: Optional[Node]) -> Optional['VarDefineNode']:
         self.scope_level = ctx.scope_level
         self.parent = parent
-
-        if self.static and self.class_def is None:
-            ctx.error(TypeError.static_not_in_class, Node(self.static_tok))
-            self.static = False
 
         self.add_ctx(ctx)
         self.name = self.name.update(ctx, self.parent)
@@ -686,15 +684,13 @@ class VarDefineNode(NameDefineNode, ExpressionNode):
 
 
 class FuncDefineNode(NameDefineNode):
-    def __init__(self, repr_tok: Token, ret_type: Type, func_name: VariableNode, params: tuple[VarDefineNode, ...], body: 'IsolatedScopeNode', static: Optional[Token] = None):
+    def __init__(self, repr_tok: Token, ret_type: Type, func_name: VariableNode, params: tuple[VarDefineNode, ...], body: 'IsolatedScopeNode'):
         super().__init__(repr_tok, func_name)
         self.ret_type: Type = ret_type
         self.ret_dest: Optional[VariableNode] = None
         self.params: tuple[VarDefineNode, ...] = params
         self.body: IsolatedScopeNode = body
         self.class_def: Optional[ClassDefineNode] = None
-        self.static_tok: Optional[Token] = static
-        self.static: bool = static is not None
         return
 
     def get_id(self) -> tuple[str, tuple[Type, ...]]:
@@ -720,6 +716,7 @@ class FuncDefineNode(NameDefineNode):
 
     def add_ctx(self, ctx: Context) -> None:
         ctx.funcs[self.get_id()] = self
+        ctx.all_funcs.add(self)
         return
 
     def create_context(self, ctx: Context) -> Context:
@@ -739,13 +736,6 @@ class FuncDefineNode(NameDefineNode):
         lower_ctx = self.create_context(ctx)
 
         params = []
-        if self.static and self.class_def is None:
-            ctx.error(TypeError.static_not_in_class, Node(self.static_tok))
-            self.static = False
-        elif not self.static and self.class_def is not None:
-            self_param = self.get_self_param()
-            self_param.add_ctx(lower_ctx)
-            params.append(self_param)
 
         for param in self.params:
             param = param.update(lower_ctx, self)
@@ -848,6 +838,7 @@ class ClassDefineNode(NameDefineNode):
 
     def add_ctx(self, ctx: Context) -> None:
         ctx.types[self.type] = self
+        ctx.all_classes.add(self)
         return
 
     def get_id(self) -> Type:
@@ -894,7 +885,7 @@ class ClassDefineNode(NameDefineNode):
 
 
 class ClassBodyNode(ScopeNode):
-    def __init__(self, start_tok: Token, child_nodes: list[Node], static: Optional[Token] = None):
+    def __init__(self, start_tok: Token, child_nodes: list[Node]):
         super().__init__(start_tok, child_nodes)
         self.funcs: dict[tuple, FuncDefineNode] = {}
         self.types: dict[Type, ClassDefineNode] = {}
@@ -903,39 +894,23 @@ class ClassBodyNode(ScopeNode):
         self.vars: dict[str, (MacroDefineNode, VarDefineNode)] = {}
         self.offset_map: dict[str, int] = {}
         self.size: int = 0
-
-        self.static_vars: dict[str, (MacroDefineNode, VarDefineNode)] = {}
-        self.static_offset_map: dict[str, int] = {}
-        self.static_size: int = 0
-
-        self.static_tok: Optional[Token] = static
-        self.static: bool = static is not None
         return
 
     @classmethod
-    def new_from_old(cls, old: ScopeNode, static) -> 'ClassBodyNode':
-        return cls(old.repr_token, old.child_nodes, static)
+    def new_from_old(cls, old: ScopeNode) -> 'ClassBodyNode':
+        return cls(old.repr_token, old.child_nodes)
 
     def process_body(self, ctx: Context) -> None:
         child_nodes = []
         for node in self.child_nodes:
             if isinstance(node, VarDefineNode):
-                if not node.static:
-                    node.static = self.static
-                    node.static_tok = self.static_tok
-
                 node.class_def = self.class_def
                 node = node.update(ctx, self.parent)
                 if node is None:
                     continue
-                if node.static:
-                    self.static_vars[node.get_id()] = node
-                    self.static_offset_map[node.get_id()] = self.static_size
-                    self.static_size += node.type.size
-                else:
-                    self.vars[node.get_id()] = node
-                    self.offset_map[node.get_id()] = self.size
-                    self.size += node.type.size
+                self.vars[node.get_id()] = node
+                self.offset_map[node.get_id()] = self.size
+                self.size += node.type.size
 
             elif isinstance(node, MacroDefineNode):
                 node = node.update(ctx, self.parent)
@@ -950,10 +925,6 @@ class ClassBodyNode(ScopeNode):
                 self.types[node.get_id()] = node
 
             elif isinstance(node, FuncDefineNode):
-                if not node.static:
-                    node.static = self.static
-                    node.static_tok = self.static_tok
-
                 node.class_def = self.class_def
                 node = node.update(ctx, self.parent)
                 if node is None:

@@ -8,7 +8,6 @@ class SyntaxError(Enum):
     symbol_expected_before = "'{}' expected before '{}'"
     expression_expected = 'Expression expected'
     type_expected = 'type expected'
-    generic_expected = 'Generic type/value expected'
     cannot_assign_to_non_var = '"{}" is not a variable that can be assigned a value to'
     if_expected = 'if keyword expected before else'
     statement_expected = 'Statement expected'
@@ -111,8 +110,6 @@ class Parser:
                 return self.break_statement()
             elif self.peak.value == 'skip':
                 return self.skip_statement()
-            elif self.peak.value == 'static':
-                return self.make_next_statement()
             elif self.peak.value == 'class':
                 return self.class_define_statement()
             elif self.peak.value == 'macro':
@@ -513,15 +510,14 @@ class Parser:
             self.error(SyntaxError.symbol_expected, eq_symbol, '=')
             return None
 
-    def make_type(self, generic=False) -> Optional[Type]:
+    def make_type(self) -> Optional[Type]:
         """
         Parses the next type and returns it.
 
-        Generics specified between [] will be added as part of the type. Nesting types in generics also works
+        Generics specified between [] will be added as part of the type.
 
         type : identifier ['[' {type} ']']
 
-        :param: generic: if the type to be parsed is inside generic declarations
         :return: Type or None if an error occurred
         """
 
@@ -530,22 +526,8 @@ class Parser:
             self.advance()
             return t
 
-        if self.peak.tt != TT.IDENTIFIER and not generic:
-            self.error(SyntaxError.generic_expected, self.peak)
-            return None
-
-        if self.peak.tt not in (TT.IDENTIFIER, TT.LITERAL) and generic:
-            self.error(SyntaxError.generic_expected, self.peak)
-            return None
-
         t = Type(self.peak)
         self.advance()
-
-        if self.peak == Separators.lbr.value:     # it contains a generic type
-            self.advance()
-            generics = self.repeat_until_symbol(Separators.rbr.value.value, Parser.make_type, None, True)
-            self.advance()
-            t.generics = tuple(generics)
 
         return t
 
@@ -562,11 +544,6 @@ class Parser:
         """
         index = self.i
 
-        static = None
-        if self.peak == Keywords.static.value:
-            static = self.peak
-            self.advance()
-
         t = self.make_type()
 
         if t is None:
@@ -582,11 +559,11 @@ class Parser:
             return self.expression()
 
         if self.preview() == Separators.lpa.value:   # it's a function
-            return self.func_define_statement(name, t, static)
+            return self.func_define_statement(name, t)
         else:   # its a variable
-            return self.var_define_statement(name, t, static)
+            return self.var_define_statement(name, t)
 
-    def var_define_statement(self, name: Token, var_type: Type, static: Optional[Token] = None) -> Optional[VarDefineNode]:
+    def var_define_statement(self, name: Token, var_type: Type) -> Optional[VarDefineNode]:
         """
         Parses the next variable declaration statement and returns its Node
 
@@ -600,10 +577,10 @@ class Parser:
         value = self.expression()
 
         if isinstance(value, AssignNode):
-            return VarDefineNode(name, var_type, value.var, value.value, static=static)
+            return VarDefineNode(name, var_type, value.var, value.value)
 
         elif isinstance(value, VariableNode):
-            return VarDefineNode(name, var_type, VariableNode(name), static=static)
+            return VarDefineNode(name, var_type, VariableNode(name))
 
         else:
             self.error(SyntaxError.symbol_expected, eq_symbol, '=')
@@ -631,7 +608,7 @@ class Parser:
             tok.value = tok.value[:-1]
             return AssignNode(node1, BinOpNode(tok, node1, node2))
 
-    def func_define_statement(self, name: Token, func_type: Type, static: Optional[Token] = None) -> Optional[FuncDefineNode]:
+    def func_define_statement(self, name: Token, func_type: Type) -> Optional[FuncDefineNode]:
         """
         Parses the next function declaration until its end is found, and returns its Node
 
@@ -650,7 +627,7 @@ class Parser:
         if isinstance(body, ScopeNode):
             body = IsolatedScopeNode.new_from_old(body)     # casting down scope node to func body node aka isolated
 
-        return FuncDefineNode(name, func_type, VariableNode(name), tuple(args), body, static=static)
+        return FuncDefineNode(name, func_type, VariableNode(name), tuple(args), body)
 
     def param_define_statement(self) -> Optional[VarDefineNode]:
         """Parses the next var_define_statement assuming the next statement must be a variable declaration.
@@ -659,10 +636,6 @@ class Parser:
         This function is identical to the ``self.var_define_statement()`` before the dedicated var keyword was removed
         :return: VarDefineNode or None if an error occurred
         """
-        static = None
-        if self.peak == Keywords.static.value:
-            static = self.peak
-            self.advance()
 
         type_tok = self.peak
         var_type = self.make_type()
@@ -684,7 +657,7 @@ class Parser:
             self.error(SyntaxError.cannot_assign_to_arg, eq_symbol)
 
         elif isinstance(value, VariableNode):
-            return VarDefineNode(var_name, var_type, VariableNode(var_name), static=static)
+            return VarDefineNode(var_name, var_type, VariableNode(var_name))
 
         return None
 
@@ -697,11 +670,6 @@ class Parser:
         start = self.peak
         self.advance()
 
-        static = None
-        if self.peak == Keywords.static.value:
-            static = self.peak
-            self.advance()
-
         c_type = self.make_type()
 
         # TODO no inheritance for now
@@ -711,7 +679,7 @@ class Parser:
             return None
 
         if isinstance(body, ScopeNode):
-            body = ClassBodyNode.new_from_old(body, static)     # casting down scope node to class body
+            body = ClassBodyNode.new_from_old(body)     # casting down scope node to class body
         else:
             self.error(SyntaxError.class_body_not_a_scope, body.repr_token)
 

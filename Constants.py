@@ -26,7 +26,7 @@ SEPARATORS = {',', ':', ';', '{', '}', '[', ']', '(', ')'}
 END_OF_EXPRESSION = {',', ';', ':'}
 """Set of valid characters that end an expression"""
 
-KEYWORDS = {'if', 'else', 'break', 'skip', 'while', 'return', 'class', 'macro', 'static'}
+KEYWORDS = {'if', 'else', 'break', 'skip', 'while', 'return', 'class', 'macro'}
 """Set containing all the language's keywords"""
 
 BOOLEANS = ['false', 'true']
@@ -151,6 +151,7 @@ class Operators(Enum):
     div = Token(TT.OPERATOR, '/')
     mod = Token(TT.OPERATOR, '%')
 
+    fn = Token(TT.OPERATOR, '->')
     func = Token(TT.OPERATOR, '()')
     index = Token(TT.OPERATOR, '[]')
     dot = Token(TT.OPERATOR, '.')
@@ -194,10 +195,7 @@ class Keywords(Enum):
     while_ = Token(TT.KEYWORD, 'while')
     return_ = Token(TT.KEYWORD, 'return')
     class_ = Token(TT.KEYWORD, 'class')
-    func = Token(TT.KEYWORD, 'func')
-    var = Token(TT.KEYWORD, 'var')
     macro = Token(TT.KEYWORD, 'macro')
-    static = Token(TT.KEYWORD, 'static')
 
 
 class Error(Exception):
@@ -241,19 +239,16 @@ class Error(Exception):
 class Type:
     """Class containing all information regarding a type in krimson, such as the name of the type, and extra generic
     types associated with it"""
-    def __init__(self, name: Token, generics: Optional[tuple['Type', ...]] = None):
+    def __init__(self, name: Token):
         self.name: Token = name
         """name of the krimson type"""
-
-        self.generics: Optional[tuple['Type', ...]] = generics
-        """extra types to be used as generic types"""
 
         self.size = 1
         """compile-time size of an object of this type"""
         return
 
     def __eq__(self, other: 'Type'):
-        return other is not None and ((self.name == other.name and self.generics == self.generics) or
+        return other is not None and (self.name == other.name or
                 (self.name == any_type.name or other.name == any_type.name))
 
     def __hash__(self):
@@ -269,10 +264,6 @@ class Type:
         if self.name == super_type.name:
             return True
 
-        for gen, sup_gen in zip(self.generics, super_type.generics):
-            if not gen.is_subtype(sup_gen):
-                return False
-
         return True
 
     def get_type_label(self) -> str:
@@ -280,19 +271,10 @@ class Type:
         Generates and returns a string containing a unique label to represent the krimson type.
         :return: a string label of the type
         """
-        if self.generics is None:
-            return self.name.value
-
-        string = self.name.value
-        for gen in self.generics:
-            string += f'.{gen.get_type_label()}'
-        return string
+        return self.name.value
 
     def __repr__(self):
-        if self.generics is None:
-            return f'{self.name.value}'
-        else:
-            return f'{self.name.value}[{self.generics.__repr__()[1:-1]}]'
+        return f'{self.name.value}'
 
 
 class_type = Type(Token(TT.IDENTIFIER, 'class'))
