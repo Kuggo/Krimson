@@ -248,8 +248,7 @@ class Type:
         return
 
     def __eq__(self, other: 'Type'):
-        return other is not None and (self.name == other.name or
-                (self.name == any_type.name or other.name == any_type.name))
+        return other is not None and self.name == other.name
 
     def __hash__(self):
         return self.name.value.__hash__()
@@ -277,15 +276,77 @@ class Type:
         return f'{self.name.value}'
 
 
-class_type = Type(Token(TT.IDENTIFIER, 'class'))
-"""Type object that represents the type of krimson Types"""
+class TupleType(Type):
+    def __init__(self, types: list[Type]):
+        super().__init__(Token(TT.IDENTIFIER, 'tuple'))
+        self.types: list[Type] = types
+        return
 
-any_type = Type(Token(TT.IDENTIFIER, ''))
-"""Type object that represents a type that bypasses all type requirements on compiler checks"""
+    def __eq__(self, other: 'TupleType'):
+        return isinstance(other, TupleType) and self.types == other.types
+
+    def get_type_label(self) -> str:
+        return f'tuple_{"_".join([t.get_type_label() for t in self.types])}'
+
+    def __repr__(self):
+        return f'{self.name.value}({", ".join([str(t) for t in self.types])})'
+
+
+class FunctionType(Type):
+    def __init__(self, arg: Type, ret: Type):
+        super().__init__(Token(TT.IDENTIFIER, 'fn'))
+        self.args: Type = arg
+        self.ret: Type = ret
+        return
+
+    def __eq__(self, other: 'FunctionType'):
+        return isinstance(other, FunctionType) and self.args == other.args and self.ret == other.ret
+
+    def get_type_label(self) -> str:
+        return f'func_{self.args.get_type_label()}_to_{self.ret.get_type_label()}'
+
+    def __repr__(self):
+        return f'{self.name.value}({self.args} -> {self.ret})'
+
+
+class ArrayType(Type):
+    def __init__(self, arr_type: Type):
+        super().__init__(Token(TT.IDENTIFIER, 'array'))
+        self.arr_type: Type = arr_type
+        return
+
+    def __eq__(self, other: 'ArrayType'):
+        return isinstance(other, ArrayType) and self.arr_type == other.arr_type
+
+    def get_type_label(self) -> str:
+        return f'array_{self.arr_type.get_type_label()}'
+
+    def __repr__(self):
+        return f'{self.name.value}[{self.arr_type}]'
+
+
+class TypeDefType(Type):
+    def __init__(self, type_name: Token, fields: list[Type]):
+        super().__init__(type_name)
+        self.fields: list[Type] = fields
+        return
+
+    def __eq__(self, other: 'TypeDefType'):
+        return isinstance(other, TypeDefType) and self.name == other.name and self.fields == other.fields
+
+    def get_type_label(self) -> str:
+        return f'{self.name.value}_{"_".join([f.get_type_label() for f in self.fields])}'
+
+    def __repr__(self):
+        return f'{self.name.value}({", ".join([str(f) for f in self.fields])})'
 
 
 class Types(Enum):
     """Enum containing all primitive types the compiler may need to use at compile-time"""
+
+    type = Type(Token(TT.IDENTIFIER, 'type'))
+    macro = Type(Token(TT.IDENTIFIER, 'macro'))
+    fn = Type(Token(TT.IDENTIFIER, 'fn'))
     null = Type(Token(TT.IDENTIFIER, 'null'))
     bool = Type(Token(TT.IDENTIFIER, 'bool'))
     nat = Type(Token(TT.IDENTIFIER, 'nat'))

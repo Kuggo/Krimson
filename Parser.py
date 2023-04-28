@@ -15,7 +15,8 @@ class SyntaxError(Enum):
     not_a_func = 'Cannot call "{}"'
     cannot_index_multiple = "Cannot index with multiple values. ']' expected"
     cannot_assign_to_arg = "Cannot assign values to function argument definitions"
-    class_body_not_a_scope = "Class body must be defined between curly brackets { }"
+    # class_body_not_a_scope = "Class body must be defined between curly brackets { }"
+    declaration_expected = "Declaration statement expected"
 
 
 class Parser:
@@ -110,8 +111,6 @@ class Parser:
                 return self.break_statement()
             elif self.peak.value == 'skip':
                 return self.skip_statement()
-            elif self.peak.value == 'class':
-                return self.class_define_statement()
             elif self.peak.value == 'macro':
                 return self.macro_define_statement()
             else:
@@ -122,7 +121,15 @@ class Parser:
             return self.scope()
 
         else:
-            return self.make_next_statement()
+            index = self.i
+            statement = self.make_name_define_statement()
+
+            if statement is None:
+                self.i = index - 1  # rollback to before the type
+                self.advance()
+                return self.expression()
+            else:
+                return statement
 
     def expression(self) -> Optional[ExpressionNode]:
         """
@@ -450,9 +457,7 @@ class Parser:
         start = self.peak
         self.advance()
 
-        value = self.expression()
-
-        return ReturnNode(start, value)
+        return ReturnNode(start)
 
     def break_statement(self) -> BreakNode:
         """
@@ -516,22 +521,66 @@ class Parser:
 
         Generics specified between [] will be added as part of the type.
 
-        type : identifier ['[' {type} ']']
+        type : 'null'
+            | identifier
+            | '(' (type)* ')'
+            | '[' type ']'
+            | type -> type
 
         :return: Type or None if an error occurred
         """
-
-        if self.peak.tt == TT.LITERAL and self.peak.value is None:  # dealing with the null special case
+        # TODO check if this code works recursively, if not, make a shunting yard like approach
+        t = None
+        if self.peak == Types.type.value.name:
             t = Type(self.peak)
             self.advance()
-            return t
 
-        t = Type(self.peak)
-        self.advance()
+        elif self.peak.tt == TT.LITERAL and self.peak.value is None:  # dealing with the null special case
+            t = Type(self.peak)
+            self.advance()
+
+        elif self.peak.tt == TT.IDENTIFIER:
+            if self.preview() == Separators.colon.value:
+                self.advance(2)
+            t = Type(self.peak)
+            self.advance()
+
+        elif self.peak == Separators.lpa.value:   # tuple
+            self.advance()
+            types: list[Type] = []
+            while self.peak != Separators.rpa.value:
+                t = self.make_type()
+                if t is None:
+                    return None
+                types.append(t)
+            self.advance()
+
+            if len(types) == 1:     # tuple of 1 type is just 1 type
+                t = types[0]
+            else:
+                t = TupleType(types)
+
+        elif self.peak == Separators.lbr.value:   # array
+            self.advance()
+            t = self.make_type()
+            if t is None or self.peak != Separators.rbr.value:
+                return None
+            self.advance()
+            t = ArrayType(t)
+
+        else:
+            return None
+
+        if self.peak == Operators.fn.value:  # function
+            self.advance()
+            ret_type = self.make_type()
+            if ret_type is None:
+                return None
+            return FunctionType(t, ret_type)
 
         return t
 
-    def make_next_statement(self) -> Optional[Node]:
+    def make_name_define_statement(self) -> Optional[NameDefineNode]:
         """
         Parses the next statement (that does not start with a keyword) without knowing what kind of statement it is.
         The difference is spotted on how the statement goes.
@@ -542,25 +591,31 @@ class Parser:
 
         :return: var_define_statement | func_define_statement | expression | None if an error occurred
         """
-        index = self.i
-
-        t = self.make_type()
-
-        if t is None:
-            self.i = index-1    # rollback to before the type
-            self.advance()
-            self.errors.pop()  # remove the error that was found
-            return self.expression()
 
         name = self.peak
         if name.tt != TT.IDENTIFIER:
-            self.i = index-1    # rollback to before the type
-            self.advance()
             return self.expression()
 
-        if self.preview() == Separators.lpa.value:   # it's a function
+        self.advance()
+
+        if self.peak == Separators.colon.value:
+            self.advance()
+
+        index = self.i
+        t = self.make_type()
+
+        if t is None:
+            return None
+
+        if isinstance(t, FunctionType): # it's a function
+            self.i = index - 1  # rollback to before the type
+            self.advance()
             return self.func_define_statement(name, t)
-        else:   # its a variable
+
+        elif t == Types.type.value:   # it's a class
+            return self.type_define_statement(name)
+
+        else:   # it's a variable
             return self.var_define_statement(name, t)
 
     def var_define_statement(self, name: Token, var_type: Type) -> Optional[VarDefineNode]:
@@ -573,18 +628,19 @@ class Parser:
         :return: VarAssignNode or None if an error occurred
         """
 
-        eq_symbol = self.preview()
-        value = self.expression()
-
-        if isinstance(value, AssignNode):
-            return VarDefineNode(name, var_type, value.var, value.value)
-
-        elif isinstance(value, VariableNode):
+        if self.peak != Operators.assign.value:
             return VarDefineNode(name, var_type, VariableNode(name))
-
         else:
-            self.error(SyntaxError.symbol_expected, eq_symbol, '=')
-            return None
+            eq_symbol = self.peak
+            self.advance()
+            value = self.expression()
+
+            if isinstance(value, ExpressionNode):
+                return VarDefineNode(name, var_type, VariableNode(name), value)
+
+            else:
+                self.error(SyntaxError.symbol_expected, eq_symbol, '=')
+        return None
 
     def var_assign_statement(self, node1, node2, tok) -> Optional[ExpressionNode]:
         """
@@ -608,17 +664,33 @@ class Parser:
             tok.value = tok.value[:-1]
             return AssignNode(node1, BinOpNode(tok, node1, node2))
 
-    def func_define_statement(self, name: Token, func_type: Type) -> Optional[FuncDefineNode]:
+    def func_define_statement(self, name: Token, func_type: FunctionType) -> Optional[FuncDefineNode]:
         """
         Parses the next function declaration until its end is found, and returns its Node
 
         :return: FuncDefineNode or None if an error occurred
         """
 
-        self.advance()
-        self.advance()  # skipping the '(' char
-        args = self.repeat_until_symbol(')', Parser.param_define_statement, SyntaxError.arg_expected)
-        self.advance()
+        params: list[NameDefineNode] = []
+
+        if self.peak == Separators.lpa.value:
+            self.advance()
+            while self.peak != Separators.rpa.value:
+                arg = self.make_name_define_statement()
+                if arg is not None:
+                    params.append(arg)
+            self.advance()
+        else:
+            arg = self.make_name_define_statement()
+            if arg is not None:
+                params.append(arg)
+
+        if self.peak == Operators.fn.value:
+            self.advance()
+        else:
+            assert False
+
+        ret_param = self.make_name_define_statement()
 
         body = self.statement()
         if body is None:
@@ -627,42 +699,37 @@ class Parser:
         if isinstance(body, ScopeNode):
             body = IsolatedScopeNode.new_from_old(body)     # casting down scope node to func body node aka isolated
 
-        return FuncDefineNode(name, func_type, VariableNode(name), tuple(args), body)
+        return FuncDefineNode(VariableNode(name), func_type, tuple(params), ret_param, body)
 
-    def param_define_statement(self) -> Optional[VarDefineNode]:
-        """Parses the next var_define_statement assuming the next statement must be a variable declaration.
-        Used for arguments of functions
-
-        This function is identical to the ``self.var_define_statement()`` before the dedicated var keyword was removed
-        :return: VarDefineNode or None if an error occurred
+    def type_define_statement(self, name: Token) -> Optional[TypeDefineNode]:
+        """
+        Parses the next type declaration until its end is found, and returns its Node
+        :param name: name of the new type
+        :return: TypeDefineNode or None if an error occurred
         """
 
-        type_tok = self.peak
-        var_type = self.make_type()
-        if var_type is None:
-            self.error(SyntaxError.type_expected, type_tok)
+        body = self.statement()
+        if body is None:
             return None
 
-        var_name = self.peak
-        if var_name.tt != TT.IDENTIFIER:
-            self.error(SyntaxError.identifier_expected, self.peak)
-            return None
+        if isinstance(body, ScopeNode):
+            nodes = body.child_nodes
+        else:
+            nodes = [body]
 
-        eq_symbol = self.preview()
+        fields = []
+        for field in nodes:
+            if isinstance(field, NameDefineNode):
+                fields.append(field)
+            else:
+                self.error(SyntaxError.declaration_expected, field.repr_token)
 
-        value = self.expression()
-
-        if isinstance(value, AssignNode):
-            # TODO no default arguments for now
-            self.error(SyntaxError.cannot_assign_to_arg, eq_symbol)
-
-        elif isinstance(value, VariableNode):
-            return VarDefineNode(var_name, var_type, VariableNode(var_name))
-
-        return None
+        return TypeDefineNode(VariableNode(name), fields)
 
     def class_define_statement(self) -> Optional[ClassDefineNode]:
         """
+        DEPRECATED use type_define_statement instead
+
         Parses the next class declaration until its end is found, and returns its Node
 
         :return: ClassDefineNode or None if an error occurred
@@ -672,7 +739,7 @@ class Parser:
 
         c_type = self.make_type()
 
-        # TODO no inheritance for now
+        # no inheritance for now
 
         body = self.statement()
         if body is None:
@@ -706,6 +773,7 @@ class Parser:
         which one being defined. Empty set will result in empty dict
 
         dict : '{' {expression ':' expression} '}'
+
         set : '{' {expression} '}'
 
         :return: ValueNode dict or set literal

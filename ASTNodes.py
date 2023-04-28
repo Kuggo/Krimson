@@ -182,8 +182,9 @@ class ExpressionNode(Node):
 
 
 class NameDefineNode(Node):
-    def __init__(self, repr_tok: Token, name: 'VariableNode'):
+    def __init__(self, repr_tok: Token, name: 'VariableNode', type: Type):
         super().__init__(repr_tok)
+        self.type: Type = type
         self.name: VariableNode = name
         return
 
@@ -200,6 +201,9 @@ class NameDefineNode(Node):
         self.parent = parent
         self.add_ctx(ctx)
         return self
+
+    def get_size(self):
+        return self.type.size
 
 
 # Base NODES
@@ -230,8 +234,6 @@ class ValueNode(ExpressionNode):
                 self.repr_token.literal_type.size = self.get_size()
 
             return self.repr_token.literal_type
-        elif isinstance(self.repr_token.value, Registers):
-            return any_type
         else:
             assert False
 
@@ -284,7 +286,7 @@ class VariableNode(ExpressionNode):
             return value.update(ctx, self.parent)
 
         elif isinstance(var, ClassDefineNode):
-            self.type = class_type
+            self.type = Types.type
 
         elif isinstance(var, FuncDefineNode):
             self.type = var.func_to_type()
@@ -478,7 +480,7 @@ class DotOperatorNode(VariableNode):
         if self.var is None:
             return None
 
-        if self.var.type == class_type:
+        if self.var.type == Types.type:
             t = ctx.get_class_by_name(self.var.name)
         else:
             t = ctx.get_class(self.var.type)
@@ -493,7 +495,7 @@ class DotOperatorNode(VariableNode):
             self.type = field.type
 
         elif isinstance(field, ClassDefineNode):
-            self.type = class_type
+            self.type = Types.type
 
         elif isinstance(field, FuncDefineNode):
             self.type = field.func_to_type()
@@ -592,7 +594,7 @@ class FuncCallNode(ExpressionNode):
         self.func_name.update(ctx, self.parent, func=True)
 
         args = []
-        if self.func_name.type is not None and self.func_name.type == class_type:   # it's a constructor
+        if self.func_name.type is not None and self.func_name.type == Types.type:   # it's a constructor
             ref = RefNode(self.func_name)
             ref.offset = OffsetNode(Registers.SP, 0)
             ref.type = ctx.get_class_by_name(self.func_name.name).type  # adding type field for func signature
@@ -600,7 +602,7 @@ class FuncCallNode(ExpressionNode):
             self.func_name.name = constructor_name_tok.value
 
         if isinstance(self.func_name, DotOperatorNode):     # syntax sugar
-            if self.func_name.var.type != class_type:       # it's an instance and not the class itself
+            if self.func_name.var.type != Types.type:       # it's an instance and not the class itself
                 ref = RefNode(self.func_name.var)
                 ref.type = self.func_name.var.type
                 args.append(ref)
@@ -629,7 +631,7 @@ class FuncCallNode(ExpressionNode):
 
 class MacroDefineNode(NameDefineNode):
     def __init__(self, repr_tok: Token, name: 'VariableNode', expression: ExpressionNode):
-        super().__init__(repr_tok, name)
+        super().__init__(repr_tok, name, copy(Types.macro.value))
         self.value: ExpressionNode = expression
 
     def add_ctx(self, ctx: Context) -> None:
@@ -642,8 +644,7 @@ class MacroDefineNode(NameDefineNode):
 
 class VarDefineNode(NameDefineNode, ExpressionNode):
     def __init__(self, repr_tok: Token, var_type: Type, var_name: VariableNode, value: Optional[ExpressionNode] = None):
-        super().__init__(repr_tok, var_name)
-        self.type: Type = var_type
+        super().__init__(repr_tok, var_name, var_type)
         self.value: Optional[ExpressionNode] = value
         self.offset: OffsetNode = OffsetNode(Registers.BP, 0)
         self.class_def: Optional[ClassDefineNode] = None
@@ -684,13 +685,11 @@ class VarDefineNode(NameDefineNode, ExpressionNode):
 
 
 class FuncDefineNode(NameDefineNode):
-    def __init__(self, repr_tok: Token, ret_type: Type, func_name: VariableNode, params: tuple[VarDefineNode, ...], body: 'IsolatedScopeNode'):
-        super().__init__(repr_tok, func_name)
-        self.ret_type: Type = ret_type
-        self.ret_dest: Optional[VariableNode] = None
-        self.params: tuple[VarDefineNode, ...] = params
+    def __init__(self, func_name: VariableNode, func_type: FunctionType, params: tuple[NameDefineNode, ...], ret_param: NameDefineNode, body: 'IsolatedScopeNode'):
+        super().__init__(func_name.repr_token, func_name, func_type)
+        self.params: tuple[NameDefineNode, ...] = params
+        self.ret_param = ret_param
         self.body: IsolatedScopeNode = body
-        self.class_def: Optional[ClassDefineNode] = None
         return
 
     def get_id(self) -> tuple[str, tuple[Type, ...]]:
@@ -699,14 +698,6 @@ class FuncDefineNode(NameDefineNode):
             if param.type is not None:
                 params.append(param.type)
         return self.name.name, tuple(params)
-
-    def func_to_type(self) -> Type:
-        params: list[Type] = []
-        for param in self.params:
-            if param.type is not None:
-                params.append(param.type)
-
-        return Type(self.name.repr_token, tuple(params))
 
     def get_func_label(self) -> str:
         string = self.name.name
@@ -759,11 +750,7 @@ class FuncDefineNode(NameDefineNode):
 
         self.ret_dest = VariableNode(self.repr_token)
         self.ret_dest.offset = OffsetNode(Registers.BP, i)
-        self.ret_dest.type = copy(any_type)
         return self
-
-    def get_self_param(self) -> VarDefineNode:
-        return VarDefineNode(self_tok, self.class_def.type, VariableNode(self_tok))
 
     def inline_func(self, func_call: FuncCallNode) -> ScopeNode:
         body: list[Node] = []
@@ -774,17 +761,11 @@ class FuncDefineNode(NameDefineNode):
 
         if isinstance(self.body, ScopeNode):
             for node in self.body.child_nodes:
-                if isinstance(node, ReturnNode):
-                    body.append(AssignNode(self.ret_dest, deepcopy(node.value)))
-                    body.append(BreakNode(func_call.repr_token))
-                else:
-                    body.append(deepcopy(node))
+                body.append(deepcopy(node))
         elif isinstance(self.body, ReturnNode):
-            body.append(AssignNode(self.ret_dest, deepcopy(self.body.value)))
             body.append(BreakNode(func_call.repr_token))
         else:
             body.append(deepcopy(self.body))
-
 
         body_node = ScopeNode(body[0].repr_token, body)
         body_node.scope_level = func_call.scope_level
@@ -792,7 +773,7 @@ class FuncDefineNode(NameDefineNode):
         return body_node
 
     def __repr__(self):
-        return f'{self.ret_type} {self.name}({self.params.__repr__()[1:-1]}) {self.body}'
+        return f'{self.name}: {self.type} = ({self.params.__repr__()[1:-1]}) -> {self.ret_param} {self.body}'
 
 
 class IsolatedScopeNode(ScopeNode):
@@ -811,6 +792,256 @@ class IsolatedScopeNode(ScopeNode):
         return self
 
 
+class TypeDefineNode(NameDefineNode):
+    def __init__(self, name: VariableNode, fields: list[NameDefineNode]):
+        super().__init__(name.repr_token, name, self.make_type(name.repr_token, fields))
+        self.fields: list[NameDefineNode] = fields
+        return
+
+    @staticmethod
+    def make_type(name: Token, fields: list[NameDefineNode]) -> Type:
+        types = []
+        for field in fields:
+            types.append(field.type)
+        return TypeDefType(name, types)
+
+    def update(self, ctx: Context, parent: Optional[Node]) -> Optional['TypeDefineNode']:
+        self.scope_level = ctx.scope_level
+        self.parent = parent
+        # TODO
+        return self
+
+    def __repr__(self):
+        string = "\n".join([f'{field}' for field in self.fields])
+        return f'type {self.name} {self.type} {{\n{string}\n}}'
+
+
+# Control Flow
+
+class IfNode(Node):
+    def __init__(self, repr_tok: Token, condition: ExpressionNode, body: Node):
+        super().__init__(repr_tok)
+        self.condition = condition
+        self.body = body
+        self.else_statement: Optional[ElseNode] = None
+        return
+
+    def update(self, ctx: Context, parent: Optional[Node]) -> Optional['IfNode']:
+        self.scope_level = ctx.scope_level
+        self.parent = parent
+
+        self.condition = self.condition.update(ctx, self.parent)
+
+        self.body = self.body.update(ctx, self.parent)
+        if self.body is None or self.condition is None:
+            return None
+
+        if self.else_statement is not None:
+            self.else_statement = self.else_statement.update(ctx, self.parent)
+
+        return self
+
+    def alloc_vars(self, ctx: Context) -> None:
+        if self.else_statement is not None:
+            self.else_statement.alloc_vars(ctx)
+        self.body.alloc_vars(ctx)
+        self.condition.alloc_vars(ctx)
+        return
+
+    def __repr__(self):
+        if self.else_statement is None:
+            return f'if {self.condition} {self.body}'
+        else:
+            return f'if {self.condition} {self.body} \n{self.scope_level*"  "}{self.else_statement}'
+
+
+class ElseNode(Node):
+    def __init__(self, repr_tok: Token, body: Node, if_statement: Optional[IfNode]):
+        super().__init__(repr_tok)
+        self.body = body
+        self.if_statement: Optional[IfNode] = if_statement
+        return
+
+    def update(self, ctx: Context, parent: Optional[Node]) -> Optional['ElseNode']:
+        self.scope_level = ctx.scope_level
+        self.parent = parent
+
+        self.body = self.body.update(ctx, self.parent)
+        if self.body is None:
+            return None
+
+        return self
+
+    def alloc_vars(self, ctx: Context) -> None:
+        self.body.alloc_vars(ctx)
+        return
+
+    def __repr__(self):
+        return f'else {self.body}'
+
+
+class WhileNode(Node):
+    def __init__(self, repr_tok: Token, condition: ExpressionNode, body: Node):
+        super().__init__(repr_tok)
+        self.condition = condition
+        self.body = body
+        return
+
+    def get_loop(self) -> Optional['WhileNode']:
+        parent = self.parent
+        while not (parent is None or isinstance(parent, WhileNode)):
+            parent = parent.parent
+
+        return parent
+
+    def update(self, ctx: Context, parent: Optional[Node]) -> Optional['WhileNode']:
+        self.scope_level = ctx.scope_level
+        self.parent = parent
+
+        self.condition = self.condition.update(ctx, self)
+
+        self.body = self.body.update(ctx, self)
+        if self.body is None or self.condition is None:
+            return None
+
+        return self
+
+    def alloc_vars(self, ctx: Context) -> None:
+        self.body.alloc_vars(ctx)
+        self.condition.alloc_vars(ctx)
+        return
+
+    def __repr__(self):
+        return f'while {self.condition} {self.body}'
+
+
+class DoWhileNode(WhileNode):
+    def __init__(self, repr_tok: Token, condition: ExpressionNode, body: Node):
+        super().__init__(repr_tok, condition, body)
+        return
+
+    def __repr__(self):
+        return f'do {self.body} while {self.condition}'
+
+
+class ReturnNode(Node):
+    def __init__(self, repr_tok: Token):
+        super().__init__(repr_tok)
+        return
+
+    def update(self, ctx: Context, parent: Optional[Node]) -> Optional['Node']:
+        self.scope_level = ctx.scope_level
+        self.parent = parent
+        return self
+
+    def __repr__(self):
+        return f'return'
+
+
+class LoopModifierNode(Node):
+    def __init__(self, repr_tok: Token, value: Optional[Token], error: TypeError):
+        super().__init__(repr_tok)
+        self.loop: Optional[WhileNode] = None
+        self.error: TypeError = error
+        if value is None:
+            self.value: Optional[Token] = Token(TT.LITERAL, 1)
+        else:
+            self.value: Optional[Token] = value
+
+    def get_loop(self) -> Optional[WhileNode]:
+        parent = self.parent
+        while not (parent is None or isinstance(parent, WhileNode)):
+            parent = parent.parent
+
+        return parent
+
+    def update(self, ctx: Context, parent: Optional[Node]) -> Optional['LoopModifierNode']:
+        self.scope_level = ctx.scope_level
+        self.parent = parent
+
+        if self.value.value <= 0:
+            ctx.error(TypeError.pos_int_expected, self)
+            self.value.value = 1  # ignore and proceed as default
+
+        i = self.value.value
+        self.loop = self
+        while i > 0 and self.loop is not None:
+            self.loop = self.loop.get_loop()
+            i -= 1
+
+        if self.loop is None:
+            ctx.error(self.error, self) # maybe improve this error message
+
+        return self
+
+
+class BreakNode(LoopModifierNode):
+    def __init__(self, repr_tok: Token, value: Optional[Token] = None):
+        super().__init__(repr_tok, value, TypeError.break_not_in_loop)
+
+    def __repr__(self):
+        if self.value is None:
+            return f'break'
+        else:
+            return f'break {self.value.value}'
+
+
+class SkipNode(LoopModifierNode):
+    def __init__(self, repr_tok: Token, value: Optional[Token] = None):
+        super().__init__(repr_tok, value, TypeError.skip_not_in_loop)
+
+    def __repr__(self):
+        if self.value is None:
+            return f'skip'
+        else:
+            return f'skip {self.value.value}'
+
+
+### Instruction Nodes (translation process)
+
+class RefNode(VariableNode):
+    def __init__(self, var: VariableNode):
+        super().__init__(var.repr_token)
+        self.var: VariableNode = var
+        self.type = any_type
+        return
+
+    def alloc_vars(self, ctx: Context) -> None:
+        self.var.alloc_vars(ctx)
+        return
+
+    def __repr__(self):
+        return f'&{self.name}'
+
+class OffsetNode(Node):
+    def __init__(self, base, offset: int):
+        if isinstance(base, Registers):
+            super().__init__(base.value)
+        else:
+            super().__init__(base.repr_tok)
+        self.base = base
+        self.offset: int = offset
+        return
+
+    def get_absolute_offset(self):
+        if isinstance(self.base, OffsetNode):
+            return self.offset + self.base.get_absolute_offset()
+        else:
+            return self.offset
+
+    def __add__(self, other):
+        return OffsetNode(self.base, self.offset+other)
+
+    def __repr__(self):
+        sign = '' if self.offset < 0 else '+'
+
+        if isinstance(self.base, Registers):
+            return f'reg:{self.base.value.value}{sign}{self.offset}'
+        else:
+            return f'{self.base}{sign}{self.offset}'
+
+
+# Deprecated/unused nodes
 class ClassDefineNode(NameDefineNode):
     def __init__(self, repr_tok: Token, name: 'VariableNode', c_type: Type, body: 'ClassBodyNode'):
         super().__init__(repr_tok, name)
@@ -960,238 +1191,6 @@ class ClassBodyNode(ScopeNode):
         new_ctx = self.create_context(ctx)
         self.process_body(new_ctx)
         return self
-
-
-# Control Flow
-
-class IfNode(Node):
-    def __init__(self, repr_tok: Token, condition: ExpressionNode, body: Node):
-        super().__init__(repr_tok)
-        self.condition = condition
-        self.body = body
-        self.else_statement: Optional[ElseNode] = None
-        return
-
-    def update(self, ctx: Context, parent: Optional[Node]) -> Optional['IfNode']:
-        self.scope_level = ctx.scope_level
-        self.parent = parent
-
-        self.condition = self.condition.update(ctx, self.parent)
-
-        self.body = self.body.update(ctx, self.parent)
-        if self.body is None or self.condition is None:
-            return None
-
-        if self.else_statement is not None:
-            self.else_statement = self.else_statement.update(ctx, self.parent)
-
-        return self
-
-    def alloc_vars(self, ctx: Context) -> None:
-        if self.else_statement is not None:
-            self.else_statement.alloc_vars(ctx)
-        self.body.alloc_vars(ctx)
-        self.condition.alloc_vars(ctx)
-        return
-
-    def __repr__(self):
-        if self.else_statement is None:
-            return f'if {self.condition} {self.body}'
-        else:
-            return f'if {self.condition} {self.body} \n{self.scope_level*"  "}{self.else_statement}'
-
-
-class ElseNode(Node):
-    def __init__(self, repr_tok: Token, body: Node, if_statement: Optional[IfNode]):
-        super().__init__(repr_tok)
-        self.body = body
-        self.if_statement: Optional[IfNode] = if_statement
-        return
-
-    def update(self, ctx: Context, parent: Optional[Node]) -> Optional['ElseNode']:
-        self.scope_level = ctx.scope_level
-        self.parent = parent
-
-        self.body = self.body.update(ctx, self.parent)
-        if self.body is None:
-            return None
-
-        return self
-
-    def alloc_vars(self, ctx: Context) -> None:
-        self.body.alloc_vars(ctx)
-        return
-
-    def __repr__(self):
-        return f'else {self.body}'
-
-
-class WhileNode(Node):
-    def __init__(self, repr_tok: Token, condition: ExpressionNode, body: Node):
-        super().__init__(repr_tok)
-        self.condition = condition
-        self.body = body
-        return
-
-    def get_loop(self) -> Optional['WhileNode']:
-        parent = self.parent
-        while not (parent is None or isinstance(parent, WhileNode)):
-            parent = parent.parent
-
-        return parent
-
-    def update(self, ctx: Context, parent: Optional[Node]) -> Optional['WhileNode']:
-        self.scope_level = ctx.scope_level
-        self.parent = parent
-
-        self.condition = self.condition.update(ctx, self)
-
-        self.body = self.body.update(ctx, self)
-        if self.body is None or self.condition is None:
-            return None
-
-        return self
-
-    def alloc_vars(self, ctx: Context) -> None:
-        self.body.alloc_vars(ctx)
-        self.condition.alloc_vars(ctx)
-        return
-
-    def __repr__(self):
-        return f'while {self.condition} {self.body}'
-
-
-class DoWhileNode(WhileNode):
-    def __init__(self, repr_tok: Token, condition: ExpressionNode, body: Node):
-        super().__init__(repr_tok, condition, body)
-        return
-
-    def __repr__(self):
-        return f'do {self.body} while {self.condition}'
-
-
-class ReturnNode(Node):
-    def __init__(self, repr_tok: Token, value: Optional[ExpressionNode] = None):
-        super().__init__(repr_tok)
-        self.value = value
-        return
-
-    def update(self, ctx: Context, parent: Optional[Node]) -> Optional['Node']:
-        self.scope_level = ctx.scope_level
-        self.parent = parent
-        self.value = self.value.update(ctx, self.parent)
-        if self.value is None:
-            return None
-        return self
-
-    def __repr__(self):
-        if self.value is None:
-            return f'return'
-        else:
-            return f'return {self.value}'
-
-
-class LoopModifierNode(Node):
-    def __init__(self, repr_tok: Token, value: Optional[Token], error: TypeError):
-        super().__init__(repr_tok)
-        self.loop: Optional[WhileNode] = None
-        self.error: TypeError = error
-        if value is None:
-            self.value: Optional[Token] = Token(TT.LITERAL, 1)
-        else:
-            self.value: Optional[Token] = value
-
-    def get_loop(self) -> Optional[WhileNode]:
-        parent = self.parent
-        while not (parent is None or isinstance(parent, WhileNode)):
-            parent = parent.parent
-
-        return parent
-
-    def update(self, ctx: Context, parent: Optional[Node]) -> Optional['LoopModifierNode']:
-        self.scope_level = ctx.scope_level
-        self.parent = parent
-
-        if self.value.value <= 0:
-            ctx.error(TypeError.pos_int_expected, self)
-            self.value.value = 1  # ignore and proceed as default
-
-        i = self.value.value
-        self.loop = self
-        while i > 0 and self.loop is not None:
-            self.loop = self.loop.get_loop()
-            i -= 1
-
-        if self.loop is None:
-            ctx.error(self.error, self) # maybe improve this error message
-
-        return self
-
-
-class BreakNode(LoopModifierNode):
-    def __init__(self, repr_tok: Token, value: Optional[Token] = None):
-        super().__init__(repr_tok, value, TypeError.break_not_in_loop)
-
-    def __repr__(self):
-        if self.value is None:
-            return f'break'
-        else:
-            return f'break {self.value.value}'
-
-
-class SkipNode(LoopModifierNode):
-    def __init__(self, repr_tok: Token, value: Optional[Token] = None):
-        super().__init__(repr_tok, value, TypeError.skip_not_in_loop)
-
-    def __repr__(self):
-        if self.value is None:
-            return f'skip'
-        else:
-            return f'skip {self.value.value}'
-
-
-### Instruction Nodes (translation process)
-
-class RefNode(VariableNode):
-    def __init__(self, var: VariableNode):
-        super().__init__(var.repr_token)
-        self.var: VariableNode = var
-        self.type = any_type
-        return
-
-    def alloc_vars(self, ctx: Context) -> None:
-        self.var.alloc_vars(ctx)
-        return
-
-    def __repr__(self):
-        return f'&{self.name}'
-
-class OffsetNode(Node):
-    def __init__(self, base, offset: int):
-        if isinstance(base, Registers):
-            super().__init__(base.value)
-        else:
-            super().__init__(base.repr_tok)
-        self.base = base
-        self.offset: int = offset
-        return
-
-    def get_absolute_offset(self):
-        if isinstance(self.base, OffsetNode):
-            return self.offset + self.base.get_absolute_offset()
-        else:
-            return self.offset
-
-    def __add__(self, other):
-        return OffsetNode(self.base, self.offset+other)
-
-    def __repr__(self):
-        sign = '' if self.offset < 0 else '+'
-
-        if isinstance(self.base, Registers):
-            return f'reg:{self.base.value.value}{sign}{self.offset}'
-        else:
-            return f'{self.base}{sign}{self.offset}'
 
 
 # constants

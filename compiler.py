@@ -51,7 +51,9 @@ def main():
             print(err.__repr__(), file=stderr)
         exit(1)
 
-    # print(parser.ast)
+    print(parser.ast)
+
+    exit(1)
 
     primitives_ctx = get_primitives()
     context = Context(primitives_ctx)

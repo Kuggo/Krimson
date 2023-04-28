@@ -1,31 +1,13 @@
 
-/*class yeet {
-    class E {
-        nat f()
-            return 0
-    }
-    int ver;
-    int vir;
+var: int = 1
 
-    yeet new()
-        return self
-
-    nat func() {
-        return 0
-    }
-}*/
-
-nat var = 1
-nat ver = 2
-nat vir = var + ver
-
-nat collatz(nat n, nat i) {
-    if n == 1
-        return i
-
-    if n & 1 == 0
-        return collatz(n >> 1 i+1)
-    else
-        return collatz(n*3 + 1 i+1)
+inc: (i: nat) -> out: nat {
+    out = i + 1
 }
+
+Person: type {
+    name: string
+    age: nat
+}
+
 
