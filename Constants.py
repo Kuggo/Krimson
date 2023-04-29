@@ -26,7 +26,7 @@ SEPARATORS = {',', ':', ';', '{', '}', '[', ']', '(', ')'}
 END_OF_EXPRESSION = {',', ';', ':'}
 """Set of valid characters that end an expression"""
 
-KEYWORDS = {'if', 'else', 'break', 'skip', 'while', 'return', 'class', 'macro'}
+KEYWORDS = {'if', 'else', 'break', 'skip', 'while', 'return', 'type', 'macro', 'fn'}
 """Set containing all the language's keywords"""
 
 BOOLEANS = ['false', 'true']
@@ -194,7 +194,8 @@ class Keywords(Enum):
     skip = Token(TT.KEYWORD, 'skip')
     while_ = Token(TT.KEYWORD, 'while')
     return_ = Token(TT.KEYWORD, 'return')
-    class_ = Token(TT.KEYWORD, 'class')
+    fn = Token(TT.KEYWORD, 'fn')
+    type = Token(TT.KEYWORD, 'type')
     macro = Token(TT.KEYWORD, 'macro')
 
 

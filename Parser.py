@@ -496,25 +496,6 @@ class Parser:
 
         return SkipNode(start, value)
 
-    def macro_define_statement(self) -> Optional[MacroDefineNode]:
-        start = self.peak
-        self.advance()
-
-        macro_name = self.peak
-        if macro_name.tt != TT.IDENTIFIER:
-            self.error(SyntaxError.identifier_expected, self.peak)
-            return None
-
-        eq_symbol = self.preview()
-
-        value = self.expression()
-
-        if isinstance(value, AssignNode):
-            return MacroDefineNode(start, VariableNode(macro_name), value.value)
-        else:
-            self.error(SyntaxError.symbol_expected, eq_symbol, '=')
-            return None
-
     def make_type(self) -> Optional[Type]:
         """
         Parses the next type and returns it.
@@ -594,28 +575,30 @@ class Parser:
 
         name = self.peak
         if name.tt != TT.IDENTIFIER:
-            return self.expression()
+            return None
 
         self.advance()
 
         if self.peak == Separators.colon.value:
             self.advance()
 
-        index = self.i
-        t = self.make_type()
-
-        if t is None:
-            return None
-
-        if isinstance(t, FunctionType): # it's a function
-            self.i = index - 1  # rollback to before the type
+        if self.peak == Keywords.fn.value:  # it's a function
             self.advance()
-            return self.func_define_statement(name, t)
+            return self.func_define_statement(name)
 
-        elif t == Types.type.value:   # it's a class
+        elif self.peak == Keywords.type.value:  # it's a class
+            self.advance()
             return self.type_define_statement(name)
 
-        else:   # it's a variable
+        elif self.peak == Keywords.macro.value:  # it's a macro
+            self.advance()
+            return self.macro_define_statement(name)
+
+        else:  # it's not using special syntax to define a new name, so any variable type
+            t = self.make_type()
+            if t is None:
+                return None
+
             return self.var_define_statement(name, t)
 
     def var_define_statement(self, name: Token, var_type: Type) -> Optional[VarDefineNode]:
@@ -664,7 +647,7 @@ class Parser:
             tok.value = tok.value[:-1]
             return AssignNode(node1, BinOpNode(tok, node1, node2))
 
-    def func_define_statement(self, name: Token, func_type: FunctionType) -> Optional[FuncDefineNode]:
+    def func_define_statement(self, name: Token) -> Optional[FuncDefineNode]:
         """
         Parses the next function declaration until its end is found, and returns its Node
 
@@ -688,9 +671,27 @@ class Parser:
         if self.peak == Operators.fn.value:
             self.advance()
         else:
-            assert False
+            self.error(SyntaxError.symbol_expected, self.peak, Operators.fn.value)
+            return None
+
+        index = self.i
 
         ret_param = self.make_name_define_statement()
+
+        if ret_param is None:
+            self.i = index - 1  # rollback to before the ret_type
+            self.advance()
+            if self.peak == Types.null.value.name:
+                ret_param = ValueNode(self.peak)
+            else:
+                return None
+
+        if len(params) == 1:
+            param_type = params[0].type
+        else:
+            param_type = TupleType([p.type for p in params])
+
+        func_type: FunctionType = FunctionType(param_type, ret_param.type)
 
         body = self.statement()
         if body is None:
@@ -726,31 +727,25 @@ class Parser:
 
         return TypeDefineNode(VariableNode(name), fields)
 
-    def class_define_statement(self) -> Optional[ClassDefineNode]:
+    def macro_define_statement(self, name: Token) -> Optional[MacroDefineNode]:
         """
-        DEPRECATED use type_define_statement instead
-
-        Parses the next class declaration until its end is found, and returns its Node
-
-        :return: ClassDefineNode or None if an error occurred
+        Parses the next macro definition until its end is found, and returns its Node
+        :return: MacroDefineNode or None if an error occurred
         """
-        start = self.peak
-        self.advance()
 
-        c_type = self.make_type()
-
-        # no inheritance for now
-
-        body = self.statement()
-        if body is None:
+        if self.peak != Operators.assign.value:
+            self.error(SyntaxError.symbol_expected, self.peak, Operators.assign.value)
             return None
 
-        if isinstance(body, ScopeNode):
-            body = ClassBodyNode.new_from_old(body)     # casting down scope node to class body
-        else:
-            self.error(SyntaxError.class_body_not_a_scope, body.repr_token)
+        self.advance()
 
-        return ClassDefineNode(start, VariableNode(c_type.name), c_type, body)
+        value = self.expression()
+
+        if value is None:
+            self.error(SyntaxError.expression_expected, self.peak)
+            return None
+
+        return MacroDefineNode(name, VariableNode(name), value)
 
     def array_literal(self) -> ValueNode:
         """

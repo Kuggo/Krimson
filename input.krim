@@ -1,9 +1,13 @@
 
+mac: macro = 69 + 1
+
 var: int = 1
 
-inc: (i: nat) -> out: nat {
+inc: fn (i: nat) -> out: nat {
     out = i + 1
 }
+
+plus1: nat -> nat = inc
 
 Person: type {
     name: string
