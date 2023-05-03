@@ -38,9 +38,14 @@ class VM:
         self.pc = 0
         self.sp = (1 << data_size) - 1  # stack starts at the top and grows downwards
         self.bp = self.sp
-        self.a = 0
+        self.acc = 0
         self.b = 0
         self.running = False
+        return
+
+    @staticmethod
+    def bytecode(program: list[Instruction]) -> list[int]:
+        return [byte for inst in program for byte in inst.bytecode()]
 
     def run(self, program: list[int], debug=False):
         self.rom.set_mem(program)
@@ -57,159 +62,149 @@ class VM:
                 print(self)
 
             # fetch
-            instruction = self.rom[self.pc]
+            instruction = self.fetch()
 
             # decode
             self.decode(instruction)
-
-            self.pc += 1
+            continue
 
         return
 
+    def fetch(self) -> int:
+        self.pc += 1
+        return self.rom[self.pc]
+
     def decode(self, instruction: int) -> None:
-        major = instruction >> 6
-        operand = instruction & 63
+        major = instruction >> minor_opcode_bits
+        operand = instruction & minor_opcodes_bit_mask
         if major == 0:
             minor_opcodes[operand](self)
         else:
             major_opcodes[major](self, operand)
 
     # utils
-    def push(self, value: int) -> None:
+    def push(self, val) -> None:
         assert self.sp > 0
-        self.ram[self.sp] = value
+        self.ram[self.sp] = val
         self.sp -= 1
 
     def pop(self) -> int:
-        assert self.sp > 0
+        assert self.sp >= 0
         self.sp += 1
         return self.ram[self.sp]
 
-    ### 1 operand instructions
+    ### Instructions
 
-    def arg_load(self, operand: int):
-        arg_address = self.bp + operand
-        self.push(self.ram[arg_address])
+    # arithmetic operations
+    def add(self) -> None:
+        self.acc += self.b
 
-    def arg_store(self, operand: int):
-        arg_address = self.bp + operand
-        self.ram[arg_address] = self.pop()
+    def sub(self) -> None:
+        self.acc = self.b - self.acc
 
-    def local_load(self, operand: int):
-        local_address = self.bp - operand
-        self.push(self.ram[local_address])
+    def mlt(self) -> None:
+        self.acc *= self.b
 
-    def local_store(self, operand: int):
-        local_address = self.bp - operand
-        self.ram[local_address] = self.pop()
+    def div(self) -> None:
+        self.acc = self.b // self.acc
 
+    def mod(self) -> None:
+        self.acc = self.b % self.acc
+
+    def neg(self) -> None:
+        self.acc = -self.acc
+
+    def inc(self) -> None:
+        self.acc = self.acc + 1
+
+    def dec(self) -> None:
+        self.acc = self.acc - 1
+
+    # bitwise operations
+    def lsh(self) -> None:
+        self.acc = self.b << self.acc
+
+    def rsh(self) -> None:
+        self.acc = self.b >> self.acc
+
+    def band(self) -> None:
+        self.acc &= self.b
+
+    def bor(self) -> None:
+        self.acc |= self.b
+
+    def bxor(self) -> None:
+        self.acc ^= self.b
+
+    def bnot(self) -> None:
+        self.acc = ~self.acc
+
+    # memory operations
+    def load(self) -> None:
+        self.acc = self.ram[self.b]
+
+    def store(self) -> None:
+        self.ram[self.b] = self.acc
+
+    # Subroutines
+    def call(self):
+        self.push(self.pc)  # pc already incremented after fetch
+        self.branch()
+
+    def ret(self):
+        self.pop_acc()
+        self.branch()
+
+    # Immediate values
+    def imm_acc(self) -> None:
+        self.acc = self.fetch()
+
+    def imm_b(self) -> None:
+        self.b = self.fetch()
+
+    # Stack operations
+    def push_acc(self) -> None:
+        self.push(self.acc)
+
+    def pop_acc(self) -> None:
+        self.acc = self.pop()
+
+    def push_b(self) -> None:
+        self.push(self.b)
+
+    def pop_b(self) -> None:
+        self.b = self.pop()
+
+    def push_bp(self) -> None:
+        self.push(self.bp)
+
+    def pop_bp(self) -> None:
+        self.bp = self.pop()
+
+    # Branches
     def branch(self, operand: int = 7):
         assert 0 <= operand < 8
         cnd = conditions[operand]
         if cnd:
-            self.pc = self.pop() - 1    # at the end of the cycle the pc increments, so contracting that
+            self.pc = self.acc
         return
 
-    def imm(self, operand: int) -> None:
-        self.pc += 1
-        imm = self.rom[self.pc]
-        self.push(imm)
-
-    # Calling
-    def call(self):
-        self.push(self.pc + 1)
-        self.branch()
-
-    def ret(self):
-        self.arg_load(0)
-        self.branch()
-
-    ### 0 operand instructions
-
-    # memory operations
-    def load(self) -> None:
-        self.a = self.pop()
-        self.push(self.ram[self.a])
-
-    def store(self) -> None:
-        self.b = self.pop()
-        self.a = self.pop()
-        self.ram[self.a] = self.b
-
-    # arithmetic operations
-    def add(self) -> None:
-        self.b = self.pop()
-        self.a = self.pop()
-        self.push(self.a + self.b)
-
-    def sub(self) -> None:
-        self.b = self.pop()
-        self.a = self.pop()
-        self.push(self.a - self.b)
-
-    def mlt(self) -> None:
-        self.b = self.pop()
-        self.a = self.pop()
-        self.push(self.a * self.b)
-
-    def div(self) -> None:
-        self.b = self.pop()
-        self.a = self.pop()
-        self.push(self.a // self.b)
-
-    def mod(self) -> None:
-        self.b = self.pop()
-        self.a = self.pop()
-        self.push(self.a % self.b)
-
-    def neg(self) -> None:
-        a = self.pop()
-        self.push(-a)
-
-    # bitwise operations
-    def lsh(self) -> None:
-        self.b = self.pop()
-        self.a = self.pop()
-        self.push(self.a << self.b)
-
-    def rsh(self) -> None:
-        self.b = self.pop()
-        self.a = self.pop()
-        self.push(self.a >> self.b)
-
-    def band(self) -> None:
-        self.b = self.pop()
-        self.a = self.pop()
-        self.push(self.a & self.b)
-
-    def bor(self) -> None:
-        self.b = self.pop()
-        self.a = self.pop()
-        self.push(self.a | self.b)
-
-    def bxor(self) -> None:
-        self.b = self.pop()
-        self.a = self.pop()
-        self.push(self.a ^ self.b)
-
-    def bnot(self) -> None:
-        self.a = self.pop()
-        self.push(~self.a)
-
     # I/O
-    def input(self) -> None:
+    # TODO based of which operand, outputting the integer as char/uint/int/frac
+    def input(self, operand: int = 0) -> None:
+        # operand is quite useless here unless i dont accept the input unless of the specified type
         i = input()
         try:
             i = int(i)
         except:
             i = 0
-        self.push(i)
+        self.acc = i
 
-    def output(self) -> None:
-        print(self.pop())
+    def output(self, operand: int = 0) -> None:
+        print(self.acc)
 
     def __repr__(self):
-        return f'pc: {self.pc}\nsp: {self.sp}\nbp: {self.bp}\nreg a: {self.a}\nreg b: {self.b}\n\nram: {self.ram}'
+        return f'pc: {self.pc}\nsp: {self.sp}\nbp: {self.bp}\nreg a: {self.acc}\nreg b: {self.b}\n\nram: {self.ram}'
 
 
 # krimson VM specifications
@@ -220,24 +215,34 @@ minor_opcodes: dict[int] = {
     2: VM.mlt,
     3: VM.div,
     4: VM.mod,
-    5: VM.lsh,
-    6: VM.rsh,
-    7: VM.neg,
-    8: VM.band,
-    9: VM.bor,
-    10: VM.bxor,
-    11: VM.bnot,
-    12: VM.load,
-    13: VM.store,
-    14: VM.input,
-    15: VM.output,
+    5: VM.neg,
+    6: VM.inc,
+    7: VM.dec,
+    8: VM.lsh,
+    9: VM.rsh,
+    10: VM.band,
+    11: VM.bor,
+    12: VM.bxor,
+    13: VM.bnot,
+    14: VM.load,
+    15: VM.store,
+    16: VM.imm_acc,
+    17: VM.imm_b,
+    18: VM.push_acc,
+    19: VM.pop_acc,
+    20: VM.push_b,
+    21: VM.pop_b,
+    22: VM.push_bp,
+    23: VM.pop_bp,
+    24: VM.call,
+    25: VM.ret,
 }
 
 major_opcodes: dict[int] = {
     0: 0,    # nop
-    1: VM.imm,
-    2: VM.call,
-    3: VM.branch,
+    1: VM.branch,
+    2: VM.input,
+    3: VM.output,
 }
 
 conditions: dict[int] = {
@@ -249,6 +254,9 @@ conditions: dict[int] = {
     5: lambda a, b: a <= b,
     6: lambda a, b: False,
     7: lambda a, b: True,
+}
+
+io_channels: dict[int] = {
 }
 
 

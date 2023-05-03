@@ -41,17 +41,20 @@ BP is used as a means to better deal with local vars, and arguments on each func
 8. move SP upwards to deallocate all below BP (args, out addr, ret addr)
 9. restore (pop) BP
 
+BP
+args
+ret arg address
+PC+1 (ret address)  <- BP
+local vars
+expressions         <- SP
+
 
 ## Operations
 
 ### Memory ops
 
-- load from arg (offset)
-- store to arg (offset)
-- load from local (offset)
-- store to local (offset)
-- load from ram addr
-- store to ram addr
+- load
+- store
 
 ### Math ops
 
@@ -73,19 +76,30 @@ BP is used as a means to better deal with local vars, and arguments on each func
 - RSH
 - LSH
 
+### IMM ops
+
+- IMM ACC (extra byte)
+- IMM B (extra byte)
+
+### Register ops
+
+- push ACC
+- push B
+- pop ACC
+- pop B
+- push BP
+- pop BP
+
+### Branch
+
+- Branch (cnd)
+
+### Call
+
+- CALL
+- RET
+
 ### I/O
 
 - Input (offset)
 - Output (offset)
-
-### IMM
-
-- IMM (extra byte)
-
-### Branch
-
-- Branch (cnd) (extra byte)
-
-### Call
-
-- CAL (extra byte)

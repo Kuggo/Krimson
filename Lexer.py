@@ -246,6 +246,9 @@ class Lexer:
             if self.preview() == '=':
                 self.advance()
                 self.token(TT.OPERATOR, '-=', start, self.i)
+            elif self.preview() == '>':
+                self.advance()
+                self.token(TT.OPERATOR, '->', start, self.i)
             else:
                 self.token(TT.OPERATOR, '- ', start, self.i)
 

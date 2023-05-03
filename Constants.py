@@ -26,7 +26,7 @@ SEPARATORS = {',', ':', ';', '{', '}', '[', ']', '(', ')'}
 END_OF_EXPRESSION = {',', ';', ':'}
 """Set of valid characters that end an expression"""
 
-KEYWORDS = {'if', 'else', 'break', 'skip', 'while', 'return', 'class', 'macro', 'static'}
+KEYWORDS = {'if', 'else', 'break', 'skip', 'while', 'return', 'type', 'macro', 'fn'}
 """Set containing all the language's keywords"""
 
 BOOLEANS = ['false', 'true']
@@ -151,6 +151,7 @@ class Operators(Enum):
     div = Token(TT.OPERATOR, '/')
     mod = Token(TT.OPERATOR, '%')
 
+    fn = Token(TT.OPERATOR, '->')
     func = Token(TT.OPERATOR, '()')
     index = Token(TT.OPERATOR, '[]')
     dot = Token(TT.OPERATOR, '.')
@@ -193,11 +194,9 @@ class Keywords(Enum):
     skip = Token(TT.KEYWORD, 'skip')
     while_ = Token(TT.KEYWORD, 'while')
     return_ = Token(TT.KEYWORD, 'return')
-    class_ = Token(TT.KEYWORD, 'class')
-    func = Token(TT.KEYWORD, 'func')
-    var = Token(TT.KEYWORD, 'var')
+    fn = Token(TT.KEYWORD, 'fn')
+    type = Token(TT.KEYWORD, 'type')
     macro = Token(TT.KEYWORD, 'macro')
-    static = Token(TT.KEYWORD, 'static')
 
 
 class Error(Exception):
@@ -241,20 +240,16 @@ class Error(Exception):
 class Type:
     """Class containing all information regarding a type in krimson, such as the name of the type, and extra generic
     types associated with it"""
-    def __init__(self, name: Token, generics: Optional[tuple['Type', ...]] = None):
+    def __init__(self, name: Token):
         self.name: Token = name
         """name of the krimson type"""
-
-        self.generics: Optional[tuple['Type', ...]] = generics
-        """extra types to be used as generic types"""
 
         self.size = 1
         """compile-time size of an object of this type"""
         return
 
     def __eq__(self, other: 'Type'):
-        return other is not None and ((self.name == other.name and self.generics == self.generics) or
-                (self.name == any_type.name or other.name == any_type.name))
+        return other is not None and self.name == other.name
 
     def __hash__(self):
         return self.name.value.__hash__()
@@ -269,10 +264,6 @@ class Type:
         if self.name == super_type.name:
             return True
 
-        for gen, sup_gen in zip(self.generics, super_type.generics):
-            if not gen.is_subtype(sup_gen):
-                return False
-
         return True
 
     def get_type_label(self) -> str:
@@ -280,30 +271,83 @@ class Type:
         Generates and returns a string containing a unique label to represent the krimson type.
         :return: a string label of the type
         """
-        if self.generics is None:
-            return self.name.value
-
-        string = self.name.value
-        for gen in self.generics:
-            string += f'.{gen.get_type_label()}'
-        return string
+        return self.name.value
 
     def __repr__(self):
-        if self.generics is None:
-            return f'{self.name.value}'
-        else:
-            return f'{self.name.value}[{self.generics.__repr__()[1:-1]}]'
+        return f'{self.name.value}'
 
 
-class_type = Type(Token(TT.IDENTIFIER, 'class'))
-"""Type object that represents the type of krimson Types"""
+class TupleType(Type):
+    def __init__(self, types: list[Type]):
+        super().__init__(Token(TT.IDENTIFIER, 'tuple'))
+        self.types: list[Type] = types
+        return
 
-any_type = Type(Token(TT.IDENTIFIER, ''))
-"""Type object that represents a type that bypasses all type requirements on compiler checks"""
+    def __eq__(self, other: 'TupleType'):
+        return isinstance(other, TupleType) and self.types == other.types
+
+    def get_type_label(self) -> str:
+        return f'tuple_{"_".join([t.get_type_label() for t in self.types])}'
+
+    def __repr__(self):
+        return f'{self.name.value}({", ".join([str(t) for t in self.types])})'
+
+
+class FunctionType(Type):
+    def __init__(self, arg: Type, ret: Type):
+        super().__init__(Token(TT.IDENTIFIER, 'fn'))
+        self.args: Type = arg
+        self.ret: Type = ret
+        return
+
+    def __eq__(self, other: 'FunctionType'):
+        return isinstance(other, FunctionType) and self.args == other.args and self.ret == other.ret
+
+    def get_type_label(self) -> str:
+        return f'func_{self.args.get_type_label()}_to_{self.ret.get_type_label()}'
+
+    def __repr__(self):
+        return f'{self.name.value}({self.args} -> {self.ret})'
+
+
+class ArrayType(Type):
+    def __init__(self, arr_type: Type):
+        super().__init__(Token(TT.IDENTIFIER, 'array'))
+        self.arr_type: Type = arr_type
+        return
+
+    def __eq__(self, other: 'ArrayType'):
+        return isinstance(other, ArrayType) and self.arr_type == other.arr_type
+
+    def get_type_label(self) -> str:
+        return f'array_{self.arr_type.get_type_label()}'
+
+    def __repr__(self):
+        return f'{self.name.value}[{self.arr_type}]'
+
+
+class TypeDefType(Type):
+    def __init__(self, type_name: Token, fields: list[Type]):
+        super().__init__(type_name)
+        self.fields: list[Type] = fields
+        return
+
+    def __eq__(self, other: 'TypeDefType'):
+        return isinstance(other, TypeDefType) and self.name == other.name and self.fields == other.fields
+
+    def get_type_label(self) -> str:
+        return f'{self.name.value}_{"_".join([f.get_type_label() for f in self.fields])}'
+
+    def __repr__(self):
+        return f'{self.name.value}({", ".join([str(f) for f in self.fields])})'
 
 
 class Types(Enum):
     """Enum containing all primitive types the compiler may need to use at compile-time"""
+
+    type = Type(Token(TT.IDENTIFIER, 'type'))
+    macro = Type(Token(TT.IDENTIFIER, 'macro'))
+    fn = Type(Token(TT.IDENTIFIER, 'fn'))
     null = Type(Token(TT.IDENTIFIER, 'null'))
     bool = Type(Token(TT.IDENTIFIER, 'bool'))
     nat = Type(Token(TT.IDENTIFIER, 'nat'))
