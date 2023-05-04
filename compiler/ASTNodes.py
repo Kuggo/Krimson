@@ -254,9 +254,6 @@ class ValueNode(ExpressionNode):
             else:
                 assert False
 
-        elif isinstance(self.repr_token.value, Registers):
-            assert False    # TODO IDK
-
         else:
             assert False
 
@@ -776,7 +773,12 @@ class FuncDefineNode(NameDefineNode):
         return body_node
 
     def __repr__(self):
-        return f'{self.name}: {self.type} = ({self.params.__repr__()[1:-1]}) -> {self.ret_param} {self.body}'
+        if len(self.params) == 0:
+            return f'{self.name}: {self.type} = null -> {self.ret_param} {self.body}'
+        elif len(self.params) == 1:
+            return f'{self.name}: {self.type} = {self.params.__repr__()} -> {self.ret_param} {self.body}'
+        else:
+            return f'{self.name}: {self.type} = ({self.params.__repr__()[1:-1]}) -> {self.ret_param} {self.body}'
 
 
 class IsolatedScopeNode(ScopeNode):

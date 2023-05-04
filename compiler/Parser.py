@@ -111,8 +111,6 @@ class Parser:
                 return self.break_statement()
             elif self.peak.value == 'skip':
                 return self.skip_statement()
-            elif self.peak.value == 'macro':
-                return self.macro_define_statement()
             else:
                 assert False
 
@@ -566,11 +564,12 @@ class Parser:
         Parses the next statement (that does not start with a keyword) without knowing what kind of statement it is.
         The difference is spotted on how the statement goes.
 
-        - It is an expression if not: type IDENTIFIER
-        - It is a var_define if not: type IDENTIFIER '('
-        - It is a func_define if not any of the above
+        - It is a func_define if: IDENTIFIER [:] fn Type
+        - It is a type_define if: IDENTIFIER [:] type Type
+        - It is a macro_define if: IDENTIFIER [:] macro
+        - It is a var_define if not the above: IDENTIFIER [:] Type
 
-        :return: var_define_statement | func_define_statement | expression | None if an error occurred
+        :return: var_define_statement | func_define_statement | None if an expression/error occurred
         """
 
         name = self.peak
@@ -676,22 +675,34 @@ class Parser:
 
         index = self.i
 
-        ret_param = self.make_name_define_statement()
-
-        if ret_param is None:
-            self.i = index - 1  # rollback to before the ret_type
+        if self.peak == Types.null.value.name:
+            ret_param = Type(self.peak)
             self.advance()
-            if self.peak == Types.null.value.name:
-                ret_param = ValueNode(self.peak)
-            else:
-                return None
+        elif self.peak == Separators.lpa.value and self.preview() == Separators.rpa.value:
+            ret_param = copy(Types.null.value)
+            self.advance(2)
+        else:
+            ret_param = self.make_name_define_statement()
 
-        if len(params) == 1:
+            if ret_param is None:
+                self.i = index - 1  # rollback to before the ret_type
+                self.advance()
+                if self.peak == Types.null.value.name:
+                    ret_param = ValueNode(self.peak)
+                else:
+                    return None
+
+        if len(params) == 0:
+            param_type = copy(Types.null.value)
+        elif len(params) == 1:
             param_type = params[0].type
         else:
             param_type = TupleType([p.type for p in params])
 
-        func_type: FunctionType = FunctionType(param_type, ret_param.type)
+        if isinstance(ret_param, Type):
+            func_type: FunctionType = FunctionType(param_type, ret_param)
+        else:
+            func_type: FunctionType = FunctionType(param_type, ret_param.type)
 
         body = self.statement()
         if body is None:

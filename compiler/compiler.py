@@ -13,7 +13,7 @@ def main():
         print('usage: krimson <source_file> <destination_file>')
 
     source = r''''''
-    src_name = 'input.krim'
+    src_name = '../input.krim'
 
     if src_name is not None:
         if os.path.isfile(src_name):
@@ -77,7 +77,7 @@ def main():
 
 
 def get_primitives() -> Context:
-    with open('primitives.krim', 'r') as f:
+    with open('../libraries/primitives.krim', 'r') as f:
         lexer = Lexer(f.read())
         lexer.tokenize()
 

@@ -104,10 +104,10 @@ class Lexer:
         if name in KEYWORDS:
             token_type = TT.KEYWORD
         elif name in BOOLEANS:
-            self.literal(name == BOOLEANS[1], copy(Types.bool.value), start, self.i - 1)
+            self.literal(name, copy(Types.bool.value), start, self.i - 1)
             return
         elif name == NULL:
-            self.literal(None, copy(Types.null.value), start, self.i - 1)
+            self.literal(name, copy(Types.null.value), start, self.i - 1)
             return
         else:
             token_type = TT.IDENTIFIER

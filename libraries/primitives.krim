@@ -1,31 +1,26 @@
 // TODO add all the implementation for the methods if necessary
 // TODO remake the file with the new syntax
 
-class null {
-    null _;
+
+bool: type {}
+
+bool __or__(bool other) {
+
 }
 
-class bool {
-    bool _;
+bool __and__(bool other) {
 
-    bool __or__(bool other) {
-
-    }
-
-    bool __and__(bool other) {
-
-    }
-
-    bool __xor__(bool other) {
-
-    }
-
-    bool __not__() {
-
-    }
 }
 
-class nat {     // aka uint
+bool __xor__(bool other) {
+
+}
+
+bool __not__() {
+
+}
+
+nat {     // aka uint
     nat _;
 
     nat __add__(nat other) {
@@ -105,7 +100,7 @@ class nat {     // aka uint
     }
 }
 
-class int {
+int {
     int _;
 
     int __add__(int other) {
@@ -185,7 +180,7 @@ class int {
     }
 }
 
-class frac {    // aka fixed. To be used instead of floats
+frac {    // aka fixed. To be used instead of floats
     frac _;
 
     frac __add__(frac other) {
@@ -249,7 +244,7 @@ class frac {    // aka fixed. To be used instead of floats
     }
 }
 
-class char {
+char {
     char _;
 
     char __add__(char other) {}
@@ -269,7 +264,7 @@ class char {
     bool __equ__(char other) {}
 }
 
-class array[T] {
+array[T] {
     array[T] __add__(array[T] other) {}
 
     array[T] __add__(T other) {}
@@ -283,7 +278,7 @@ class array[T] {
     bool __equ__(array other) {}
 }
 
-class str {  // until interfaces and inheritance comes, this will have its own type
+str {  // until interfaces and inheritance comes, this will have its own type
     char __get__(nat index) {}
 
     str __add__(str other) {}
@@ -305,7 +300,8 @@ class str {  // until interfaces and inheritance comes, this will have its own t
     bool __equ__(str other) {}
 }
 
-class set[T] {
+/*
+set[T] {
     set[T] __add__(set[T] other) {}
 
     set[T] __add__(T other) {}
@@ -315,7 +311,7 @@ class set[T] {
     bool __equ__(set other) {}
 }
 
-class dict[K, V] {
+dict[K, V] {
     dict[T] __add__(dict[T] other) {}
 
     T __get__(nat i) {}
@@ -327,9 +323,7 @@ class dict[K, V] {
     bool __equ__(dict other) {}
 }
 
-
-/*
-class ref[T] {
+ref[T] {
     ref _;
 
     T __deref__() {
@@ -338,7 +332,4 @@ class ref[T] {
 }
 */
 
-nat print(str s) {
-    return 0
-}
 

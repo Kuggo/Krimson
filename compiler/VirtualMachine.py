@@ -4,16 +4,16 @@ from Instructions import *
 class ROM:
     def __init__(self, addr_size=8):
         assert addr_size > 0
-        self.address_size = addr_size
-        self.memory = [0] * (1 << addr_size)
-        self.mask = (1 << addr_size) - 1
+        self.address_size: int = addr_size
+        self.memory: list[int] = [0] * (1 << addr_size)
+        self.mask: int = (1 << addr_size) - 1
 
     def set_mem(self, program: list[int]) -> None:
         self.memory = [0] * (1 << self.address_size)
         if len(program) > len(self.memory):
             program = program[:len(self.memory)+1]
         for i, byte in enumerate(program):
-            self.memory[i] = byte
+            self.memory[i] = byte & self.mask
         return
 
     def __getitem__(self, item: int) -> int:
@@ -30,17 +30,18 @@ class RAM(ROM):
 
 
 class VM:
-    def __init__(self, instruction_size=8, data_size=8):
+    def __init__(self, data_size=8):
         self.instruction_size = instruction_size
         self.rom: ROM = ROM(instruction_size)
-        self.data_size = data_size
-        self.ram = RAM(data_size)
-        self.pc = 0
-        self.sp = (1 << data_size) - 1  # stack starts at the top and grows downwards
-        self.bp = self.sp
-        self.acc = 0
-        self.b = 0
-        self.running = False
+        self.data_size: int = data_size
+        self.data_mask: int = (1 << data_size) - 1
+        self.ram: RAM = RAM(data_size)
+        self.pc: int = -1   # counteract the first fetch
+        self.sp: int = (1 << data_size) - 1  # stack starts at the top and grows downwards
+        self.bp: int = self.sp
+        self.acc: int = 0
+        self.b: int = 0
+        self.running: bool = False
         return
 
     @staticmethod
@@ -65,86 +66,93 @@ class VM:
             instruction = self.fetch()
 
             # decode
-            self.decode(instruction)
+            major, operand = self.decode(instruction)
+
+            # execute
+            self.execute(major, operand)
             continue
 
         return
 
     def fetch(self) -> int:
-        self.pc += 1
+        self.pc = (self.pc + 1) & self.data_mask
         return self.rom[self.pc]
 
-    def decode(self, instruction: int) -> None:
+    def decode(self, instruction: int) -> tuple[int, int]:
         major = instruction >> minor_opcode_bits
         operand = instruction & minor_opcodes_bit_mask
+        return major, operand
+
+    def execute(self, major, operand) -> None:
         if major == 0:
             minor_opcodes[operand](self)
         else:
             major_opcodes[major](self, operand)
+        return
 
     # utils
     def push(self, val) -> None:
         assert self.sp > 0
-        self.ram[self.sp] = val
+        self.ram[self.sp] = val & self.data_mask
         self.sp -= 1
 
     def pop(self) -> int:
         assert self.sp >= 0
         self.sp += 1
-        return self.ram[self.sp]
+        return self.ram[self.sp] & self.data_mask
 
     ### Instructions
 
     # arithmetic operations
     def add(self) -> None:
-        self.acc += self.b
+        self.acc = (self.b + self.acc) & self.data_mask
 
     def sub(self) -> None:
-        self.acc = self.b - self.acc
+        self.acc = (self.b - self.acc) & self.data_mask
 
     def mlt(self) -> None:
-        self.acc *= self.b
+        self.acc = (self.b * self.acc) & self.data_mask
 
     def div(self) -> None:
-        self.acc = self.b // self.acc
+        self.acc = (self.b // self.acc) & self.data_mask
 
     def mod(self) -> None:
-        self.acc = self.b % self.acc
+        self.acc = (self.b % self.acc) & self.data_mask
 
     def neg(self) -> None:
-        self.acc = -self.acc
+        self.acc = -self.acc & self.data_mask
 
     def inc(self) -> None:
-        self.acc = self.acc + 1
+        self.acc = (self.acc + 1) & self.data_mask
 
     def dec(self) -> None:
-        self.acc = self.acc - 1
+        self.acc = (self.acc - 1) & self.data_mask
 
     # bitwise operations
     def lsh(self) -> None:
-        self.acc = self.b << self.acc
+        self.acc = (self.b << self.acc) & self.data_mask
 
     def rsh(self) -> None:
-        self.acc = self.b >> self.acc
+        self.acc = (self.b >> self.acc) & self.data_mask
 
     def band(self) -> None:
-        self.acc &= self.b
+        self.acc = (self.b & self.acc) & self.data_mask
 
     def bor(self) -> None:
-        self.acc |= self.b
+        self.acc = (self.b | self.acc) & self.data_mask
 
     def bxor(self) -> None:
-        self.acc ^= self.b
+        self.acc = (self.b ^ self.acc) & self.data_mask
 
     def bnot(self) -> None:
-        self.acc = ~self.acc
+        self.acc = ~self.acc & self.data_mask
 
     # memory operations
     def load(self) -> None:
         self.acc = self.ram[self.b]
 
     def store(self) -> None:
-        self.ram[self.b] = self.acc
+        self.ram[self.b] = self.acc & self.data_mask
 
     # Subroutines
     def call(self):
@@ -164,13 +172,13 @@ class VM:
 
     # Stack operations
     def push_acc(self) -> None:
-        self.push(self.acc)
+        self.push(self.acc & self.data_mask)
 
     def pop_acc(self) -> None:
         self.acc = self.pop()
 
     def push_b(self) -> None:
-        self.push(self.b)
+        self.push(self.b & self.data_mask)
 
     def pop_b(self) -> None:
         self.b = self.pop()
@@ -184,27 +192,49 @@ class VM:
     # Branches
     def branch(self, operand: int = 7):
         assert 0 <= operand < 8
-        cnd = conditions[operand]
+        cnd = conditions[operand](self.b, self.data_size)
         if cnd:
-            self.pc = self.acc
+            self.pc = (self.acc - 1) & self.data_mask    # counteract pre increment on fetch
         return
 
     # I/O
-    # TODO based of which operand, outputting the integer as char/uint/int/frac
     def input(self, operand: int = 0) -> None:
         # operand is quite useless here unless i dont accept the input unless of the specified type
         i = input()
         try:
-            i = int(i)
+            i = int(i) & self.data_mask
         except:
             i = 0
         self.acc = i
 
     def output(self, operand: int = 0) -> None:
-        print(self.acc)
+        print(io_channels[operand](self.acc, self.data_size))
+
+    def halt(self) -> None:
+        self.running = False
 
     def __repr__(self):
-        return f'pc: {self.pc}\nsp: {self.sp}\nbp: {self.bp}\nreg a: {self.acc}\nreg b: {self.b}\n\nram: {self.ram}'
+        return f'pc: {self.pc}\nsp: {self.sp}\nbp: {self.bp}\nreg a: {self.acc}\nreg b: {self.b}\nram: {self.ram}\n' + \
+                f'\nstack:\n{self.get_stack_repr()}\nInstruction: {self.get_current_instruction()}\n-----------------\n'
+
+    def get_stack_repr(self) -> str:
+        return '\n'.join([f'{i}: {self.ram[i]}' for i in range(self.data_mask, self.sp, -1)])
+
+    def get_current_instruction(self) -> str:
+        instruction = self.rom[(self.pc + 1) & self.data_mask]
+        major, operand = self.decode(instruction)
+
+        if major == 0:
+            i = operand
+        else:
+            i = major << minor_opcode_bits
+
+        assert i in opcodes_reverse
+
+        if 16 <= i <= 17:
+            return opcodes_reverse[i] + f' {self.rom[(self.pc + 2) & self.data_mask]}'
+        else:
+            return opcodes_reverse[i]
 
 
 # krimson VM specifications
@@ -236,6 +266,7 @@ minor_opcodes: dict[int] = {
     23: VM.pop_bp,
     24: VM.call,
     25: VM.ret,
+    26: VM.halt,
 }
 
 major_opcodes: dict[int] = {
@@ -246,24 +277,40 @@ major_opcodes: dict[int] = {
 }
 
 conditions: dict[int] = {
-    0: lambda a, b: a == b,
-    1: lambda a, b: a != b,
-    2: lambda a, b: a > b,
-    3: lambda a, b: a >= b,
-    4: lambda a, b: a < b,
-    5: lambda a, b: a <= b,
-    6: lambda a, b: False,
-    7: lambda a, b: True,
+    0: lambda a, bits: a == 0,                          # A == B, aka: A - B == 0
+    1: lambda a, bits: a != 0,                          # A != B, aka: A - B != 0
+    2: lambda a, bits: 0 < a < (1 << (bits-1)),         # A > B,  aka: A - B > 0
+    3: lambda a, bits: a < (1 << (bits-1)),             # A >= B, aka: A - B >= 0
+    4: lambda a, bits: a >= (1 << (bits-1)),            # A < B,  aka: A - B < 0
+    5: lambda a, bits: a > (1 << (bits-1)) or a == 0,   # A <= B, aka: A - B <= 0
+    6: lambda a, bits: False,
+    7: lambda a, bits: True,
 }
 
 io_channels: dict[int] = {
+    0: lambda a, bits: str(a),
+    1: lambda a, bits: str(twos_comp_to_int(a, bits)),
+    2: lambda a, bits: chr(a),
+    3: lambda a, bits: str(bool(a)),
+    4: lambda a, bits: str(a),
 }
 
+# auxiliary functions
+
+def twos_comp_to_int(a: int, n: int) -> int:
+    if a >= 1 << (n - 1):
+        return a - (1 << n)
+    else:
+        return a
+
+
+# main
 
 def main():
-    program = []
+    program = fibb2
     vm = VM()
-    vm.run(program)
+    bytecode = vm.bytecode(program)
+    vm.run(bytecode, debug=True)
     return
 
 

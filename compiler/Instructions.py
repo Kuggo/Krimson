@@ -9,6 +9,7 @@ class Instruction:
         return
 
     def bytecode(self) -> list[int]:
+        assert self.opcode in opcodes
         if self.imm is None:
             return [opcodes[self.opcode] | self.operand]
         else:
@@ -67,11 +68,14 @@ class Operations(Enum):
     print_char = Instruction('out', 2)
     print_bool = Instruction('out', 3)
     print_frac = Instruction('out', 4)
+    input = Instruction('in', 0)
     
 
 minor_opcode_bits: int = 6
 
 minor_opcodes_bit_mask: int = (1 << minor_opcode_bits) - 1
+
+instruction_size: int = 8
 
 opcodes: dict[str, int] = {
     'add': 0,
@@ -105,8 +109,64 @@ opcodes: dict[str, int] = {
 
     'call': 24,
     'ret': 25,
+    'halt': 26,
 
     'branch': 1 << minor_opcode_bits,
     'in': 2 << minor_opcode_bits,
     'out': 3 << minor_opcode_bits,
 }
+
+opcodes_reverse: dict[int, str] = {}
+"""Dict for getting opcode name from opcode value. Used in debugging"""
+for key, value in opcodes.items():
+    opcodes_reverse[value] = key
+
+# some test
+
+
+# programs
+
+fibb = [
+    Instruction('immA', imm=1),
+    Instruction('immB', imm=0),
+    Instruction('out', 0),
+    Instruction('add'),
+
+    Instruction('pushA'),
+    Instruction('immA', imm=2),
+    Instruction('popB'),
+    Instruction('branch', 3),
+    Instruction('halt')
+]
+
+fibb2 = [
+    Instruction('immA', imm=1),
+    Instruction('immB', imm=0),
+    Instruction('pushA'),
+
+    Instruction('popA'),
+    Instruction('pushA'),
+    Instruction('add'),
+    Instruction('popB'),
+    Instruction('pushA'),
+
+    Instruction('out', 0),
+
+    Instruction('immA', imm=3),
+    Instruction('branch', 3),
+
+    Instruction('halt'),
+]
+
+count_down = [
+    Instruction('immB', imm=10),
+    Instruction('pushB'),
+    Instruction('popA'),
+    Instruction('out', 0),
+    Instruction('dec'),
+    Instruction('pushA'),
+    Instruction('immA', imm=1),
+    Instruction('popB'),
+    Instruction('branch', 1),
+    Instruction('halt')
+]

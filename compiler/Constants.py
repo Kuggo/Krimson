@@ -348,7 +348,7 @@ class Types(Enum):
     type = Type(Token(TT.IDENTIFIER, 'type'))
     macro = Type(Token(TT.IDENTIFIER, 'macro'))
     fn = Type(Token(TT.IDENTIFIER, 'fn'))
-    null = Type(Token(TT.IDENTIFIER, 'null'))
+    null = Type(Token(TT.LITERAL, 'null'))
     bool = Type(Token(TT.IDENTIFIER, 'bool'))
     nat = Type(Token(TT.IDENTIFIER, 'nat'))
     int = Type(Token(TT.IDENTIFIER, 'int'))
