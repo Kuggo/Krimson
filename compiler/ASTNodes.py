@@ -135,12 +135,12 @@ class Context:
 class Node:
     def __init__(self, repr_tok: Token, parent_node=None):
         self.parent: Optional[ScopeNode] = parent_node
-        self.scope_level = 0
+        self.context: Optional[Context] = None
         self.repr_token = repr_tok
         return
 
     def update(self, ctx: Context, parent: 'Node') -> Optional['Node']:
-        self.scope_level = ctx.scope_level
+        self.context = ctx.scope_level
         self.parent = parent
         return self
 
@@ -157,7 +157,7 @@ class Node:
     def get_up_class_def(self) -> Optional['TypeDefineNode']:
         return self.parent.get_up_class_def()
 
-    def gen_ir(self) -> list[Instruction]:
+    def gen_ir(self, left: bool = True) -> list[Instruction]:
         return []
 
     def __repr__(self):
@@ -197,7 +197,7 @@ class NameDefineNode(Node):
         pass
 
     def update(self, ctx: Context, parent: Optional[Node]) -> Optional['NameDefineNode']:
-        self.scope_level = ctx.scope_level
+        self.context = ctx
         self.parent = parent
         self.add_ctx(ctx)
         return self
@@ -214,7 +214,7 @@ class ValueNode(ExpressionNode):
         return
 
     def update(self, ctx: Context, parent: Optional[Node]) -> Optional['ValueNode']:
-        self.scope_level = ctx.scope_level
+        self.context = ctx
         self.parent = parent
         self.type = self.convert_py_type()
         return self
@@ -230,25 +230,27 @@ class ValueNode(ExpressionNode):
 
     def convert_py_type(self) -> 'Type':
         if isinstance(self.repr_token, Literal):
-            if isinstance(self.repr_token.value, list):
-                self.repr_token.literal_type.size = self.get_size()
-
+            self.repr_token.literal_type.size = self.get_size()
             return self.repr_token.literal_type
         else:
             assert False
 
-    def gen_ir(self) -> list[Instruction]:
+    def gen_ir(self, left=True) -> list[Instruction]:
         ir = []
 
         if isinstance(self.repr_token, Literal):
             if self.repr_token.literal_type == Types.array.value or self.repr_token.literal_type == Types.str.value:
                 for item in reversed(self.repr_token.value):
-                    i: Instruction = copy(Operations.imm.value)
+                    # TODO: make a method for copying multiword values, and pushing them to the stack too
+                    i: Instruction = copy(Operations.imm_a.value)
                     i.imm = item
                     ir.append(i)
 
             elif self.repr_token.literal_type.size == 1:
-                i: Instruction = copy(Operations.imm.value)
+                if left:
+                    i: Instruction = copy(Operations.imm_a.value)
+                else:
+                    i: Instruction = copy(Operations.imm_b.value)
                 i.imm = self.repr_token.value
                 ir.append(i)
             else:
@@ -271,7 +273,7 @@ class VariableNode(ExpressionNode):
         return
 
     def update(self, ctx: Context, parent: Optional[Node], use_dunder_func=True, func=False) -> Optional['VariableNode']:
-        self.scope_level = ctx.scope_level
+        self.context = ctx
         self.parent = parent
         var = ctx.get_definition(self.name)
         if isinstance(var, VarDefineNode):
@@ -332,7 +334,7 @@ class ScopeNode(Node):
         return
 
     def update(self, ctx: Context, parent: Optional[Node]) -> Optional['ScopeNode']:
-        self.scope_level = ctx.scope_level
+        self.context = ctx
         self.parent = parent
         new_ctx = ctx.clone()
         self.process_body(new_ctx)
@@ -343,17 +345,17 @@ class ScopeNode(Node):
             node.alloc_vars(ctx)
         return
 
-    def gen_ir(self) -> list[Instruction]:
+    def gen_ir(self, left=True) -> list[Instruction]:
         ir: list[Instruction] = []
         for node in self.child_nodes:
             ir += node.gen_ir()
         return ir
 
     def __repr__(self):
-        string = f'\n{self.scope_level*"  "}{{\n'
+        string = f'\n{self.context.scope_level * "  "}{{\n'
         for node in self.child_nodes:
-            string += f'{node.scope_level*"  "}{node.__repr__()}\n'
-        return string + f'{self.scope_level*"  "}}}'
+            string += f'{node.context.scope_level * "  "}{node.__repr__()}\n'
+        return string + f'{self.context.scope_level * "  "}}}'
 
 
 # Operation Nodes
@@ -366,7 +368,7 @@ class AssignNode(ExpressionNode):
         return
 
     def update(self, ctx: Context, parent: Optional[Node]) -> Optional['ExpressionNode']:
-        self.scope_level = ctx.scope_level
+        self.context = ctx
         self.parent = parent
         ref = RefNode(self.var)
         self.var = self.var.update(ctx, self.parent)  # cannot be None
@@ -388,7 +390,7 @@ class AssignNode(ExpressionNode):
         self.var.alloc_vars(ctx)
         return
 
-    def gen_ir(self):
+    def gen_ir(self, left=True):
         ir = []
         loc = self.var.get_absolute_location()
 
@@ -410,7 +412,7 @@ class UnOpNode(ExpressionNode):
         return
 
     def update(self, ctx: Context, parent: Optional[Node]) -> Optional['FuncCallNode']:
-        self.scope_level = ctx.scope_level
+        self.context = ctx
         self.parent = parent
         self.child = self.child.update(ctx, self.parent)
         if self.child is None:
@@ -439,7 +441,7 @@ class BinOpNode(ExpressionNode):
         return
 
     def update(self, ctx: Context, parent: Optional[Node]) -> Optional['FuncCallNode']:
-        self.scope_level = ctx.scope_level
+        self.context = ctx
         self.parent = parent
         self.left_child = self.left_child.update(ctx, self.parent)
         self.right_child = self.right_child.update(ctx, self.parent)
@@ -471,7 +473,7 @@ class DotOperatorNode(VariableNode):
         return
 
     def update(self, ctx: Context, parent: Optional[Node], use_dunder_func=True, func=False) -> Optional['DotOperatorNode']:
-        self.scope_level = ctx.scope_level
+        self.context = ctx
         self.parent = parent
         self.var = self.var.update(ctx, self.parent)
         # TODO redo this whole thing
@@ -521,7 +523,7 @@ class IndexOperatorNode(VariableNode):
         return
 
     def update(self, ctx: Context, parent: Optional[Node], use_dunder_func=True, func=False) -> Optional['IndexOperatorNode']:
-        self.scope_level = ctx.scope_level
+        self.context = ctx
         self.parent = parent
         self.collection = self.collection.update(ctx, self.parent)
         self.index = self.index.update(ctx, self.parent)
@@ -587,7 +589,7 @@ class FuncCallNode(ExpressionNode):
         return self.func_name.name, tuple(args)
 
     def update(self, ctx: Context, parent: Optional[Node]) -> Optional['FuncCallNode']:
-        self.scope_level = ctx.scope_level
+        self.context = ctx
         self.parent = parent
         self.func_name.update(ctx, self.parent, func=True)
 
@@ -655,7 +657,7 @@ class VarDefineNode(NameDefineNode, ExpressionNode):
         return
 
     def update(self, ctx: Context, parent: Optional[Node]) -> Optional['VarDefineNode']:
-        self.scope_level = ctx.scope_level
+        self.context = ctx
         self.parent = parent
 
         self.add_ctx(ctx)
@@ -721,7 +723,7 @@ class FuncDefineNode(NameDefineNode):
         return new_ctx
 
     def update(self, ctx: Context, parent: Optional[Node]) -> Optional['FuncDefineNode']:
-        self.scope_level = ctx.scope_level
+        self.context = ctx
         self.parent = parent
 
         lower_ctx = self.create_context(ctx)
@@ -791,7 +793,7 @@ class IsolatedScopeNode(ScopeNode):
         return cls(old.repr_token, old.child_nodes)
 
     def update(self, ctx: Context, parent: Optional[Node]) -> Optional['IsolatedScopeNode']:
-        self.scope_level = ctx.scope_level
+        self.context = ctx
         self.parent = parent
         self.process_body(ctx)
         return self
@@ -811,7 +813,7 @@ class TypeDefineNode(NameDefineNode):
         return TypeDefType(name, types)
 
     def update(self, ctx: Context, parent: Optional[Node]) -> Optional['TypeDefineNode']:
-        self.scope_level = ctx.scope_level
+        self.context = ctx
         self.parent = parent
         # TODO
         return self
@@ -838,7 +840,7 @@ class IfNode(Node):
         return
 
     def update(self, ctx: Context, parent: Optional[Node]) -> Optional['IfNode']:
-        self.scope_level = ctx.scope_level
+        self.context = ctx
         self.parent = parent
 
         self.condition = self.condition.update(ctx, self.parent)
@@ -863,7 +865,7 @@ class IfNode(Node):
         if self.else_statement is None:
             return f'if {self.condition} {self.body}'
         else:
-            return f'if {self.condition} {self.body} \n{self.scope_level*"  "}{self.else_statement}'
+            return f'if {self.condition} {self.body} \n{self.context.scope_level*"  "}{self.else_statement}'
 
 
 class ElseNode(Node):
@@ -874,7 +876,7 @@ class ElseNode(Node):
         return
 
     def update(self, ctx: Context, parent: Optional[Node]) -> Optional['ElseNode']:
-        self.scope_level = ctx.scope_level
+        self.context = ctx
         self.parent = parent
 
         self.body = self.body.update(ctx, self.parent)
@@ -906,7 +908,7 @@ class WhileNode(Node):
         return parent
 
     def update(self, ctx: Context, parent: Optional[Node]) -> Optional['WhileNode']:
-        self.scope_level = ctx.scope_level
+        self.context = ctx
         self.parent = parent
 
         self.condition = self.condition.update(ctx, self)
@@ -941,7 +943,7 @@ class ReturnNode(Node):
         return
 
     def update(self, ctx: Context, parent: Optional[Node]) -> Optional['Node']:
-        self.scope_level = ctx.scope_level
+        self.context = ctx
         self.parent = parent
         return self
 
@@ -967,7 +969,7 @@ class LoopModifierNode(Node):
         return parent
 
     def update(self, ctx: Context, parent: Optional[Node]) -> Optional['LoopModifierNode']:
-        self.scope_level = ctx.scope_level
+        self.context = ctx
         self.parent = parent
 
         if self.value.value <= 0:

@@ -199,7 +199,7 @@ class VM:
 
     # I/O
     def input(self, operand: int = 0) -> None:
-        # operand is quite useless here unless i dont accept the input unless of the specified type
+        # operand is quite useless here unless I don't accept the input unless of the specified type
         i = input()
         try:
             i = int(i) & self.data_mask
@@ -214,8 +214,8 @@ class VM:
         self.running = False
 
     def __repr__(self):
-        return f'pc: {self.pc}\nsp: {self.sp}\nbp: {self.bp}\nreg a: {self.acc}\nreg b: {self.b}\nram: {self.ram}\n' + \
-                f'\nstack:\n{self.get_stack_repr()}\nInstruction: {self.get_current_instruction()}\n-----------------\n'
+        return f'-----------------\npc: {self.pc}\nsp: {self.sp}\nbp: {self.bp}\nreg a: {self.acc}\nreg b: {self.b}\nram: {self.ram}\n' + \
+                f'\nstack:\n{self.get_stack_repr()}\nInstruction: {self.get_current_instruction()}\n'
 
     def get_stack_repr(self) -> str:
         return '\n'.join([f'{i}: {self.ram[i]}' for i in range(self.data_mask, self.sp, -1)])
@@ -307,10 +307,10 @@ def twos_comp_to_int(a: int, n: int) -> int:
 # main
 
 def main():
-    program = fibb2
+    program = fibb
     vm = VM()
     bytecode = vm.bytecode(program)
-    vm.run(bytecode, debug=True)
+    vm.run(bytecode, debug=False)
     return
 
 

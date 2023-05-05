@@ -46,13 +46,19 @@ class Operations(Enum):
     lsh = Instruction('lsh')
     rsh = Instruction('rsh')
 
-    push_bp = Instruction('bp')
-    push_sp = Instruction('sp')
-    push_acc = Instruction('acc')
-    push_b = Instruction('b')
-    imm = Instruction('imm')
+    # push_sp = Instruction('sp')
+    push_bp = Instruction('pushBP')
+    pop_bp = Instruction('popBP')
+    push_a = Instruction('pushA')
+    pop_a = Instruction('popA')
+    push_b = Instruction('pushB')
+    pop_b = Instruction('popB')
+
+    imm_a = Instruction('immA')
+    imm_b = Instruction('immB')
 
     call = Instruction('call')
+    ret = Instruction('ret')
     branch = Instruction('branch')
     branch_eq = Instruction('branch', 0)
     branch_dif = Instruction('branch', 1)
@@ -69,6 +75,8 @@ class Operations(Enum):
     print_bool = Instruction('out', 3)
     print_frac = Instruction('out', 4)
     input = Instruction('in', 0)
+
+    halt = Instruction('halt')
     
 
 minor_opcode_bits: int = 6
@@ -129,19 +137,6 @@ for key, value in opcodes.items():
 fibb = [
     Instruction('immA', imm=1),
     Instruction('immB', imm=0),
-    Instruction('out', 0),
-    Instruction('add'),
-
-    Instruction('pushA'),
-    Instruction('immA', imm=2),
-    Instruction('popB'),
-    Instruction('branch', 3),
-    Instruction('halt')
-]
-
-fibb2 = [
-    Instruction('immA', imm=1),
-    Instruction('immB', imm=0),
     Instruction('pushA'),
 
     Instruction('popA'),
@@ -152,7 +147,7 @@ fibb2 = [
 
     Instruction('out', 0),
 
-    Instruction('immA', imm=3),
+    Instruction('immA', imm=5),
     Instruction('branch', 3),
 
     Instruction('halt'),
