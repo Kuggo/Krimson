@@ -269,7 +269,7 @@ class VariableNode(ExpressionNode):
     def __init__(self, repr_tok: Token):
         super().__init__(repr_tok)
         self.name: str = repr_tok.value
-        self.offset: OffsetNode = OffsetNode(Registers.SP, 0)
+        # self.offset: OffsetNode = OffsetNode(Registers.SP, 0)
         return
 
     def update(self, ctx: Context, parent: Optional[Node], use_dunder_func=True, func=False) -> Optional['VariableNode']:
@@ -278,7 +278,7 @@ class VariableNode(ExpressionNode):
         var = ctx.get_definition(self.name)
         if isinstance(var, VarDefineNode):
             self.type = var.type
-            self.offset = OffsetNode(Registers.BP, 0)
+            # self.offset = OffsetNode(Registers.BP, 0)
 
         elif isinstance(var, MacroDefineNode):
             value = copy(var.value)
@@ -297,7 +297,7 @@ class VariableNode(ExpressionNode):
         return self
 
     def alloc_vars(self, ctx: Context) -> None:
-        self.offset.offset = ctx.stack_location(self)
+        # self.offset.offset = ctx.stack_location(self)
         return
 
     def get_name(self) -> Node:
@@ -491,7 +491,7 @@ class DotOperatorNode(VariableNode):
         field = t.get_field(self.field.name)
 
         if isinstance(field, VarDefineNode):
-            self.offset = OffsetNode(self.var.offset, field.offset.offset)
+            # self.offset = OffsetNode(self.var.offset, field.offset.offset)
             self.type = field.type
 
         elif isinstance(field, TypeDefineNode):
@@ -648,7 +648,7 @@ class VarDefineNode(NameDefineNode, ExpressionNode):
     def __init__(self, repr_tok: Token, var_type: Type, var_name: VariableNode, value: Optional[ExpressionNode] = None):
         super().__init__(repr_tok, var_name, var_type)
         self.value: Optional[ExpressionNode] = value
-        self.offset: OffsetNode = OffsetNode(Registers.BP, 0)
+        # self.offset: OffsetNode = OffsetNode(Registers.BP, 0)
         self.class_def: Optional[TypeDefineNode] = None
         return
 
@@ -675,15 +675,19 @@ class VarDefineNode(NameDefineNode, ExpressionNode):
     def alloc_vars(self, ctx: Context) -> None:
         if self.value is not None:
             self.value.alloc_vars(ctx)
-        self.offset.offset = ctx.stack_location(self.name)
+        # self.offset.offset = ctx.stack_location(self.name)
         ctx.stack_dealloc(self.name)    # first occurrence of this variable, prior to this point, this slot can be used
         return
 
     def __repr__(self):
-        if self.value is None:
+        """if self.value is None:
             return f'loc:({self.offset}) {self.name.repr_token.value}: {self.type}'
         else:
-            return f'loc:({self.offset}) {self.name.repr_token.value}: {self.type} = {self.value}'
+            return f'loc:({self.offset}) {self.name.repr_token.value}: {self.type} = {self.value}'"""
+        if self.value is None:
+            return f'loc:(TODO) {self.name.repr_token.value}: {self.type}'
+        else:
+            return f'loc:(TODO) {self.name.repr_token.value}: {self.type} = {self.value}'
 
 
 class FuncDefineNode(NameDefineNode):

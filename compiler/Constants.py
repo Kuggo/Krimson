@@ -35,6 +35,9 @@ BOOLEANS = ['false', 'true']
 NULL = 'null'
 """Text representation of Null value"""
 
+VOID = 'void'
+"""Text representation of no value"""
+
 SYMBOLS = {'&', '|', '+', '-', '*', '/', '=', '<', '>', '!', '(', ')', '{', '}', '[', ']', '.', ',', ':', ';'}
 """Set of characters accepted as valid symbols"""
 
@@ -293,21 +296,34 @@ class TupleType(Type):
         return f'{self.name.value}({", ".join([str(t) for t in self.types])})'
 
 
+class VoidType(TupleType):
+    def __init__(self):
+        super().__init__([])
+        self.name = Token(TT.IDENTIFIER, 'void')
+        return
+
+    def get_type_label(self) -> str:
+        return f'{self.name.value}'
+
+    def __repr__(self):
+        return f'{self.name.value}'
+
+
 class FunctionType(Type):
     def __init__(self, arg: Type, ret: Type):
         super().__init__(Token(TT.IDENTIFIER, 'fn'))
-        self.args: Type = arg
+        self.arg: Type = arg
         self.ret: Type = ret
         return
 
     def __eq__(self, other: 'FunctionType'):
-        return isinstance(other, FunctionType) and self.args == other.args and self.ret == other.ret
+        return isinstance(other, FunctionType) and self.arg == other.arg and self.ret == other.ret
 
     def get_type_label(self) -> str:
-        return f'func_{self.args.get_type_label()}_to_{self.ret.get_type_label()}'
+        return f'func_{self.arg.get_type_label()}_to_{self.ret.get_type_label()}'
 
     def __repr__(self):
-        return f'{self.name.value}({self.args} -> {self.ret})'
+        return f'{self.name.value}({self.arg} -> {self.ret})'
 
 
 class ArrayType(Type):
@@ -345,6 +361,7 @@ class TypeDefType(Type):
 class Types(Enum):
     """Enum containing all primitive types the compiler may need to use at compile-time"""
 
+    void = VoidType()
     type = Type(Token(TT.IDENTIFIER, 'type'))
     macro = Type(Token(TT.IDENTIFIER, 'macro'))
     fn = Type(Token(TT.IDENTIFIER, 'fn'))

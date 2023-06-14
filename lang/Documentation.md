@@ -30,7 +30,7 @@ BP is used as a means to better deal with local vars, and arguments on each func
 ## Calling convention
 
 1. save (push) BP
-2. push arguments (reverse order) (args_size > index >= 2)
+2. push arguments (args_size > index >= 2)
 3. push output address (index 1)
 4. copy SP into BP
 5. push return address (index 0)

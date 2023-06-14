@@ -1,5 +1,5 @@
 
-mac: macro = 69 + 1
+//mac: macro = 69 + 1
 
 var: int = 1
 
@@ -8,10 +8,10 @@ inc: fn (i: nat) -> out: nat {
 }
 
 plus1: nat -> nat = inc
-
+/*
 Person: type {
     name: string
     age: nat
 }
-
+*/
 

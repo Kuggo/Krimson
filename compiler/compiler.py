@@ -13,7 +13,7 @@ def main():
         print('usage: krimson <source_file> <destination_file>')
 
     source = r''''''
-    src_name = '../input.krim'
+    src_name = os.path.join(os.path.dirname(__file__), '../input.krim')
 
     if src_name is not None:
         if os.path.isfile(src_name):
@@ -53,7 +53,7 @@ def main():
 
     print(parser.ast)
 
-    exit(1)
+    exit(0)
 
     primitives_ctx = get_primitives()
     context = Context(primitives_ctx)

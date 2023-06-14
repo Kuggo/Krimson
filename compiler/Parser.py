@@ -508,9 +508,9 @@ class Parser:
 
         :return: Type or None if an error occurred
         """
-        # TODO check if this code works recursively, if not, make a shunting yard like approach
+
         t = None
-        if self.peak == Types.type.value.name:
+        if self.peak == Types.type.value.name:  # it's a typedef
             t = Type(self.peak)
             self.advance()
 
@@ -518,13 +518,23 @@ class Parser:
             t = Type(self.peak)
             self.advance()
 
-        elif self.peak.tt == TT.IDENTIFIER:
-            if self.preview() == Separators.colon.value:
+        elif self.peak.tt == TT.IDENTIFIER:     # it's a type
+            name = self.peak
+            if self.preview() == Separators.lbr.value:
                 self.advance(2)
-            t = Type(self.peak)
+                generics = []
+                while self.peak != Separators.rpa.value:
+                    t = self.make_type()
+                    if t is None:
+                        return None
+                    generics.append(t)
+                # t = Type(name, generics)  # TODO: remove commend when generics are added
+                t = Type(name)
+            else:
+                t = Type(name)
             self.advance()
 
-        elif self.peak == Separators.lpa.value:   # tuple
+        elif self.peak == Separators.lpa.value:     # tuple
             self.advance()
             types: list[Type] = []
             while self.peak != Separators.rpa.value:
@@ -534,12 +544,9 @@ class Parser:
                 types.append(t)
             self.advance()
 
-            if len(types) == 1:     # tuple of 1 type is just 1 type
-                t = types[0]
-            else:
-                t = TupleType(types)
+            t = TupleType(types)
 
-        elif self.peak == Separators.lbr.value:   # array
+        elif self.peak == Separators.lbr.value:     # array also has alternative form
             self.advance()
             t = self.make_type()
             if t is None or self.peak != Separators.rbr.value:
@@ -548,11 +555,11 @@ class Parser:
             t = ArrayType(t)
 
         else:
-            return None
+            return None     # no correct type notation found
 
-        if self.peak == Operators.fn.value:  # function
+        if self.peak == Operators.fn.value:     # function
             self.advance()
-            ret_type = self.make_type()
+            ret_type = self.make_type()     # functions are right associative
             if ret_type is None:
                 return None
             return FunctionType(t, ret_type)
@@ -578,7 +585,7 @@ class Parser:
 
         self.advance()
 
-        if self.peak == Separators.colon.value:
+        if self.peak == Separators.colon.value: # TODO semicolon is not needed. should I change that?
             self.advance()
 
         if self.peak == Keywords.fn.value:  # it's a function
@@ -593,12 +600,28 @@ class Parser:
             self.advance()
             return self.macro_define_statement(name)
 
-        else:  # it's not using special syntax to define a new name, so any variable type
+        else:  # it's not using special syntax to define a new name, so it can be any variable type
             t = self.make_type()
             if t is None:
                 return None
 
             return self.var_define_statement(name, t)
+
+    def make_parameter_define(self) -> Optional[VarDefineNode]:
+        name = self.peak
+        if name.tt != TT.IDENTIFIER:
+            return None
+
+        self.advance()
+
+        if self.peak == Separators.colon.value:  # TODO semicolon is not needed. should I change that?
+            self.advance()
+
+        t = self.make_type()
+        if t is None:
+            return None
+
+        return self.var_define_statement(name, t)
 
     def var_define_statement(self, name: Token, var_type: Type) -> Optional[VarDefineNode]:
         """
@@ -658,14 +681,24 @@ class Parser:
         if self.peak == Separators.lpa.value:
             self.advance()
             while self.peak != Separators.rpa.value:
-                arg = self.make_name_define_statement()
-                if arg is not None:
-                    params.append(arg)
+                param = self.make_parameter_define()
+                if param is not None:
+                    params.append(param)
+            self.advance()
+
+            if len(params) == 0:
+                param_type = copy(Types.void.value)
+            elif len(params) == 1:
+                param_type = params[0].type
+            else:
+                param_type = TupleType([p.type for p in params])
+
+        elif self.peak == Types.void.value.name:
+            param_type = Type(self.peak) # void
             self.advance()
         else:
-            arg = self.make_name_define_statement()
-            if arg is not None:
-                params.append(arg)
+            self.error(SyntaxError.type_expected, self.peak)
+            return None
 
         if self.peak == Operators.fn.value:
             self.advance()
@@ -676,33 +709,21 @@ class Parser:
         index = self.i
 
         if self.peak == Types.null.value.name:
-            ret_param = Type(self.peak)
+            ret_param_type = Type(self.peak) # null
             self.advance()
-        elif self.peak == Separators.lpa.value and self.preview() == Separators.rpa.value:
-            ret_param = copy(Types.null.value)
+        elif self.peak == Separators.lpa.value and self.preview() == Separators.rpa.value:  # void
+            ret_param_type = copy(Types.void.value)
             self.advance(2)
         else:
-            ret_param = self.make_name_define_statement()
+            ret_param = self.make_parameter_define()
 
             if ret_param is None:
                 self.i = index - 1  # rollback to before the ret_type
                 self.advance()
-                if self.peak == Types.null.value.name:
-                    ret_param = ValueNode(self.peak)
-                else:
-                    return None
+                return None
+            ret_param_type = ret_param.type
 
-        if len(params) == 0:
-            param_type = copy(Types.null.value)
-        elif len(params) == 1:
-            param_type = params[0].type
-        else:
-            param_type = TupleType([p.type for p in params])
-
-        if isinstance(ret_param, Type):
-            func_type: FunctionType = FunctionType(param_type, ret_param)
-        else:
-            func_type: FunctionType = FunctionType(param_type, ret_param.type)
+        func_type: FunctionType = FunctionType(param_type, ret_param_type)
 
         body = self.statement()
         if body is None:
@@ -711,7 +732,7 @@ class Parser:
         if isinstance(body, ScopeNode):
             body = IsolatedScopeNode.new_from_old(body)     # casting down scope node to func body node aka isolated
 
-        return FuncDefineNode(VariableNode(name), func_type, tuple(params), ret_param, body)
+        return FuncDefineNode(VariableNode(name), func_type, tuple(params), ret_param_type, body)
 
     def type_define_statement(self, name: Token) -> Optional[TypeDefineNode]:
         """
