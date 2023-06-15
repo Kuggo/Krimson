@@ -279,6 +279,9 @@ class Lexer:
         elif self.peak == '.':
             self.token(TT.OPERATOR, self.peak, start, self.i)
 
+        elif self.peak == '?':
+            self.token(TT.OPERATOR, self.peak, start, self.i)
+
         else:
             self.token(TT.SEPARATOR, self.peak, self.i, self.i)
 

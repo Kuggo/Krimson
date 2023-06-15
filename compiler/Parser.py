@@ -557,6 +557,11 @@ class Parser:
         else:
             return None     # no correct type notation found
 
+        if self.peak == Operators.opt.value:
+            # t = Type(Token(TT.IDENTIFIER, 'Opt', self.peak.start, self.peak.end, self.peak.line), [t]) # TODO: remove commend when generics are added
+            t = Type(Token(TT.IDENTIFIER, 'Opt', self.peak.start, self.peak.end, self.peak.line))
+            self.advance()
+
         if self.peak == Operators.fn.value:     # function
             self.advance()
             ret_type = self.make_type()     # functions are right associative

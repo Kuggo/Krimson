@@ -38,7 +38,7 @@ NULL = 'null'
 VOID = 'void'
 """Text representation of no value"""
 
-SYMBOLS = {'&', '|', '+', '-', '*', '/', '=', '<', '>', '!', '(', ')', '{', '}', '[', ']', '.', ',', ':', ';'}
+SYMBOLS = {'&', '|', '+', '-', '*', '/', '=', '<', '>', '!', '(', ')', '{', '}', '[', ']', '.', ',', ':', ';', '?'}
 """Set of characters accepted as valid symbols"""
 
 UNARY_OPERATORS = {'!', '-', '~'}
@@ -155,6 +155,7 @@ class Operators(Enum):
     mod = Token(TT.OPERATOR, '%')
 
     fn = Token(TT.OPERATOR, '->')
+    opt = Token(TT.OPERATOR, '?')
     func = Token(TT.OPERATOR, '()')
     index = Token(TT.OPERATOR, '[]')
     dot = Token(TT.OPERATOR, '.')
