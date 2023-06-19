@@ -26,7 +26,7 @@ SEPARATORS = {',', ':', ';', '{', '}', '[', ']', '(', ')'}
 END_OF_EXPRESSION = {',', ';', ':'}
 """Set of valid characters that end an expression"""
 
-KEYWORDS = {'if', 'else', 'break', 'skip', 'while', 'return', 'type', 'macro', 'fn'}
+KEYWORDS = {'if', 'else', 'break', 'skip', 'while', 'return', 'type', 'macro', 'fn', 'enum'}
 """Set containing all the language's keywords"""
 
 BOOLEANS = ['false', 'true']
@@ -201,6 +201,7 @@ class Keywords(Enum):
     fn = Token(TT.KEYWORD, 'fn')
     type = Token(TT.KEYWORD, 'type')
     macro = Token(TT.KEYWORD, 'macro')
+    enum = Token(TT.KEYWORD, 'enum')
 
 
 class Error(Exception):
@@ -297,11 +298,24 @@ class TupleType(Type):
         return f'{self.name.value}({", ".join([str(t) for t in self.types])})'
 
 
+class SumType(Type):
+    def __init__(self, name: Token, types: list[Type]):
+        super().__init__(name)
+        self.types: list[Type] = types
+        return
+
+    def __eq__(self, other: 'SumType'):
+        return isinstance(other, SumType) and self.types == other.types
+
+
 class VoidType(TupleType):
     def __init__(self):
         super().__init__([])
         self.name = Token(TT.IDENTIFIER, 'void')
         return
+
+    def __eq__(self, other: 'VoidType'):
+        return isinstance(other, VoidType)
 
     def get_type_label(self) -> str:
         return f'{self.name.value}'

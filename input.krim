@@ -1,17 +1,19 @@
 
 //mac: macro = 69 + 1
 
-var: int = 1
+/*var: int = 1
 
 inc: fn (i: nat) -> out: nat {
     out = i + 1
 }
 
-plus1: nat -> nat = inc
+plus1: nat -> nat = inc*/
 /*
-Person: type {
+Person: type = {
     name: string
     age: nat
 }
 */
+
+bit: enum = {top bot None}
 

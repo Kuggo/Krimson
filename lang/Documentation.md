@@ -103,3 +103,13 @@ expressions         <- SP
 
 - Input (offset)
 - Output (offset)
+
+## TODO
+
+Features that are to be implemented in the next versions:
+- [ ] Nested comments
+- [ ] Implement sum types (rust enums)
+- [ ] Implement generics
+- [ ] Implement classes
+- [ ] Implement libraries
+- [ ] 

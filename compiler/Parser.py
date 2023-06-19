@@ -8,6 +8,7 @@ class SyntaxError(Enum):
     symbol_expected_before = "'{}' expected before '{}'"
     expression_expected = 'Expression expected'
     type_expected = 'type expected'
+    typedef_expected = 'type declaration expected'
     cannot_assign_to_non_var = '"{}" is not a variable that can be assigned a value to'
     if_expected = 'if keyword expected before else'
     statement_expected = 'Statement expected'
@@ -372,7 +373,7 @@ class Parser:
         operator_stack.append(self.peak)
         self.advance()
 
-        index = self.repeat_until_symbol(Separators.rbr.value.value, Parser.expression, SyntaxError.expression_expected)
+        index = self.repeat_until_symbol(Separators.rbr.value, Parser.expression, SyntaxError.expression_expected)
 
         if len(index) == 0:
             return None
@@ -597,9 +598,13 @@ class Parser:
             self.advance()
             return self.func_define_statement(name)
 
-        elif self.peak == Keywords.type.value:  # it's a class
+        elif self.peak == Keywords.type.value:  # it's a typedef
             self.advance()
             return self.type_define_statement(name)
+
+        elif self.peak == Keywords.enum.value:  # it's a enum
+            self.advance()
+            return self.enum_define_statement(name)
 
         elif self.peak == Keywords.macro.value:  # it's a macro
             self.advance()
@@ -626,7 +631,8 @@ class Parser:
         if t is None:
             return None
 
-        return self.var_define_statement(name, t)
+        # return self.var_define_statement(name, t)     # No default value for params
+        return VarDefineNode(name, t, VariableNode(name))
 
     def var_define_statement(self, name: Token, var_type: Type) -> Optional[VarDefineNode]:
         """
@@ -746,23 +752,59 @@ class Parser:
         :return: TypeDefineNode or None if an error occurred
         """
 
-        body = self.statement()
-        if body is None:
+        if self.peak != Operators.assign.value:
+            self.error(SyntaxError.symbol_expected, self.peak, Operators.assign.value)
             return None
 
-        if isinstance(body, ScopeNode):
-            nodes = body.child_nodes
-        else:
-            nodes = [body]
+        if self.peak == Separators.lcb.value:   # defined with fields
+            self.advance()
+            fields = self.repeat_until_symbol(Separators.rcb.value, Parser.make_parameter_define, SyntaxError.declaration_expected)
+            return TypeDefineNode(VariableNode(name), fields)
 
-        fields = []
-        for field in nodes:
-            if isinstance(field, NameDefineNode):
-                fields.append(field)
-            else:
-                self.error(SyntaxError.declaration_expected, field.repr_token)
+        else:   # type alias
+            t = self.make_type()
+            if t is None:
+                return None
 
-        return TypeDefineNode(VariableNode(name), fields)
+            return TypeAliasDefineNode(VariableNode(name), t)
+
+    def enum_define_statement(self, name: Token) -> Optional[SumTypeDefineNode]:
+        """
+        Parses the next enum declaration until its end is found, and returns its Node
+        :param name: name of the enum type
+        :return: SumTypeDefineNode or None if an error occurred
+        """
+        if self.peak != Operators.assign.value:
+            self.error(SyntaxError.symbol_expected, self.peak, Operators.assign.value)
+            return None
+
+        self.advance()
+
+        if self.peak != Separators.lcb.value:
+            self.error(SyntaxError.symbol_expected, self.peak, Separators.lcb.value)
+            return None
+
+        self.advance()
+        subtypes = self.repeat_until_symbol(Separators.rcb.value.value, Parser.make_subtype_define, SyntaxError.typedef_expected)
+
+        return SumTypeDefineNode(VariableNode(name), subtypes)
+
+    def make_subtype_define(self) -> Optional[TypeDefineNode]:
+        name = self.peak
+        if name.tt != TT.IDENTIFIER:
+            return None
+
+        self.advance()
+
+        if self.peak != Separators.colon.value:     # enum variant with no data
+            return TypeDefineNode(VariableNode(name), [])
+
+        self.advance()
+        t = self.make_type()
+        if t is None:
+            return None
+
+        return TypeAliasDefineNode(VariableNode(name), t)
 
     def macro_define_statement(self, name: Token) -> Optional[MacroDefineNode]:
         """

@@ -182,9 +182,9 @@ class ExpressionNode(Node):
 
 
 class NameDefineNode(Node):
-    def __init__(self, repr_tok: Token, name: 'VariableNode', type: Type):
+    def __init__(self, repr_tok: Token, name: 'VariableNode', type: Optional[Type] = None):
         super().__init__(repr_tok)
-        self.type: Type = type
+        self.type: Optional[Type] = type
         self.name: VariableNode = name
         return
 
@@ -805,7 +805,7 @@ class IsolatedScopeNode(ScopeNode):
 
 class TypeDefineNode(NameDefineNode):
     def __init__(self, name: VariableNode, fields: list[NameDefineNode]):
-        super().__init__(name.repr_token, name, self.make_type(name.repr_token, fields))
+        super().__init__(name.repr_token, name, None)
         self.fields: list[NameDefineNode] = fields
         return
 
@@ -831,6 +831,32 @@ class TypeDefineNode(NameDefineNode):
     def __repr__(self):
         string = "\n".join([f'{field}' for field in self.fields])
         return f'type {self.name} {self.type} {{\n{string}\n}}'
+
+
+class TypeAliasDefineNode(TypeDefineNode):
+    def __init__(self, name: VariableNode, other_type: Type):
+        super().__init__(name, [])
+        self.other_type: Type = other_type
+        return
+
+    def __repr__(self):
+        return f'type {self.name} = {self.other_type}'
+
+
+class SumTypeDefineNode(TypeDefineNode):
+    def __init__(self, name: VariableNode, subtypes: list[Type]):
+        self.name: VariableNode = name
+        self.subtypes: list[Type] = subtypes
+        self.type: Type = self.make_type(name, subtypes)
+        return
+
+    @staticmethod
+    def make_type(name: VariableNode, subtypes: list[Type]) -> Type:
+        return SumType(name, subtypes)
+
+    def __repr__(self):
+        string = ", ".join([f'{subtype}' for subtype in self.subtypes])
+        return f'type {self.name} = {{{string}}}'
 
 
 # Control Flow
