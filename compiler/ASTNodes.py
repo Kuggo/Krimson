@@ -37,7 +37,7 @@ class Context:
             self.funcs: dict[tuple, FuncDefineNode] = {}
             self.types: dict[Type, TypeDefineNode] = {}
             self.vars: dict[str, (MacroDefineNode, VarDefineNode)] = {}
-            self.all_classes: set[TypeDefineNode] = set()
+            self.all_types: set[TypeDefineNode] = set()
             self.all_funcs: set[FuncDefineNode] = set()
         else:
             self.scope_level: int = up_scope.scope_level + 1
@@ -46,7 +46,7 @@ class Context:
             self.funcs: dict[tuple[str, tuple[Type, ...]], FuncDefineNode] = up_scope.funcs.copy()
             self.types: dict[Type, TypeDefineNode] = up_scope.types.copy()
             self.vars: dict[str, (MacroDefineNode, VariableNode)] = up_scope.vars.copy()
-            self.all_classes: set[TypeDefineNode] = up_scope.all_classes
+            self.all_types: set[TypeDefineNode] = up_scope.all_types
             self.all_funcs: set[FuncDefineNode] = up_scope.all_funcs
         return
 
@@ -69,7 +69,7 @@ class Context:
         else:
             return None
 
-    def get_class_by_name(self, name: str) -> Optional['TypeDefineNode']:
+    def get_type_by_name(self, name: str) -> Optional['TypeDefineNode']:
         return self.get_class(Type(Token(TT.IDENTIFIER, name)))
 
     def get_definition(self, name: str) -> Optional['NameDefineNode']:
@@ -77,7 +77,7 @@ class Context:
         if var is not None:
             return var
 
-        return self.get_class_by_name(name)
+        return self.get_type_by_name(name)
 
     def has_field(self, field: str) -> bool:
         if field in self.vars:
@@ -481,7 +481,7 @@ class DotOperatorNode(VariableNode):
             return None
 
         if self.var.type == Types.type:
-            t = ctx.get_class_by_name(self.var.name)
+            t = ctx.get_type_by_name(self.var.name)
         else:
             t = ctx.get_class(self.var.type)
 
@@ -597,7 +597,7 @@ class FuncCallNode(ExpressionNode):
         if self.func_name.type is not None and self.func_name.type == Types.type:   # it's a constructor
             ref = RefNode(self.func_name)
             ref.offset = OffsetNode(Registers.SP, 0)
-            ref.type = ctx.get_class_by_name(self.func_name.name).type  # adding type field for func signature
+            ref.type = ctx.get_type_by_name(self.func_name.name).type  # adding type field for func signature
             args.append(ref)
             self.func_name.name = constructor_name_tok.value
 

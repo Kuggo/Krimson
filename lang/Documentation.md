@@ -85,10 +85,17 @@ expressions         <- SP
 
 - push ACC
 - push B
+- push BP
+- top ACC
+- top B
 - pop ACC
 - pop B
-- push BP
 - pop BP
+- move ACC -> B
+- move B -> ACC
+- move BP -> B
+- move SP -> B
+- move SP -> BP
 
 ### Branch
 

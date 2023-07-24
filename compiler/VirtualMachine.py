@@ -59,11 +59,11 @@ class VM:
 
         self.running = True
         while self.running:
-            if debug:
-                print(self)
-
             # fetch
             instruction = self.fetch()
+
+            if debug:
+                print(self)
 
             # decode
             major, operand = self.decode(instruction)
@@ -174,11 +174,17 @@ class VM:
     def push_acc(self) -> None:
         self.push(self.acc & self.data_mask)
 
+    def top_acc(self) -> None:
+        self.acc = self.ram[self.sp + 1]
+
     def pop_acc(self) -> None:
         self.acc = self.pop()
 
     def push_b(self) -> None:
         self.push(self.b & self.data_mask)
+
+    def top_b(self) -> None:
+        self.b = self.ram[self.sp + 1]
 
     def pop_b(self) -> None:
         self.b = self.pop()
@@ -189,12 +195,18 @@ class VM:
     def pop_bp(self) -> None:
         self.bp = self.pop()
 
+    def move_ab(self) -> None:
+        self.b = self.acc
+
+    def move_ba(self) -> None:
+        self.acc = self.b
+
     # Branches
     def branch(self, operand: int = 7):
         assert 0 <= operand < 8
-        cnd = conditions[operand](self.b, self.data_size)
+        cnd = conditions[operand](self.acc, self.data_size)
         if cnd:
-            self.pc = (self.acc - 1) & self.data_mask    # counteract pre increment on fetch
+            self.pc = (self.b - 1) & self.data_mask    # counteract pre increment on fetch
         return
 
     # I/O
@@ -221,7 +233,7 @@ class VM:
         return '\n'.join([f'{i}: {self.ram[i]}' for i in range(self.data_mask, self.sp, -1)])
 
     def get_current_instruction(self) -> str:
-        instruction = self.rom[(self.pc + 1) & self.data_mask]
+        instruction = self.rom[self.pc]
         major, operand = self.decode(instruction)
 
         if major == 0:
@@ -232,7 +244,7 @@ class VM:
         assert i in opcodes_reverse
 
         if 16 <= i <= 17:
-            return opcodes_reverse[i] + f' {self.rom[(self.pc + 2) & self.data_mask]}'
+            return opcodes_reverse[i] + f' {self.rom[(self.pc + 1) & self.data_mask]}'
         else:
             return opcodes_reverse[i]
 
@@ -259,14 +271,18 @@ minor_opcodes: dict[int] = {
     16: VM.imm_acc,
     17: VM.imm_b,
     18: VM.push_acc,
-    19: VM.pop_acc,
-    20: VM.push_b,
-    21: VM.pop_b,
-    22: VM.push_bp,
-    23: VM.pop_bp,
-    24: VM.call,
-    25: VM.ret,
-    26: VM.halt,
+    19: VM.top_acc,
+    20: VM.pop_acc,
+    21: VM.push_b,
+    22: VM.top_b,
+    23: VM.pop_b,
+    24: VM.push_bp,
+    25: VM.pop_bp,
+    26: VM.move_ab,
+    27: VM.move_ba,
+    28: VM.call,
+    29: VM.ret,
+    30: VM.halt,
 }
 
 major_opcodes: dict[int] = {

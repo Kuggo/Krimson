@@ -50,9 +50,13 @@ class Operations(Enum):
     push_bp = Instruction('pushBP')
     pop_bp = Instruction('popBP')
     push_a = Instruction('pushA')
+    top_a = Instruction('topA')
     pop_a = Instruction('popA')
     push_b = Instruction('pushB')
+    top_b = Instruction('topB')
     pop_b = Instruction('popB')
+    move_ab = Instruction('moveAB')
+    move_ba = Instruction('moveBA')
 
     imm_a = Instruction('immA')
     imm_b = Instruction('immB')
@@ -109,15 +113,19 @@ opcodes: dict[str, int] = {
     'immB': 17,
 
     'pushA': 18,
-    'popA': 19,
-    'pushB': 20,
-    'popB': 21,
-    'pushBP': 22,
-    'popBP': 23,
+    'topA': 19,
+    'popA': 20,
+    'pushB': 21,
+    'topB': 22,
+    'popB': 23,
+    'pushBP': 24,
+    'popBP': 25,
+    'moveAB': 26,
+    'moveBA': 27,
 
-    'call': 24,
-    'ret': 25,
-    'halt': 26,
+    'call': 28,
+    'ret': 29,
+    'halt': 30,
 
     'branch': 1 << minor_opcode_bits,
     'in': 2 << minor_opcode_bits,
@@ -137,31 +145,26 @@ for key, value in opcodes.items():
 fibb = [
     Instruction('immA', imm=1),
     Instruction('immB', imm=0),
-    Instruction('pushA'),
+    Instruction('pushB'),
 
+    Instruction('moveAB'),
     Instruction('popA'),
-    Instruction('pushA'),
     Instruction('add'),
-    Instruction('popB'),
-    Instruction('pushA'),
-
     Instruction('out', 0),
+    Instruction('pushB'),
 
-    Instruction('immA', imm=5),
+    Instruction('immB', imm=5),
     Instruction('branch', 3),
 
     Instruction('halt'),
 ]
 
 count_down = [
-    Instruction('immB', imm=10),
+    Instruction('immB', imm=5),
     Instruction('pushB'),
-    Instruction('popA'),
+    Instruction('immA', imm=10),
     Instruction('out', 0),
     Instruction('dec'),
-    Instruction('pushA'),
-    Instruction('immA', imm=1),
-    Instruction('popB'),
     Instruction('branch', 1),
     Instruction('halt')
 ]
