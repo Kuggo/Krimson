@@ -529,7 +529,7 @@ class Parser:
                     if t is None:
                         return None
                     generics.append(t)
-                # t = Type(name, generics)  # TODO: remove commend when generics are added
+                # t = Type(name, generics)  # TODO: remove comment when generics are added
                 t = Type(name)
             else:
                 t = Type(name)
@@ -559,7 +559,7 @@ class Parser:
             return None     # no correct type notation found
 
         if self.peak == Operators.opt.value:
-            # t = Type(Token(TT.IDENTIFIER, 'Opt', self.peak.start, self.peak.end, self.peak.line), [t]) # TODO: remove commend when generics are added
+            # t = Type(Token(TT.IDENTIFIER, 'Opt', self.peak.start, self.peak.end, self.peak.line), [t]) # TODO: remove comment when generics are added
             t = Type(Token(TT.IDENTIFIER, 'Opt', self.peak.start, self.peak.end, self.peak.line))
             self.advance()
 
@@ -591,8 +591,10 @@ class Parser:
 
         self.advance()
 
-        if self.peak == Separators.colon.value: # TODO semicolon is not needed. should I change that?
+        if self.peak == Separators.colon.value:
             self.advance()
+        else:
+            pass  # type inference
 
         if self.peak == Keywords.fn.value:  # it's a function
             self.advance()
@@ -624,8 +626,10 @@ class Parser:
 
         self.advance()
 
-        if self.peak == Separators.colon.value:  # TODO semicolon is not needed. should I change that?
+        if self.peak == Separators.colon.value:
             self.advance()
+        else:
+            pass    # type inference
 
         t = self.make_type()
         if t is None:

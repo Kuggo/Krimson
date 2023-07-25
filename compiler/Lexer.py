@@ -353,17 +353,25 @@ class Lexer:
 
     def multi_line_comment(self) -> None:
         """
-        Skips the next group of characters until the end of comment is found '``*/``'.
+        Recursively skips the next group of characters until a ``*/`` is found.
+        Nested comments are allowed
         """
 
         self.advance(2)
+        scope = 0
         while self.has_next(1):
-            if self.peak == '*':
-                self.advance()
-                if self.peak == '/':
-                    self.advance()
-                    return
+            if self.peak == '/' and self.preview() == '*':
+                self.advance(2)
+                scope += 1
+            if self.peak == '*' and self.preview() == '/':
+                self.advance(2)
+                if scope == 0:
+                    break
+                else:
+                    scope -= 1
+
             self.advance()
+        return
 
     def token(self, tt: TT, value, start, end) -> Token:
         """
