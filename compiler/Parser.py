@@ -2,8 +2,8 @@ from ASTNodes import *
 
 # functions
 
-def get_void_value(tok1: Token, tok2: Token) -> ValueNode:
-    void_value = ValueNode(Token(TT.IDENTIFIER, 'void', tok1.start, tok2.end, tok1.line))
+def get_void_value(tok: Token) -> ValueNode:
+    void_value = ValueNode(Token(TT.LITERAL, 'void', tok.location))
     void_value.type = copy(Types.void.value)
     return void_value
 
@@ -83,7 +83,7 @@ class Parser:
         statements = self.repeat_until_symbol(Separators.rcb.value.value, Parser.statement)
         self.advance()
 
-        return ScopeNode(start_tok, statements)
+        return ScopeNode(statements, self.peak.location - start_tok.location)
 
     def statement(self) -> Optional[Node]:
         """
@@ -112,7 +112,7 @@ class Parser:
             elif self.peak.value == 'if':
                 return self.if_statement()
             elif self.peak.value == 'else':
-                self.error(SyntaxError.if_expected, self.peak)
+                self.error(SyntaxError.if_expected, self.peak.location)
                 return None
             elif self.peak.value == 'break':
                 return self.break_statement()
@@ -181,7 +181,7 @@ class Parser:
             return ValueNode(ProductTypeLiteral(values))
 
         self.rollback()
-        self.error(SyntaxError.expression_expected, self.peak)
+        self.error(SyntaxError.expression_expected, self.peak.location)
         return None
 
     def parse_infix(self, left: ExpressionNode) -> Optional[ExpressionNode]:
@@ -193,7 +193,7 @@ class Parser:
 
         elif token == Operators.dot.value: # attribute access
             if self.peak.tt != TT.IDENTIFIER:
-                self.error(SyntaxError.identifier_expected, self.peak)
+                self.error(SyntaxError.identifier_expected, self.peak.location)
                 return None
             right = VariableNode(self.peak)
             return DotOperatorNode(token, left, right)
@@ -206,6 +206,9 @@ class Parser:
 
         elif token == Separators.lbr.value:   # indexing
             return self.index(left)
+
+        elif token == Separators.comma.value:   # tuple
+            return self.tuple_literal(left)
 
         elif token == Operators.assign.value:
             right = self.expression(precedence=OPERATOR_PRECENDENCE[token.value])
@@ -225,7 +228,7 @@ class Parser:
         args = self.repeat_until_symbol(Separators.rpa.value.value, Parser.expression, SyntaxError.expression_expected,
                                             OPERATOR_PRECENDENCE[Separators.comma.value.value])
         self.advance()
-        return FuncCallNode(function.repr_token, function, tuple(args))
+        return FuncCallNode(function, tuple(args))
 
     def index(self, left) -> Optional[IndexOperatorNode]:
         """
@@ -293,18 +296,18 @@ class Parser:
                                          OPERATOR_PRECENDENCE[Separators.lbr.value.value])
 
             if len(t) == 0:
-                self.error(SyntaxError.expression_expected, start_tok)
+                self.error(SyntaxError.expression_expected, start_tok.location)
                 return None
 
             if len(t) > 1:
-                self.error(SyntaxError.symbol_expected, t[1].repr_token, Separators.lbr.value.value)
+                self.error(SyntaxError.symbol_expected, t[1].location, Separators.lbr.value.value)
                 # error but accept the first expression
 
             self.advance()
             return ArrayType(t[0])
 
         self.rollback()
-        self.error(SyntaxError.type_expected, self.peak)
+        self.error(SyntaxError.type_expected, self.peak.location)
         return None
 
     def type_infix(self, left: Type) -> Optional[Type]:
@@ -338,7 +341,7 @@ class Parser:
 
     def tuple_type(self, left) -> Optional[TupleType]:
         types = [left]
-        while self.peak == Separators.comma.value:
+        while self.peak == Separators.comma.value and self.preview() != Separators.rbr.value:
             self.advance()
             t = self.type(OPERATOR_PRECENDENCE[Separators.comma.value.value])
             if t is not None:
@@ -351,7 +354,7 @@ class Parser:
         self.advance()
         right = self.type(precedence=OPERATOR_PRECENDENCE[Operators.fn.value.value])
         if right is None:
-            self.error(SyntaxError.type_expected, tok)
+            self.error(SyntaxError.type_expected, tok.location)
             return None
 
         return FunctionType(left, right)
@@ -372,7 +375,7 @@ class Parser:
         """
 
         if not isinstance(name, VariableNode):
-            self.error(SyntaxError.identifier_expected, name.repr_token)
+            self.error(SyntaxError.identifier_expected, name.location)
             return None
 
         # type inference?
@@ -406,17 +409,17 @@ class Parser:
         """
 
         if self.peak != Operators.assign.value:
-            return VarDefineNode(name.repr_token, var_type, name)
+            return VarDefineNode(var_type, name)
 
         self.advance()
         tok = self.peak
         val = self.expression()
 
         if val is None:
-            self.error(SyntaxError.expression_expected, tok)
+            self.error(SyntaxError.expression_expected, tok.location)
             return None
 
-        return VarDefineNode(name.repr_token, var_type, name, val)
+        return VarDefineNode(var_type, name, val)
 
     def func_define_statement(self, name: VariableNode) -> Optional[FuncDefineNode]:
         """
@@ -426,7 +429,7 @@ class Parser:
         """
 
         if self.peak != Operators.assign.value:
-            self.error(SyntaxError.symbol_expected, self.peak, Operators.assign.value.value)
+            self.error(SyntaxError.symbol_expected, self.peak.location, Operators.assign.value.value)
             return None
 
         self.advance()
@@ -435,8 +438,8 @@ class Parser:
         if func is None:
             return None
 
-        if not isinstance(func.repr_token, FunctionLiteral):
-            self.error(SyntaxError.func_literal_expected, tok)
+        if isinstance(func, ValueNode) and not isinstance(func.value, FunctionLiteral):
+            self.error(SyntaxError.func_literal_expected, tok.location)
             return None
 
         if isinstance(func, ScopeNode):
@@ -452,7 +455,7 @@ class Parser:
         """
 
         if self.peak != Operators.assign.value:
-            self.error(SyntaxError.symbol_expected, self.peak, Operators.assign.value.value)
+            self.error(SyntaxError.symbol_expected, self.peak.location, Operators.assign.value.value)
             return None
 
         self.advance()
@@ -469,7 +472,7 @@ class Parser:
             return self.sum_type(name)
 
         if self.peak.tt != TT.IDENTIFIER:
-            self.error(SyntaxError.identifier_expected, self.peak)
+            self.error(SyntaxError.identifier_expected, self.peak.location)
             return None
 
         if self.preview() != Separators.colon.value or self.preview(2) == Types.type.value.name:  # it's a sum type
@@ -496,7 +499,7 @@ class Parser:
             return None
 
         # return self.var_define_statement(name, t)     # No default value for params
-        return VarDefineNode(name, t, VariableNode(name))
+        return VarDefineNode(t, VariableNode(name))
 
     def sum_type(self, name: VariableNode) -> Optional[SumTypeDefineNode]:
         def variant() -> Optional[TypeDefineNode]:
@@ -532,16 +535,16 @@ class Parser:
         """
 
         if self.peak != Operators.assign.value:
-            self.error(SyntaxError.symbol_expected, self.peak, Operators.assign.value.value)
+            self.error(SyntaxError.symbol_expected, self.peak.location, Operators.assign.value.value)
             return None
         self.advance()
 
         expression = self.expression()
         if expression is None:
-            self.error(SyntaxError.expression_expected, self.peak)
+            self.error(SyntaxError.expression_expected, self.peak.location)
             return None
 
-        return MacroDefineNode(name.repr_token, name, expression)
+        return MacroDefineNode(name, expression)
 
     # keywords
 
@@ -556,7 +559,8 @@ class Parser:
 
         condition = self.expression()
         if condition is None:
-            self.error(SyntaxError.expression_expected, self.peak)
+            self.error(SyntaxError.expression_expected, self.peak.location)
+            return None
 
         body = self.statement()
         if body is None:
@@ -575,7 +579,8 @@ class Parser:
 
         condition = self.expression()
         if condition is None:
-            self.error(SyntaxError.expression_expected, self.peak)
+            self.error(SyntaxError.expression_expected, self.peak.location)
+            return None
 
         body = self.statement()
         if body is None:
@@ -606,19 +611,6 @@ class Parser:
         if_node.else_statement = else_node
 
         return else_node
-
-    def return_statement(self) -> ReturnNode:
-        """
-        Parses the return statement until it finds its end.
-
-        return_statement : 'return' [expression]
-
-        :return: ReturnNode
-        """
-        start = self.peak
-        self.advance()
-
-        return ReturnNode(start)
 
     def break_statement(self) -> BreakNode:
         """
@@ -663,22 +655,22 @@ class Parser:
         tok = self.peak
         right = self.expression()
         if right is None:
-            self.error(SyntaxError.expression_expected, tok)
+            self.error(SyntaxError.expression_expected, tok.location)
             return None
 
         tok = self.peak
         body = self.statement()
         if body is None:
-            self.error(SyntaxError.statement_expected, tok)
+            self.error(SyntaxError.statement_expected, tok.location)
             return None
 
         func = FunctionLiteral(left, right, body)
 
         return ValueNode(func)
 
-    def tuple_literal(self, left) -> Optional[ValueNode]:
+    def tuple_literal(self, left: ExpressionNode) -> Optional[ValueNode]:
         values = [left]
-        while self.peak.value == Separators.comma.value:
+        while self.peak == Separators.comma.value and self.preview() != Separators.rbr.value:
             self.advance()
             t = self.expression(OPERATOR_PRECENDENCE[Separators.comma.value.value])
             if t is not None:
@@ -721,11 +713,12 @@ class Parser:
 
         output = []
         while self.has_next() and self.peak.value != end_symbol:
+            tok = self.peak
             element = method(self, *args)
 
             if element is None:
                 if error is not None:
-                    self.error(error, self.peak)
+                    self.error(error, tok.location)
             else:
                 output.append(element)
 
@@ -733,19 +726,19 @@ class Parser:
                 self.advance()
 
         if not self.has_next():
-            self.error(SyntaxError.symbol_expected, self.last, end_symbol)
+            self.error(SyntaxError.symbol_expected, self.last.location, end_symbol)
 
         return output
 
-    def error(self, error: SyntaxError, tok: Token, *args) -> None:
+    def error(self, error: SyntaxError, location: FileRange, *args) -> None:
         """
         Creates a new Error and adds it to the error collection of tokens ``self.errors``
 
         :param error: the error found
-        :param tok: the token where it occurred
+        :param location: the token where it occurred
         :param args: extra arguments for custom error message formatting
         """
-        self.errors.append(Error(error, tok.start, tok.end, tok.line, global_vars.PROGRAM_LINES[tok.line - 1], *args))
+        self.errors.append(Error(error, location, *args))
 
     def advance(self, i=1) -> None:
         """

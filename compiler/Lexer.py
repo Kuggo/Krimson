@@ -64,7 +64,7 @@ class Lexer:
                     self.multi_line_comment()
 
                 else:
-                    self.token(TT.OPERATOR, self.peak, self.i, self.i)
+                    self.symbol(TT.OPERATOR, self.peak, self.i)
                     self.advance()
 
             elif self.peak in SYMBOLS:
@@ -167,120 +167,120 @@ class Lexer:
                 self.advance()
                 if self.preview() == '=':
                     self.advance()
-                    self.token(TT.OPERATOR, '<<=', start, self.i)
+                    self.symbol(TT.OPERATOR, '<<=', start)
                 else:
-                    self.token(TT.OPERATOR, '<<', start, self.i)
+                    self.symbol(TT.OPERATOR, '<<', start)
             elif self.preview() == '=':
                 self.advance()
-                self.token(TT.OPERATOR, '<=', start, self.i)
+                self.symbol(TT.OPERATOR, '<=', start)
 
             else:
-                self.token(TT.OPERATOR, '<', start, self.i)
+                self.symbol(TT.OPERATOR, '<', start)
 
         elif self.peak == '>':
             if self.preview() == '>':
                 self.advance()
                 if self.preview() == '=':
                     self.advance()
-                    self.token(TT.OPERATOR, '>>=', start, self.i)
+                    self.symbol(TT.OPERATOR, '>>=', start)
                 else:
-                    self.token(TT.OPERATOR, '>>', start, self.i)
+                    self.symbol(TT.OPERATOR, '>>', start)
             elif self.preview() == '=':
                 self.advance()
-                self.token(TT.OPERATOR, '>=', start, self.i)
+                self.symbol(TT.OPERATOR, '>=', start)
 
             else:
-                self.token(TT.OPERATOR, '>', start, self.i)
+                self.symbol(TT.OPERATOR, '>', start)
 
         elif self.peak == '=':
             if self.preview() == '=':
                 self.advance()
-                self.token(TT.OPERATOR, '==', start, self.i)
+                self.symbol(TT.OPERATOR, '==', start)
             else:
-                self.token(TT.OPERATOR, '=', start, self.i)
+                self.symbol(TT.OPERATOR, '=', start)
 
         elif self.peak == '!':
             if self.preview() == '=':
                 self.advance()
-                self.token(TT.OPERATOR, '!=', start, self.i)
+                self.symbol(TT.OPERATOR, '!=', start)
             else:
-                self.token(TT.OPERATOR, '!', start, self.i)
+                self.symbol(TT.OPERATOR, '!', start)
 
         elif self.peak == '&':
             if self.preview() == '&':
                 self.advance()
-                self.token(TT.OPERATOR, '&&', start, self.i)
+                self.symbol(TT.OPERATOR, '&&', start)
 
             elif self.preview() == '=':
                 self.advance()
-                self.token(TT.OPERATOR, '&=', start, self.i)
+                self.symbol(TT.OPERATOR, '&=', start)
             else:
-                self.token(TT.OPERATOR, '&', start, self.i)
+                self.symbol(TT.OPERATOR, '&', start)
 
         elif self.peak == '|':
             if self.preview() == '|':
                 self.advance()
-                self.token(TT.OPERATOR, '||', start, self.i)
+                self.symbol(TT.OPERATOR, '||', start)
 
             elif self.preview() == '=':
                 self.advance()
-                self.token(TT.OPERATOR, '|=', start, self.i)
+                self.symbol(TT.OPERATOR, '|=', start)
             else:
-                self.token(TT.OPERATOR, '|', start, self.i)
+                self.symbol(TT.OPERATOR, '|', start)
 
         elif self.peak == '^':
             if self.preview() == '=':
                 self.advance()
-                self.token(TT.OPERATOR, '^=', start, self.i)
+                self.symbol(TT.OPERATOR, '^=', start)
             else:
-                self.token(TT.OPERATOR, '^', start, self.i)
+                self.symbol(TT.OPERATOR, '^', start)
 
         elif self.peak == '+':
             if self.preview() == '=':
                 self.advance()
-                self.token(TT.OPERATOR, '+=', start, self.i)
+                self.symbol(TT.OPERATOR, '+=', start)
             else:
-                self.token(TT.OPERATOR, '+', start, self.i)
+                self.symbol(TT.OPERATOR, '+', start)
 
         elif self.peak == '-':
             if self.preview() == '=':
                 self.advance()
-                self.token(TT.OPERATOR, '-=', start, self.i)
+                self.symbol(TT.OPERATOR, '-=', start)
             elif self.preview() == '>':
                 self.advance()
-                self.token(TT.OPERATOR, '->', start, self.i)
+                self.symbol(TT.OPERATOR, '->', start)
             else:
-                self.token(TT.OPERATOR, '- ', start, self.i)
+                self.symbol(TT.OPERATOR, '- ', start)
 
         elif self.peak == '*':
             if self.preview() == '=':
                 self.advance()
-                self.token(TT.OPERATOR, '*=', start, self.i)
+                self.symbol(TT.OPERATOR, '*=', start)
             else:
-                self.token(TT.OPERATOR, '*', start, self.i)
+                self.symbol(TT.OPERATOR, '*', start)
 
         elif self.peak == '/':
             if self.preview() == '=':
                 self.advance()
-                self.token(TT.OPERATOR, '/=', start, self.i)
+                self.symbol(TT.OPERATOR, '/=', start)
             else:
-                self.token(TT.OPERATOR, '/', start, self.i)
+                self.symbol(TT.OPERATOR, '/', start)
 
         elif self.peak == '%':
             if self.preview() == '=':
                 self.advance()
-                self.token(TT.OPERATOR, '%=', start, self.i)
+                self.symbol(TT.OPERATOR, '%=', start)
             else:
-                self.token(TT.OPERATOR, '%', start, self.i)
+                self.symbol(TT.OPERATOR, '%', start)
 
         elif self.peak == '.':
-            self.token(TT.OPERATOR, self.peak, start, self.i)
+            self.symbol(TT.OPERATOR, self.peak, start)
 
         elif self.peak == '?':
-            self.token(TT.OPERATOR, self.peak, start, self.i)
+            self.symbol(TT.OPERATOR, self.peak, start)
 
         else:
-            self.token(TT.SEPARATOR, self.peak, self.i, self.i)
+            self.symbol(TT.SEPARATOR, self.peak, self.i)
 
         self.advance()
         return
@@ -381,7 +381,7 @@ class Lexer:
         :return: the recently created token
         """
 
-        tok = Token(tt, value, start - self.line_offset, end - self.line_offset, self.line)
+        tok = Token(tt, value, FileRange(start - self.line_offset, self.line, end - self.line_offset, self.line))
         self.tokens.append(tok)
         return tok
 
@@ -396,7 +396,21 @@ class Lexer:
         :return: the recently created token
         """
 
-        tok = Literal(value, literal_type, start - self.line_offset, end - self.line_offset, self.line)
+        tok = Literal(value, literal_type, FileRange(start - self.line_offset, self.line, end - self.line_offset, self.line))
+        self.tokens.append(tok)
+        return tok
+
+    def symbol(self, tt: TT, value: str, start) -> Token:
+        """
+        Creates a new Symbol Token and adds it to the output collection of tokens ``self.tokens``
+
+        :param tt: value of the token
+        :param value: type of the symbol
+        :param start: start index of the token
+        :return: the recently created token
+        """
+
+        tok = Token(tt, value, FileRange(start - self.line_offset, self.line, start - self.line_offset, self.line))
         self.tokens.append(tok)
         return tok
 
@@ -410,8 +424,8 @@ class Lexer:
         :param args: extra arguments for custom error message formatting
         """
 
-        self.errors.append(Error(error, start - self.line_offset, end - self.line_offset, self.line,
-                                 global_vars.PROGRAM_LINES[self.line - 1], *args))
+        loc = FileRange(start - self.line_offset, self.line, end - self.line_offset, self.line)
+        self.errors.append(Error(error, loc, *args))
         self.advance()
         return
 

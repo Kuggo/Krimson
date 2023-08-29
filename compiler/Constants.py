@@ -108,30 +108,64 @@ class TT(Enum):
     LITERAL = 4
 
 
+class FileRange:
+    """Gathers all the information regarding a range of characters on the source code"""
+    def __init__(self, start, line_start, end, line_end):
+        self.start: int = start
+        """index of the first character of the range on the source code (starts at 1)"""
+
+        self.end: int = end
+        """index of last character of the range on the source code (inclusive) (starts at 1)"""
+
+        self.line_start: int = line_start
+        """index of the line of the first character of the range on the source code. (starts at 1)"""
+
+        self.line_end: int = line_end
+        """index of the line of the last character of the range on the source code. (starts at 1)"""
+        return
+
+    def __sub__(self, other: 'FileRange'):
+        if self.line_start < other.line_start:
+            line_start = self.line_start
+            start = self.start
+        elif self.line_start > other.line_start:
+            line_start = other.line_start
+            start = other.start
+        else:
+            line_start = self.line_start
+            start = min(self.start, other.start)
+
+        if self.line_end > other.line_end:
+            line_end = self.line_end
+            end = self.end
+        elif self.line_end < other.line_end:
+            line_end = other.line_end
+            end = other.end
+        else:
+            line_end = self.line_end
+            end = max(self.end, other.end)
+
+        return FileRange(start, line_start, end, line_end)
+
+
 class Token:
     """Gathers all the information regarding a token object (location on source code), type and value"""
-    def __init__(self, token_type, value, start=-1, end=-1, line=-1):
+    def __init__(self, token_type, value, location = FileRange(-1, -1, -1, -1)):
         self.tt: TT = token_type
         """Token type"""
 
         self.value = value
         """Value of token"""
 
-        self.start: int  = start
-        """index of the first character of the token on the source code"""
-
-        self.end: int = end
-        """index of last character of the token on the source code"""
-
-        self.line: int = line
-        """index of the line of the chars of the token on the source code"""
+        self.location: FileRange = location
+        """Location of token on source code"""
         return
 
     def __eq__(self, other):
         return other is not None and self.tt == other.tt and self.value == other.value
 
     def __repr__(self):
-        return f'<{self.line}:{self.start}:{self.end}: {self.tt.name}, {self.value}>'
+        return f'<{self.location.line_start}:{self.location.start}:{self.location.end}: {self.tt.name}, {self.value}>'
 
 
 class Operators(Enum):
@@ -215,20 +249,13 @@ class Error(Exception):
     file where it was detected and any additional information about it.
 
     It gets formatted in a user-friendly way"""
-    def __init__(self, error: Enum, start: int, end: int, line: int, code_line: str, *args: str):
+    def __init__(self, error: Enum, location: FileRange, *args: str):
         self.e: Enum = error
         """Error enum (LexicalError | SyntaxError | TypeError) containing the message describing the error"""
 
-        self.start: int = start
-        """index of the first character where the error was detected on the source code"""
+        self.location: FileRange = location
 
-        self.end: int = end
-        """index of last character where the error was detected on the source code"""
-
-        self.line: int = line
-        """index of the line of the chars where the error was detected on the source code"""
-
-        self.code_line: str = code_line
+        self.code_lines: list[str] = self.get_file_lines()
         """Line containing the input krimson code where the error occurred"""
 
         self.file_name: str = global_vars.FILE_NAME
@@ -238,55 +265,30 @@ class Error(Exception):
         """Extra arguments needed for a better custom error message"""
         return
 
+    def get_file_lines(self) -> list[str]:
+        lines = []
+        for i in range(self.location.line_start, self.location.line_end + 1):
+            lines.append(global_vars.PROGRAM_LINES[i - 1])
+
+        return lines
+
     def __repr__(self):
-        string = f'{self.file_name}:{self.start}:{self.line}: {self.e.value.format(*self.args)}\n'
-        string += self.code_line + '\n'
-        string += ' ' * (self.start - 1)
-        string += '^' * (self.end - self.start + 1)
+        string = f'{self.file_name}:{self.location.start}:{self.location.line_start}: {self.e.value.format(*self.args)}\n'
+        for i, line in enumerate(self.code_lines):
+            string += f'{line}\n{" " * (self.location.start - 1)}{"^" * (self.location.end - self.location.start + 1)}'
         return string
 
 
-# Literals directly supported by compiler
+# Literals
 
 class Literal(Token):
     """Special Case of Token, that has a token type (tt) of ``TT.LITERAL``.
 
     It contains an extra field ``self.literal_type`` for the krimson type of the literal value"""
-    def __init__(self, value, t: Optional['Type'], start=-1, end=-1, line=-1):
-        super().__init__(TT.LITERAL, value, start, end, line)
+    def __init__(self, value, t: Optional['Type'], location = FileRange(-1, -1, -1, -1)):
+        super().__init__(TT.LITERAL, value, location)
         self.literal_type: Optional[Type] = t
         """krimson Type of the Literal value of the token"""
-        return
-
-
-class TupleLiteral(Literal):
-    def __init__(self, values: list):
-        assert len(values) > 0
-        super().__init__([], None, values[0].start, values[-1].end, values[0].line)
-        self.values: list = values
-        return
-
-
-class ArrayLiteral(Literal):
-    def __init__(self, values: list):
-        assert len(values) > 0
-        super().__init__([], None, values[0].start, values[-1].end, values[0].line)
-        self.values: list = values
-        return
-
-
-class FunctionLiteral(Literal):
-    def __init__(self, in_param, out_param, body):
-        super().__init__(None, None)   # TODO make all Nodes have default start end and lines position
-        self.in_param = in_param
-        self.out_param = out_param
-        return
-
-
-class ProductTypeLiteral(Literal):
-    def __init__(self, values):
-        super().__init__([], None, values[0].start, values[-1].end, values[0].line)
-        self.values: list = values
         return
 
 
@@ -334,16 +336,6 @@ class TupleType(Type):
 
     def __repr__(self):
         return f'{self.name.value}({", ".join([str(t) for t in self.types])})'
-
-
-class SumType(Type):
-    def __init__(self, name: Token, types: list):
-        super().__init__(name)
-        self.types: list = types
-        return
-
-    def __eq__(self, other: 'SumType'):
-        return isinstance(other, SumType) and self.types == other.types
 
 
 class VoidType(TupleType):
@@ -409,6 +401,16 @@ class TypeDefType(Type):
 
     def __repr__(self):
         return f'{self.name.value}({", ".join([str(f) for f in self.fields])})'
+
+
+class SumType(Type):
+    def __init__(self, name: Token, types: list):
+        super().__init__(name)
+        self.types: list = types
+        return
+
+    def __eq__(self, other: 'SumType'):
+        return isinstance(other, SumType) and self.types == other.types
 
 
 class Types(Enum):

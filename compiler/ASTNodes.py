@@ -23,6 +23,40 @@ class TypeError(Enum):
     no_element = 'No element with such key'
 
 
+# Literals directly supported by compiler
+
+class TupleLiteral(Literal):
+    def __init__(self, values: list):
+        assert len(values) > 0
+        super().__init__([], None, values[-1].location - values[0].location)
+        self.values: list = values
+        return
+
+
+class ArrayLiteral(Literal):
+    def __init__(self, values: list):
+        assert len(values) > 0
+        super().__init__([], None, values[0].start, values[-1].end, values[0].line)
+        self.values: list = values
+        return
+
+
+class FunctionLiteral(Literal):
+    def __init__(self, in_param, out_param, body):
+        super().__init__(None, None)
+        self.in_param = in_param
+        self.out_param = out_param
+        return
+
+
+class ProductTypeLiteral(Literal):
+    def __init__(self, values):
+        super().__init__([], None, values[0].start, values[-1].end, values[0].line)
+        self.values: list = values
+        return
+
+
+
 # AST level
 
 class Context:
@@ -122,8 +156,7 @@ class Context:
         return c
 
     def error(self, e: TypeError, node: 'Node', *args) -> None:
-        self.errors.append(Error(e, node.repr_token.start, node.repr_token.end, node.repr_token.line,
-                                 global_vars.PROGRAM_LINES[node.repr_token.line - 1], *args))
+        self.errors.append(Error(e, node.location, *args))
         return
 
     def __repr__(self):
@@ -133,10 +166,10 @@ class Context:
 # Category Nodes (DO NOT construct these nodes!)
 
 class Node:
-    def __init__(self, repr_tok: Token, parent_node=None):
+    def __init__(self, location: FileRange, parent_node=None):
         self.parent: Optional[ScopeNode] = parent_node
         self.context: Optional[Context] = None
-        self.repr_token = repr_tok
+        self.location: FileRange = location
         self.scope_level: int = 0
         return
 
@@ -167,7 +200,7 @@ class Node:
 
 class ExpressionNode(Node):
     def __init__(self, repr_tok: Token):
-        super().__init__(repr_tok)
+        super().__init__(repr_tok.location)
         self.type: Optional[Type] = None
         return
 
@@ -183,8 +216,8 @@ class ExpressionNode(Node):
 
 
 class NameDefineNode(Node):
-    def __init__(self, repr_tok: Token, name: 'VariableNode', type: Optional[Type] = None):
-        super().__init__(repr_tok)
+    def __init__(self, name: 'VariableNode', type: Optional[Type] = None):
+        super().__init__(name)
         self.type: Optional[Type] = type
         self.name: VariableNode = name
         return
@@ -212,6 +245,7 @@ class NameDefineNode(Node):
 class ValueNode(ExpressionNode):
     def __init__(self, tok: Token):
         super().__init__(tok)
+        self.value: Token = tok
         return
 
     def update(self, ctx: Context, parent: Optional[Node]) -> Optional['ValueNode']:
@@ -221,38 +255,38 @@ class ValueNode(ExpressionNode):
         return self
 
     def get_size(self) -> int:
-        if isinstance(self.repr_token.value, list):
+        if isinstance(self.value.value, list):
             size = 0
-            for item in self.repr_token.value:
+            for item in self.value.value:
                 size += item.get_size()
             return size
         else:
             return 1    # primitive size is 1
 
     def convert_py_type(self) -> 'Type':
-        if isinstance(self.repr_token, Literal):
-            self.repr_token.literal_type.size = self.get_size()
-            return self.repr_token.literal_type
+        if isinstance(self.value, Literal):
+            self.value.literal_type.size = self.get_size()
+            return self.value.literal_type
         else:
             assert False
 
     def gen_ir(self, left=True) -> list[Instruction]:
         ir = []
 
-        if isinstance(self.repr_token, Literal):
-            if self.repr_token.literal_type == Types.array.value or self.repr_token.literal_type == Types.str.value:
-                for item in reversed(self.repr_token.value):
+        if isinstance(self.value, Literal):
+            if self.value.literal_type == Types.array.value or self.value.literal_type == Types.str.value:
+                for item in reversed(self.value.value):
                     # TODO: make a method for copying multiword values, and pushing them to the stack too
                     i: Instruction = copy(Operations.imm_a.value)
                     i.imm = item
                     ir.append(i)
 
-            elif self.repr_token.literal_type.size == 1:
+            elif self.value.literal_type.size == 1:
                 if left:
                     i: Instruction = copy(Operations.imm_a.value)
                 else:
                     i: Instruction = copy(Operations.imm_b.value)
-                i.imm = self.repr_token.value
+                i.imm = self.value.value
                 ir.append(i)
             else:
                 assert False
@@ -263,13 +297,13 @@ class ValueNode(ExpressionNode):
         return ir
 
     def __repr__(self):
-        return f'{self.repr_token.value}'
+        return f'{self.value.value}'
 
 
 class VariableNode(ExpressionNode):
     def __init__(self, repr_tok: Token):
         super().__init__(repr_tok)
-        self.name: str = repr_tok.value
+        self.name: Token = repr_tok
         # self.offset: OffsetNode = OffsetNode(Registers.SP, 0)
         return
 
@@ -312,8 +346,8 @@ class VariableNode(ExpressionNode):
 
 
 class ScopeNode(Node):
-    def __init__(self, start_tok: Token, child_nodes: list[Node]):
-        super().__init__(start_tok)
+    def __init__(self, child_nodes: list[Node], location):
+        super().__init__(location)
         self.child_nodes: list[Node] = child_nodes
         return
 
@@ -363,7 +397,7 @@ class ScopeNode(Node):
 
 class AssignNode(ExpressionNode):
     def __init__(self, var: VariableNode, value: ExpressionNode):
-        super().__init__(var.repr_token)
+        super().__init__(var.name)
         self.var: VariableNode = var
         self.value: ExpressionNode = value
         return
@@ -402,7 +436,7 @@ class AssignNode(ExpressionNode):
         return ir
 
     def __repr__(self):
-        return f'{self.var.repr_token.value} = {self.value}'
+        return f'{self.var.name.value} = {self.value}'
 
 
 class UnOpNode(ExpressionNode):
@@ -421,7 +455,7 @@ class UnOpNode(ExpressionNode):
 
         if self.op.value in dunder_funcs:
             func_name = dunder_funcs[self.op.value]
-            return FuncCallNode(self.repr_token, VariableNode(func_name), (self.child,)).update(ctx, self.parent)
+            return FuncCallNode(VariableNode(func_name), (self.child,)).update(ctx, self.parent)
         else:
             assert False
 
@@ -452,7 +486,7 @@ class BinOpNode(ExpressionNode):
 
         if self.op.value in dunder_funcs:
             fn_name = dunder_funcs[self.op.value]
-            return FuncCallNode(self.repr_token, VariableNode(fn_name), (self.left_child, self.right_child)).update(ctx, self.parent)
+            return FuncCallNode(VariableNode(fn_name), (self.left_child, self.right_child)).update(ctx, self.parent)
         else:
             assert False
 
@@ -510,7 +544,7 @@ class DotOperatorNode(VariableNode):
         return
 
     def get_name(self) -> Node:
-        return Node(self.field.repr_token)
+        return Node(self.location)
 
     def __repr__(self):
         return f'{self.var}.{self.field}'
@@ -538,7 +572,7 @@ class IndexOperatorNode(VariableNode):
 
         if use_dunder_func:
             fn_name = dunder_funcs[Operators.index.value.value]
-            return FuncCallNode(self.repr_token, VariableNode(fn_name), (self.collection, self.index)).update(ctx, self.parent)
+            return FuncCallNode(VariableNode(fn_name), (self.collection, self.index)).update(ctx, self.parent)
         else:
             return self
 
@@ -548,18 +582,18 @@ class IndexOperatorNode(VariableNode):
 
         if self.collection.type == Types.dict.value:
             if isinstance(self.collection, ValueNode):  # can access the element at compile time
-                if self.index.repr_token.value in self.collection.repr_token.value:
-                    return self.collection.repr_token.value[self.index.repr_token.value]
+                if self.index.value.value in self.collection.value.value:
+                    return self.collection.value.value[self.index.value.value]
                 else:
                     ctx.error(TypeError.no_element, self)
 
         elif self.collection.type in {Types.str.value, Types.array.value}:
-            if isinstance(self.index.repr_token.value, int):
-                if not (0 <= abs(self.index.repr_token.value) < len(self.collection.repr_token.value)): # bound check
+            if isinstance(self.index.value.value, int):
+                if not (0 <= abs(self.index.value.value) < len(self.collection.repr_token.value)): # bound check
                     ctx.error(TypeError.out_of_bounds, self.index)
 
                 if isinstance(self.collection, ValueNode):  # can access the element at compile time
-                    return self.collection.repr_token.value[self.index.repr_token.value]
+                    return self.collection.value.value[self.index.value.value]
                 else:
                     return self    # can return an unsafe array access, and it will be just fine
 
@@ -575,8 +609,8 @@ class IndexOperatorNode(VariableNode):
 
 
 class FuncCallNode(ExpressionNode):
-    def __init__(self, repr_tok: Token, func_name: VariableNode, args: tuple[ExpressionNode, ...]):
-        super().__init__(repr_tok)
+    def __init__(self, func_name: VariableNode, args: tuple[ExpressionNode, ...]):
+        super().__init__(func_name.name)
         self.func_name: VariableNode = func_name
         self.args: tuple[ExpressionNode, ...] = args
         self.func: Optional[FuncDefineNode] = None
@@ -633,8 +667,8 @@ class FuncCallNode(ExpressionNode):
 # Definition Nodes
 
 class MacroDefineNode(NameDefineNode):
-    def __init__(self, repr_tok: Token, name: 'VariableNode', expression: ExpressionNode):
-        super().__init__(repr_tok, name, copy(Types.macro.value))
+    def __init__(self, name: 'VariableNode', expression: ExpressionNode):
+        super().__init__(name, copy(Types.macro.value))
         self.value: ExpressionNode = expression
 
     def add_ctx(self, ctx: Context) -> None:
@@ -646,8 +680,8 @@ class MacroDefineNode(NameDefineNode):
 
 
 class VarDefineNode(NameDefineNode, ExpressionNode):
-    def __init__(self, repr_tok: Token, var_type: Type, var_name: VariableNode, value: Optional[ExpressionNode] = None):
-        super().__init__(repr_tok, var_name, var_type)
+    def __init__(self, var_type: Type, var_name: VariableNode, value: Optional[ExpressionNode] = None):
+        super().__init__(var_name, var_type)
         self.value: Optional[ExpressionNode] = value
         # self.offset: OffsetNode = OffsetNode(Registers.BP, 0)
         self.class_def: Optional[TypeDefineNode] = None
@@ -686,14 +720,14 @@ class VarDefineNode(NameDefineNode, ExpressionNode):
         else:
             return f'loc:({self.offset}) {self.name.repr_token.value}: {self.type} = {self.value}'"""
         if self.value is None:
-            return f'loc:(TODO) {self.name.repr_token.value}: {self.type}'
+            return f'loc:(TODO) {self.name.name.value}: {self.type}'
         else:
-            return f'loc:(TODO) {self.name.repr_token.value}: {self.type} = {self.value}'
+            return f'loc:(TODO) {self.name.name.value}: {self.type} = {self.value}'
 
 
 class FuncDefineNode(NameDefineNode):
     def __init__(self, func_name: VariableNode, body: 'IsolatedScopeNode'):
-        super().__init__(func_name.repr_token, func_name)
+        super().__init__(func_name)
         self.func_type = None
         self.params: tuple[NameDefineNode, ...] = tuple()
         self.ret_param = None
@@ -770,12 +804,10 @@ class FuncDefineNode(NameDefineNode):
         if isinstance(self.body, ScopeNode):
             for node in self.body.child_nodes:
                 body.append(deepcopy(node))
-        elif isinstance(self.body, ReturnNode):
-            body.append(BreakNode(func_call.repr_token))
         else:
             body.append(deepcopy(self.body))
 
-        body_node = ScopeNode(body[0].repr_token, body)
+        body_node = ScopeNode(body, self.location)
         body_node.scope_level = func_call.scope_level
         body_node.parent = func_call.parent
         return body_node
@@ -790,8 +822,8 @@ class FuncDefineNode(NameDefineNode):
 
 
 class IsolatedScopeNode(ScopeNode):
-    def __init__(self, start_tok: Token, child_nodes: list[Node]):
-        super().__init__(start_tok, child_nodes)
+    def __init__(self, child_nodes: list[Node], location: FileRange):
+        super().__init__(child_nodes, location)
         return
 
     @classmethod
@@ -807,7 +839,7 @@ class IsolatedScopeNode(ScopeNode):
 
 class TypeDefineNode(NameDefineNode):
     def __init__(self, name: VariableNode, fields: list[NameDefineNode]):
-        super().__init__(name.repr_token, name, None)
+        super().__init__(name, None)
         self.fields: list[NameDefineNode] = fields
         return
 
@@ -855,7 +887,7 @@ class SumTypeDefineNode(TypeDefineNode):
 
     @staticmethod
     def make_type(name: VariableNode, subtypes: list[TypeDefineNode]) -> Type:
-        return SumType(name.repr_token, subtypes)
+        return SumType(name.name, subtypes)
 
     def __repr__(self):
         string = ", ".join([f'{subtype}' for subtype in self.variants])
@@ -866,7 +898,7 @@ class SumTypeDefineNode(TypeDefineNode):
 
 class IfNode(Node):
     def __init__(self, repr_tok: Token, condition: ExpressionNode, body: Node):
-        super().__init__(repr_tok)
+        super().__init__(self.location)
         self.condition = condition
         self.body = body
         self.else_statement: Optional[ElseNode] = None
@@ -903,7 +935,7 @@ class IfNode(Node):
 
 class ElseNode(Node):
     def __init__(self, repr_tok: Token, body: Node, if_statement: Optional[IfNode]):
-        super().__init__(repr_tok)
+        super().__init__(self.location)
         self.body = body
         self.if_statement: Optional[IfNode] = if_statement
         return
@@ -928,7 +960,7 @@ class ElseNode(Node):
 
 class WhileNode(Node):
     def __init__(self, repr_tok: Token, condition: ExpressionNode, body: Node):
-        super().__init__(repr_tok)
+        super().__init__(self.location)
         self.condition = condition
         self.body = body
         return
@@ -961,32 +993,9 @@ class WhileNode(Node):
         return f'while {self.condition} {self.body}'
 
 
-class DoWhileNode(WhileNode):
-    def __init__(self, repr_tok: Token, condition: ExpressionNode, body: Node):
-        super().__init__(repr_tok, condition, body)
-        return
-
-    def __repr__(self):
-        return f'do {self.body} while {self.condition}'
-
-
-class ReturnNode(Node):
-    def __init__(self, repr_tok: Token):
-        super().__init__(repr_tok)
-        return
-
-    def update(self, ctx: Context, parent: Optional[Node]) -> Optional['Node']:
-        self.context = ctx
-        self.parent = parent
-        return self
-
-    def __repr__(self):
-        return f'return'
-
-
 class LoopModifierNode(Node):
     def __init__(self, repr_tok: Token, value: Optional[Token], error: TypeError):
-        super().__init__(repr_tok)
+        super().__init__(self.location)
         self.loop: Optional[WhileNode] = None
         self.error: TypeError = error
         if value is None:
@@ -1062,9 +1071,9 @@ class RefNode(VariableNode):
 class OffsetNode(Node):
     def __init__(self, base, offset: int):
         if isinstance(base, Registers):
-            super().__init__(base.value)
+            super().__init__(self.location)
         else:
-            super().__init__(base.repr_tok)
+            super().__init__(self.location)
         self.base = base
         self.offset: int = offset
         return
