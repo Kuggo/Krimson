@@ -137,6 +137,7 @@ class Node:
         self.parent: Optional[ScopeNode] = parent_node
         self.context: Optional[Context] = None
         self.repr_token = repr_tok
+        self.scope_level: int = 0
         return
 
     def update(self, ctx: Context, parent: 'Node') -> Optional['Node']:
@@ -352,10 +353,10 @@ class ScopeNode(Node):
         return ir
 
     def __repr__(self):
-        string = f'\n{self.context.scope_level * "  "}{{\n'
+        string = f'\n{self.scope_level * "  "}{{\n'
         for node in self.child_nodes:
-            string += f'{node.context.scope_level * "  "}{node.__repr__()}\n'
-        return string + f'{self.context.scope_level * "  "}}}'
+            string += f'{(node.scope_level+1) * "  "}{node.__repr__()}\n'
+        return string + f'{self.scope_level * "  "}}}'
 
 
 # Operation Nodes
@@ -465,10 +466,10 @@ class BinOpNode(ExpressionNode):
 
 
 class DotOperatorNode(VariableNode):
-    def __init__(self, repr_tok: Token, var: VariableNode, field: VariableNode):
+    def __init__(self, repr_tok: Token, var: ExpressionNode, field: VariableNode):
         super().__init__(repr_tok)
         self.name = field.name
-        self.var: VariableNode = var
+        self.var: ExpressionNode = var
         self.field: VariableNode = field
         return
 
@@ -691,10 +692,11 @@ class VarDefineNode(NameDefineNode, ExpressionNode):
 
 
 class FuncDefineNode(NameDefineNode):
-    def __init__(self, func_name: VariableNode, func_type: FunctionType, params: tuple[NameDefineNode, ...], ret_param: NameDefineNode, body: 'IsolatedScopeNode'):
-        super().__init__(func_name.repr_token, func_name, func_type)
-        self.params: tuple[NameDefineNode, ...] = params
-        self.ret_param = ret_param
+    def __init__(self, func_name: VariableNode, body: 'IsolatedScopeNode'):
+        super().__init__(func_name.repr_token, func_name)
+        self.func_type = None
+        self.params: tuple[NameDefineNode, ...] = tuple()
+        self.ret_param = None
         self.body: IsolatedScopeNode = body
         return
 
@@ -844,18 +846,19 @@ class TypeAliasDefineNode(TypeDefineNode):
 
 
 class SumTypeDefineNode(TypeDefineNode):
-    def __init__(self, name: VariableNode, subtypes: list[Type]):
+    def __init__(self, name: VariableNode, subtypes: list[TypeDefineNode]):
+        super().__init__(name, [])
         self.name: VariableNode = name
-        self.subtypes: list[Type] = subtypes
+        self.variants: list[TypeDefineNode] = subtypes
         self.type: Type = self.make_type(name, subtypes)
         return
 
     @staticmethod
-    def make_type(name: VariableNode, subtypes: list[Type]) -> Type:
-        return SumType(name, subtypes)
+    def make_type(name: VariableNode, subtypes: list[TypeDefineNode]) -> Type:
+        return SumType(name.repr_token, subtypes)
 
     def __repr__(self):
-        string = ", ".join([f'{subtype}' for subtype in self.subtypes])
+        string = ", ".join([f'{subtype}' for subtype in self.variants])
         return f'type {self.name} = {{{string}}}'
 
 
@@ -895,7 +898,7 @@ class IfNode(Node):
         if self.else_statement is None:
             return f'if {self.condition} {self.body}'
         else:
-            return f'if {self.condition} {self.body} \n{self.context.scope_level*"  "}{self.else_statement}'
+            return f'if {self.condition} {self.body} \n{self.scope_level*"  "}{self.else_statement}'
 
 
 class ElseNode(Node):

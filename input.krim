@@ -1,19 +1,31 @@
 
-//mac: macro = 69 + 1
+// variables
+var: int = 1
 
-/*var: int = 1
+var = 2
 
-inc: fn (i: nat) -> out: nat {
+// functions
+inc: fn = (i: nat) -> out: nat {
     out = i + 1
 }
 
-plus1: nat -> nat = inc*/
-/*
-Person: type = {
-    name: string
-    age: nat
+plus1: nat -> nat = inc
+
+// types
+Coord: type = (nat, nat)
+
+XY: type = {
+    x: nat
+    y: nat
 }
-*/
 
-bit: enum = {top bot None}
-
+AllowedOptions: type = {
+  | NoSizeOption
+  | AliasOption = int
+  | TupleOption = (int, int)
+  | ProductOption = {x: int y: int}
+  | EnumInception = {
+      | A
+      | B
+    }
+}

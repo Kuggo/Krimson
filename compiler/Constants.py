@@ -20,20 +20,14 @@ global_vars = Globals()
 
 
 # constants
-SEPARATORS = {',', ':', ';', '{', '}', '[', ']', '(', ')'}
-"""Set of characters accepted as separators"""
-
-END_OF_EXPRESSION = {',', ';', ':'}
+END_OF_EXPRESSION = {';'}
 """Set of valid characters that end an expression"""
 
-KEYWORDS = {'if', 'else', 'break', 'skip', 'while', 'return', 'type', 'macro', 'fn', 'enum'}
+KEYWORDS = {'if', 'else', 'break', 'skip', 'while', 'type', 'macro', 'fn'}
 """Set containing all the language's keywords"""
 
 BOOLEANS = ['false', 'true']
 """List of the 2 boolean values"""
-
-NULL = 'null'
-"""Text representation of Null value"""
 
 VOID = 'void'
 """Text representation of no value"""
@@ -48,36 +42,60 @@ ASSIGN_OPERATORS = {'=', '+=', '-=', '*=', '/=', '%=', '<<=', '>>=', '|=', '&=',
 """Set of strings containing all the valid assign&operate operators"""
 
 OPERATOR_PRECENDENCE = {
-    '=': -1,
-    '(': 0,
-    '[]': 0,
-    '()': 0,
-    '.': 0,
-    '||': 2,
-    '&&': 3,
-    '!': 4,
-    '==': 5,
-    '!=': 5,
-    '<=': 5,
-    '>=': 5,
-    '>': 5,
-    '<': 5,
-    '|': 6,
-    '^': 7,
-    '&': 8,
-    '>>': 9,
-    '<<': 9,
-    '+': 10,
-    '- ': 10,
-    '*': 11,
-    '/': 11,
-    '%': 11,
-    '-': 12,
-    '~': 12,
+    # these must end all expressions
+    ';': -1,
+    ']': -1,
+    ')': -1,
+    '}': -1,
+    # valid operators
+    ',': 0,
+    '=': 1,
+    ':': 2,
+    '->': 3,
+    '||': 4,
+    '&&': 5,
+    '!': 6,
+    '==': 7,
+    '!=': 7,
+    '<=': 7,
+    '>=': 7,
+    '>': 7,
+    '<': 7,
+    '|': 8,
+    '^': 9,
+    '&': 10,
+    '>>': 11,
+    '<<': 11,
+    '+': 12,
+    '- ': 12,
+    '*': 13,
+    '/': 13,
+    '%': 13,
+    '-': 14,
+    '~': 14,
+    '[': 15,
+    '(': 15,
+    '.': 15,
 }
 """Dict mapping the operators and their precedence"""
 
-RIGHT_ASSOCIATIVE_OPERATORS = {'='}
+TYPE_OP_PRECEDENCE = {
+# these must end all expressions
+    ';': -1,
+    ']': -1,
+    ')': -1,
+    '}': -1,
+    # valid operators
+    ',': 0,
+    ':': 2,
+    '->': 3,
+    # '|': 8,
+    '?': 15,
+
+}
+"""Dict mapping the type operators and their precedence"""
+
+RIGHT_ASSOCIATIVE_OPERATORS = {'=', '->'}
 """Set containing the operators that are right associative"""
 
 
@@ -114,17 +132,6 @@ class Token:
 
     def __repr__(self):
         return f'<{self.line}:{self.start}:{self.end}: {self.tt.name}, {self.value}>'
-
-
-class Literal(Token):
-    """Special Case of Token, that has a token type (tt) of ``TT.LITERAL``.
-
-    It contains an extra field ``self.literal_type`` for the krimson type of the literal value"""
-    def __init__(self, value, t: 'Type', start=-1, end=-1, line=-1):
-        super().__init__(TT.LITERAL, value, start, end, line)
-        self.literal_type: Type = t
-        """krimson Type of the Literal value of the token"""
-        return
 
 
 class Operators(Enum):
@@ -201,7 +208,6 @@ class Keywords(Enum):
     fn = Token(TT.KEYWORD, 'fn')
     type = Token(TT.KEYWORD, 'type')
     macro = Token(TT.KEYWORD, 'macro')
-    enum = Token(TT.KEYWORD, 'enum')
 
 
 class Error(Exception):
@@ -240,7 +246,51 @@ class Error(Exception):
         return string
 
 
-# Type
+# Literals directly supported by compiler
+
+class Literal(Token):
+    """Special Case of Token, that has a token type (tt) of ``TT.LITERAL``.
+
+    It contains an extra field ``self.literal_type`` for the krimson type of the literal value"""
+    def __init__(self, value, t: Optional['Type'], start=-1, end=-1, line=-1):
+        super().__init__(TT.LITERAL, value, start, end, line)
+        self.literal_type: Optional[Type] = t
+        """krimson Type of the Literal value of the token"""
+        return
+
+
+class TupleLiteral(Literal):
+    def __init__(self, values: list):
+        assert len(values) > 0
+        super().__init__([], None, values[0].start, values[-1].end, values[0].line)
+        self.values: list = values
+        return
+
+
+class ArrayLiteral(Literal):
+    def __init__(self, values: list):
+        assert len(values) > 0
+        super().__init__([], None, values[0].start, values[-1].end, values[0].line)
+        self.values: list = values
+        return
+
+
+class FunctionLiteral(Literal):
+    def __init__(self, in_param, out_param, body):
+        super().__init__(None, None)   # TODO make all Nodes have default start end and lines position
+        self.in_param = in_param
+        self.out_param = out_param
+        return
+
+
+class ProductTypeLiteral(Literal):
+    def __init__(self, values):
+        super().__init__([], None, values[0].start, values[-1].end, values[0].line)
+        self.values: list = values
+        return
+
+
+# Types directly supported by the compiler
 
 class Type:
     """Class containing all information regarding a type in krimson, such as the name of the type, and extra generic
@@ -258,18 +308,6 @@ class Type:
 
     def __hash__(self):
         return self.name.value.__hash__()
-
-    def is_subtype(self, super_type: 'Type') -> bool:
-        """
-        checks if ``super_type`` is a subtype of ``self``. In other words, if ``super_type`` can be used when ``self``
-        type is required
-        :param super_type: the type to be checking
-        :return: true if ``super_type`` is a subtype of ``self``
-        """
-        if self.name == super_type.name:
-            return True
-
-        return True
 
     def get_type_label(self) -> str:
         """
@@ -299,9 +337,9 @@ class TupleType(Type):
 
 
 class SumType(Type):
-    def __init__(self, name: Token, types: list[Type]):
+    def __init__(self, name: Token, types: list):
         super().__init__(name)
-        self.types: list[Type] = types
+        self.types: list = types
         return
 
     def __eq__(self, other: 'SumType'):
@@ -309,7 +347,7 @@ class SumType(Type):
 
 
 class VoidType(TupleType):
-    def __init__(self):
+    def __init__(self, ):
         super().__init__([])
         self.name = Token(TT.IDENTIFIER, 'void')
         return

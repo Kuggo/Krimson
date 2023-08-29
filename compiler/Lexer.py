@@ -106,9 +106,6 @@ class Lexer:
         elif name in BOOLEANS:
             self.literal(name, copy(Types.bool.value), start, self.i - 1)
             return
-        elif name == NULL:
-            self.literal(name, copy(Types.null.value), start, self.i - 1)
-            return
         elif name == VOID:
             self.literal(name, copy(Types.void.value), start, self.i - 1)
             return

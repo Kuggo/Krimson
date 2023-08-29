@@ -1,5 +1,12 @@
 from ASTNodes import *
 
+# functions
+
+def get_void_value(tok1: Token, tok2: Token) -> ValueNode:
+    void_value = ValueNode(Token(TT.IDENTIFIER, 'void', tok1.start, tok2.end, tok1.line))
+    void_value.type = copy(Types.void.value)
+    return void_value
+
 
 class SyntaxError(Enum):
     """Enum containing all the custom error messages that the parser may generate."""
@@ -18,6 +25,7 @@ class SyntaxError(Enum):
     cannot_assign_to_arg = "Cannot assign values to function argument definitions"
     # class_body_not_a_scope = "Class body must be defined between curly brackets { }"
     declaration_expected = "Declaration statement expected"
+    func_literal_expected = "Function literal expected"
 
 
 class Parser:
@@ -59,6 +67,7 @@ class Parser:
             self.ast = self.scope()
         return
 
+    # rules
     def scope(self) -> ScopeNode:
         """
         Parses the next statements until it finds its end and returns the ScopeNode
@@ -86,11 +95,10 @@ class Parser:
         statement : expression
                   | while_statement
                   | if_statement
-                  | return_statement
                   | break_statement
                   | skip_statement
                   | scope_statement
-                  | var_assign_statement
+                  | assign_statement
                   | var_define_statement
                   | func_define_statement
                   | class_define_statement
@@ -106,8 +114,6 @@ class Parser:
             elif self.peak.value == 'else':
                 self.error(SyntaxError.if_expected, self.peak)
                 return None
-            elif self.peak.value == 'return':
-                return self.return_statement()
             elif self.peak.value == 'break':
                 return self.break_statement()
             elif self.peak.value == 'skip':
@@ -120,268 +126,424 @@ class Parser:
             return self.scope()
 
         else:
-            index = self.i
-            statement = self.make_name_define_statement()
+            return self.expression()
 
-            if statement is None:
-                self.i = index - 1  # rollback to before the type
-                self.advance()
-                return self.expression()
-            else:
-                return statement
-
-    def expression(self) -> Optional[ExpressionNode]:
-        """
-        Parses the next expression until it finds its end and returns an AST of the expression
-
-        The end is defined by a separator token such as ',' ';' ':', a keyword, or by finding 2 tokens not connected
-        with an operator
-
-        expression : value
-                   | unary_operator expression
-                   | expression binary_operator expression
-                   | function_call
-
-        :param: end_separator: Optional[str] char separator that can be expected to end the expression
-        :return: ExpressionNode
-        """
-
-        def is_last_tok_value(last_operand_operator) -> bool:
-            """
-            Detects if the last non separator token was a variable/literal, within a certain range
-
-            :param last_operand_operator: the last Node/Token that has relevance to the expression
-            :return: True if the last non separator token was a variable/literal, False otherwise
-            """
-            if last_operand_operator is None:
-                return False
-
-            elif isinstance(last_operand_operator, Token) and last_operand_operator.tt == TT.OPERATOR:
-                return False
-
-            else:
-                return True
-
-        def must_pop(op_stack, tok: Token) -> bool:
-            if len(op_stack) == 0:
-                return False
-            p1 = OPERATOR_PRECENDENCE[tok.value]
-            p2 = OPERATOR_PRECENDENCE[op_stack[-1].value]
-            return p1 < p2 or (p1 == p2 and tok.value not in RIGHT_ASSOCIATIVE_OPERATORS)
-
-
-        def shunting_yard() -> Optional[list[(Token, Node)]]:
-            """
-            Parses an infix expression into a postfix expression using the shunting yard algorithm.
-
-             The expression is the stream of tokens until an end is found. End is defined as a keyword, repetition of
-             operands or separator symbols.
-
-            :return: list of operands/operators or None if an error was found
-            """
-            last_op = None
-            expression_queue: list[(Token, Node)] = []
-            operator_stack: list[Token] = []
-            while self.has_next():
-                if self.peak.tt == TT.KEYWORD or \
-                        (self.peak.tt in (TT.IDENTIFIER, TT.LITERAL) and is_last_tok_value(last_op)):
-                    break
-
-                if self.peak.tt in (TT.LITERAL, TT.IDENTIFIER):
-                    expression_queue.append(self.peak)
-                    last_op = self.peak
-
-                elif self.peak.tt == TT.SEPARATOR:
-                    if self.peak.value == '(':
-                        if self.last.tt == TT.IDENTIFIER:  # it's a function call
-                            self.advance()
-                            args = self.repeat_until_symbol(')', Parser.expression, SyntaxError.expression_expected)
-                            func = Operators.func.value
-
-                            while must_pop(operator_stack, func):
-                                expression_queue.append(operator_stack.pop())
-
-                            operator_stack.append(func)
-                            expression_queue.append(args)  # function arguments will be lists
-                            last_op = args
-                        else:
-                            operator_stack.append(self.peak)
-
-                    elif self.peak.value == ')':
-                        while len(operator_stack) > 0 and operator_stack[-1].value != '(':
-                            expression_queue.append(operator_stack.pop())
-                        if len(operator_stack) > 0:
-                            operator_stack.pop()
-                        else:
-                            break
-
-                    elif self.peak.value == '[':
-                        if is_last_tok_value(last_op):
-                            index = self.make_index(operator_stack)
-                            if index is not None:
-                                expression_queue.append(index)
-                                last_op = None
-
-                        else:
-                            arr = self.array_literal()
-                            expression_queue.append(arr)  # arrays/dict/set and other data structures will be ValueNodes
-                            last_op = arr
-
-                    elif self.peak.value == ']':
-                        while len(operator_stack) > 0 and operator_stack[-1].value != '[]':
-                            expression_queue.append(operator_stack.pop())
-
-                        if len(operator_stack) > 0:
-                            expression_queue.append(operator_stack.pop())
-                        else:
-                            break
-
-                    elif self.peak.value == '{':
-                        if is_last_tok_value(last_op):
-                            break
-                        else:
-                            dict_set = self.dict_set_literal()  # arrays/index and other data structures will be ValueNodes
-                            expression_queue.append(dict_set)
-                            last_op = dict_set
-
-                    else:
-                        break
-
-                elif self.peak.tt == TT.OPERATOR:
-                    if self.peak == Operators.sub.value and not is_last_tok_value(last_op): # its unary minus
-                        self.peak.value = '-'   # changing its value
-
-                    while must_pop(operator_stack, self.peak):
-                        expression_queue.append(operator_stack.pop())
-                    operator_stack.append(self.peak)
-                    last_op = self.peak
-
-                else:
-                    assert False
-
-                self.advance()
-
-            while len(operator_stack) > 0:
-                operator = operator_stack.pop()
-                if operator == Separators.lpa.value:
-                    self.error(SyntaxError.symbol_expected, self.peak, Separators.rpa.value.value)
-                    return None
-                else:
-                    expression_queue.append(operator)
-
-            return expression_queue
-
-        def make_ast() -> Optional[ExpressionNode]:
-            """
-            Parses a postfix expression (generated by ``shunting_yard``) and creates an ast of the respective nodes.
-
-            :return: ExpressionNode or None if an error occurred
-            """
-
-            operand_stack: list[ExpressionNode] = []
-            for tok in postfix_expression:
-                if isinstance(tok, ExpressionNode) or isinstance(tok, list):  # Array/Dict/Det or other data structure
-                    # noinspection PyTypeChecker
-                    operand_stack.append(tok)
-
-                elif tok.tt == TT.LITERAL:
-                    operand_stack.append(ValueNode(tok))
-
-                elif tok.tt == TT.IDENTIFIER:
-                    operand_stack.append(VariableNode(tok))
-
-                elif tok.tt == TT.OPERATOR:
-                    if tok.value in UNARY_OPERATORS:
-                        if len(operand_stack) >= 1:
-                            node = operand_stack.pop()
-                            if isinstance(node, ValueNode) and isinstance(node.repr_token.value, int):  # optimisation
-                                node.repr_token.value = -node.repr_token.value
-                                operand_stack.append(node)
-                            else:
-                                operand_stack.append(UnOpNode(tok, node))
-                        else:
-                            self.error(SyntaxError.expression_expected, tok)
-                    else:
-                        if len(operand_stack) >= 2:
-                            node2 = operand_stack.pop()
-                            node1 = operand_stack.pop()
-                            if tok.value in ASSIGN_OPERATORS:
-                                var_assign = self.var_assign_statement(node1, node2, tok)
-                                if var_assign is not None:
-                                    operand_stack.append(var_assign)
-
-                            elif tok == Operators.index.value:
-                                operand_stack.append(IndexOperatorNode(tok, node1, node2))
-
-                            elif tok == Operators.dot.value:
-                                # noinspection PyTypeChecker
-                                operand_stack.append(DotOperatorNode(tok, node1, node2))
-
-                            elif tok == Operators.func.value:
-                                if not isinstance(node2, list):
-                                    assert False
-
-                                if isinstance(node1, VariableNode):
-                                    operand_stack.append(FuncCallNode(node1.repr_token, node1, tuple(node2)))
-                                else:
-                                    self.error(SyntaxError.not_a_func, node1.repr_token, node1)
-
-                            else:
-                                operand_stack.append(BinOpNode(tok, node1, node2))
-                        else:
-                            self.error(SyntaxError.expression_expected, tok)
-                else:
-                    assert False
-
-            if len(operand_stack) != 1:
-                return None  # no expression found
-            else:
-                return operand_stack[0]
-
-        if self.peak == Separators.rpa.value:
-            self.error(SyntaxError.symbol_expected_before, self.peak, '(', ')')
-            return None
-        elif self.peak == Separators.rbr.value:
-            self.error(SyntaxError.symbol_expected_before, self.peak, '[', ']')
-            return None
-        elif self.peak == Separators.rcb.value:
-            self.error(SyntaxError.symbol_expected_before, self.peak, '{', '}')
+    def expression(self, precedence=-1) -> Optional[ExpressionNode]:
+        left = self.parse_prefix()
+        if left is None:
             return None
 
-        postfix_expression = shunting_yard()
-        if postfix_expression is None:
+        node = left
+
+        while self.peak.value in OPERATOR_PRECENDENCE and \
+                (OPERATOR_PRECENDENCE[self.peak.value] > precedence or
+                 (self.peak.value in RIGHT_ASSOCIATIVE_OPERATORS and OPERATOR_PRECENDENCE[self.peak.value] == precedence)):
+
+            node = self.parse_infix(left)
+            if node is not None:
+                left = node
+
+        while self.peak.value in END_OF_EXPRESSION:
+            self.advance()
+
+        return node
+
+    def parse_prefix(self) -> Optional[ExpressionNode]:
+        token = self.peak
+        self.advance()
+
+        if token.tt == TT.LITERAL:
+            return ValueNode(token)
+
+        elif token.tt == TT.IDENTIFIER:
+            return VariableNode(token)
+
+        elif token.tt == TT.OPERATOR and token.value in UNARY_OPERATORS:
+            expression = self.expression(precedence=OPERATOR_PRECENDENCE[token.value])
+            if expression is None:
+                return None
+            return UnOpNode(token, expression)
+
+        elif token == Separators.lpa.value:
+            expression = self.expression()
+            if expression is None:
+                return None
+            self.advance()
+            return expression
+
+        elif token == Separators.lbr.value:   # array literal
+            return self.array_literal()
+
+        elif token == Separators.lcb.value:   # product type instance
+            values = self.repeat_until_symbol(Separators.rcb.value.value, Parser.expression,
+                                              SyntaxError.expression_expected, OPERATOR_PRECENDENCE[Separators.comma.value.value])
+            self.advance()
+            return ValueNode(ProductTypeLiteral(values))
+
+        self.rollback()
+        self.error(SyntaxError.expression_expected, self.peak)
+        return None
+
+    def parse_infix(self, left: ExpressionNode) -> Optional[ExpressionNode]:
+        token = self.peak
+        self.advance()
+
+        if token == Separators.lpa.value: # function call
+            return self.make_function_call(left)
+
+        elif token == Operators.dot.value: # attribute access
+            if self.peak.tt != TT.IDENTIFIER:
+                self.error(SyntaxError.identifier_expected, self.peak)
+                return None
+            right = VariableNode(self.peak)
+            return DotOperatorNode(token, left, right)
+
+        elif token == Separators.colon.value: # name define
+            return self.name_define_statement(left)
+
+        elif token == Operators.fn.value:
+            return self.func_literal(left)
+
+        elif token == Separators.lbr.value:   # indexing
+            return self.index(left)
+
+        elif token == Operators.assign.value:
+            right = self.expression(precedence=OPERATOR_PRECENDENCE[token.value])
+            if right is None:
+                return None
+            return AssignNode(left, right)
+
+        elif token.value not in OPERATOR_PRECENDENCE:
             return None
 
-        ast = make_ast()
-        if ast is None:
+        right = self.expression(precedence=OPERATOR_PRECENDENCE[token.value])
+        if right is None:
             return None
+        return BinOpNode(token, left, right)
 
-        return ast
+    def make_function_call(self, function: ExpressionNode) -> Optional[FuncCallNode]:
+        args = self.repeat_until_symbol(Separators.rpa.value.value, Parser.expression, SyntaxError.expression_expected,
+                                            OPERATOR_PRECENDENCE[Separators.comma.value.value])
+        self.advance()
+        return FuncCallNode(function.repr_token, function, tuple(args))
 
-    def make_index(self, operator_stack: list[Token]) -> Optional[ExpressionNode]:
+    def index(self, left) -> Optional[IndexOperatorNode]:
         """
         Parses the next expression until the end of indexing was found.
 
         If no expression is found, or more than 1 expression is found, then an error is detected.
 
-        :param operator_stack: list from the calling function (``self.expression()``)
+        :param left: ExpressionNode to be indexed
         :return: ExpressionNode or None if an error occurred
         """
+        tok = self.last
 
-        self.peak.tt = TT.OPERATOR  # changing its status to operator
-        self.peak.value = '[]'
-        operator_stack.append(self.peak)
-        self.advance()
+        index = self.expression()
 
-        index = self.repeat_until_symbol(Separators.rbr.value, Parser.expression, SyntaxError.expression_expected)
+        return IndexOperatorNode(tok, left, index)
 
-        if len(index) == 0:
+    # types
+
+    def type(self, precedence=-1) -> Optional[Type]:
+        left = self.type_prefix()
+        if left is None:
             return None
 
-        if len(index) > 1:
-            self.error(SyntaxError.cannot_index_multiple, index[1].repr_token)  # error but accept the first expression
+        t = left
 
-        return index[0]
+        while self.peak.value in TYPE_OP_PRECEDENCE and (TYPE_OP_PRECEDENCE[self.peak.value] > precedence or
+                 (self.peak.value in RIGHT_ASSOCIATIVE_OPERATORS and TYPE_OP_PRECEDENCE[self.peak.value] == precedence)):
+
+            t = self.type_infix(left)
+            if t is not None:
+                left = t
+
+        while self.peak.value in END_OF_EXPRESSION:
+            self.advance()
+
+        return t
+
+    def type_prefix(self) -> Optional[Type]:
+        tok = self.peak
+        self.advance()
+
+        if tok.tt == TT.LITERAL:
+            assert tok == Types.void.value
+            return VoidType()
+
+        elif tok.tt == TT.IDENTIFIER:
+            return Type(tok)
+
+        elif tok.value in UNARY_OPERATORS:
+            t = self.type(precedence=OPERATOR_PRECENDENCE[tok.value])
+            if t is None:
+                return None
+            return # We don't have any unary operators for types
+
+        elif tok == Separators.lpa.value:
+            t = self.type()
+            if t is None:
+                return None
+            self.advance()
+            return t
+
+        elif tok == Separators.lbr.value:  # array type
+            start_tok = self.peak
+            t = self.repeat_until_symbol(Separators.rbr.value.value, Parser.type, SyntaxError.type_expected,
+                                         OPERATOR_PRECENDENCE[Separators.lbr.value.value])
+
+            if len(t) == 0:
+                self.error(SyntaxError.expression_expected, start_tok)
+                return None
+
+            if len(t) > 1:
+                self.error(SyntaxError.symbol_expected, t[1].repr_token, Separators.lbr.value.value)
+                # error but accept the first expression
+
+            self.advance()
+            return ArrayType(t[0])
+
+        self.rollback()
+        self.error(SyntaxError.type_expected, self.peak)
+        return None
+
+    def type_infix(self, left: Type) -> Optional[Type]:
+        t = self.peak
+
+        if t == Separators.comma.value:
+            return self.tuple_type(left)
+
+        elif t == Separators.lbr.value:
+            generics = []
+            while self.peak != Separators.rpa.value:
+                t = self.type(precedence=OPERATOR_PRECENDENCE[Separators.comma.value.value])
+                if t is None:
+                    return None
+                generics.append(t)
+            # left.generics = generics  # TODO: remove comment when generics are added
+            return
+
+        elif t == Operators.fn.value:
+            return self.func_type(left)
+
+        elif t == Operators.opt.value:
+            pass    # TODO
+
+        elif t.value not in OPERATOR_PRECENDENCE:
+            return None
+
+        # self.type(precedence=OPERATOR_PRECENDENCE[t.value])
+        # later supporting | for in place sum types?
+        return None
+
+    def tuple_type(self, left) -> Optional[TupleType]:
+        types = [left]
+        while self.peak == Separators.comma.value:
+            self.advance()
+            t = self.type(OPERATOR_PRECENDENCE[Separators.comma.value.value])
+            if t is not None:
+                types.append(t)
+
+        return TupleType(types)
+
+    def func_type(self, left: Type) -> Optional[FunctionType]:
+        tok = self.peak
+        self.advance()
+        right = self.type(precedence=OPERATOR_PRECENDENCE[Operators.fn.value.value])
+        if right is None:
+            self.error(SyntaxError.type_expected, tok)
+            return None
+
+        return FunctionType(left, right)
+
+    # defines
+
+    def name_define_statement(self, name: ExpressionNode) -> Optional[NameDefineNode]:
+        """
+        Parses the next statement (that does not start with a keyword) without knowing what kind of statement it is.
+        The difference is spotted on how the statement goes.
+
+        - It is a func_define if: IDENTIFIER [:] fn Type
+        - It is a type_define if: IDENTIFIER [:] type Type
+        - It is a macro_define if: IDENTIFIER [:] macro
+        - It is a var_define if not the above: IDENTIFIER [:] Type
+
+        :return: var_define_statement | func_define_statement | None if an expression/error occurred
+        """
+
+        if not isinstance(name, VariableNode):
+            self.error(SyntaxError.identifier_expected, name.repr_token)
+            return None
+
+        # type inference?
+
+        if self.peak == Keywords.fn.value:  # it's a function
+            self.advance()
+            return self.func_define_statement(name)
+
+        elif self.peak == Keywords.type.value:  # it's a typedef
+            self.advance()
+            return self.type_define_statement(name)
+
+        elif self.peak == Keywords.macro.value:  # it's a macro
+            self.advance()
+            return self.macro_define_statement(name)
+
+        # it's not using special syntax to define a new name, so it can be any variable type
+        t = self.type()
+        if t is None:
+            return None
+
+        return self.var_define_statement(name, t)
+
+    def var_define_statement(self, name: VariableNode, var_type: Type) -> Optional[VarDefineNode]:
+        """
+        Parses the next variable declaration statement and returns its Node
+
+        var_define_statement : identifier ":" type [ "=" expression ]
+
+        :return: VarAssignNode or None if an error occurred
+        """
+
+        if self.peak != Operators.assign.value:
+            return VarDefineNode(name.repr_token, var_type, name)
+
+        self.advance()
+        tok = self.peak
+        val = self.expression()
+
+        if val is None:
+            self.error(SyntaxError.expression_expected, tok)
+            return None
+
+        return VarDefineNode(name.repr_token, var_type, name, val)
+
+    def func_define_statement(self, name: VariableNode) -> Optional[FuncDefineNode]:
+        """
+        Parses the next function declaration until its end is found, and returns its Node
+
+        :return: FuncDefineNode or None if an error occurred
+        """
+
+        if self.peak != Operators.assign.value:
+            self.error(SyntaxError.symbol_expected, self.peak, Operators.assign.value.value)
+            return None
+
+        self.advance()
+        tok = self.peak
+        func = self.expression()
+        if func is None:
+            return None
+
+        if not isinstance(func.repr_token, FunctionLiteral):
+            self.error(SyntaxError.func_literal_expected, tok)
+            return None
+
+        if isinstance(func, ScopeNode):
+            func = IsolatedScopeNode.new_from_old(func)     # casting down scope node to func body node aka isolated
+
+        return FuncDefineNode(name, func)
+
+    def type_define_statement(self, name: VariableNode) -> Optional[TypeDefineNode]:
+        """
+        Parses the next type declaration until its end is found, and returns its Node
+        :param name: name of the new type
+        :return: TypeDefineNode or None if an error occurred
+        """
+
+        if self.peak != Operators.assign.value:
+            self.error(SyntaxError.symbol_expected, self.peak, Operators.assign.value.value)
+            return None
+
+        self.advance()
+
+        if self.peak != Separators.lcb.value:  # type alias
+            t = self.type()
+            if t is None:
+                return None
+            return TypeAliasDefineNode(name, t)
+
+        self.advance()
+        if self.peak == Operators.b_or.value:  # accepting the first one for stylishness
+            self.advance()
+            return self.sum_type(name)
+
+        if self.peak.tt != TT.IDENTIFIER:
+            self.error(SyntaxError.identifier_expected, self.peak)
+            return None
+
+        if self.preview() != Separators.colon.value or self.preview(2) == Types.type.value.name:  # it's a sum type
+            return self.sum_type(name)
+
+        fields = self.repeat_until_symbol(Separators.rcb.value.value, Parser.field_define, SyntaxError.declaration_expected)
+        self.advance()
+        return TypeDefineNode(name, fields)
+
+    def field_define(self) -> Optional[VarDefineNode]:
+        name = self.peak
+        if name.tt != TT.IDENTIFIER:
+            return None
+
+        self.advance()
+
+        if self.peak == Separators.colon.value:
+            self.advance()
+        else:
+            pass  # type inference
+
+        t = self.type()
+        if t is None:
+            return None
+
+        # return self.var_define_statement(name, t)     # No default value for params
+        return VarDefineNode(name, t, VariableNode(name))
+
+    def sum_type(self, name: VariableNode) -> Optional[SumTypeDefineNode]:
+        def variant() -> Optional[TypeDefineNode]:
+            if self.peak.tt != TT.IDENTIFIER:
+                return None
+            variant_name = VariableNode(self.peak)
+            self.advance()
+
+            if self.peak == Separators.colon.value and self.preview() == Types.type.value:
+                self.advance(2)
+
+            if self.peak == Operators.b_or.value or self.peak == Separators.rcb.value:   # no size variant
+                return TypeDefineNode(variant_name, [])
+
+            return self.type_define_statement(variant_name)
+
+        variants = []
+        while self.peak != Separators.rcb.value:
+            v = variant()
+            if v is not None:
+                variants.append(v)
+
+            if self.peak == Operators.b_or.value:
+                self.advance()
+
+        self.advance()
+        return SumTypeDefineNode(name, variants)
+
+    def macro_define_statement(self, name: VariableNode) -> Optional[MacroDefineNode]:
+        """
+        Parses the next macro definition until its end is found, and returns its Node
+        :return: MacroDefineNode or None if an error occurred
+        """
+
+        if self.peak != Operators.assign.value:
+            self.error(SyntaxError.symbol_expected, self.peak, Operators.assign.value.value)
+            return None
+        self.advance()
+
+        expression = self.expression()
+        if expression is None:
+            self.error(SyntaxError.expression_expected, self.peak)
+            return None
+
+        return MacroDefineNode(name.repr_token, name, expression)
+
+    # keywords
 
     def while_statement(self) -> Optional[WhileNode]:
         """
@@ -495,342 +657,36 @@ class Parser:
 
         return SkipNode(start, value)
 
-    def make_type(self) -> Optional[Type]:
-        """
-        Parses the next type and returns it.
+    # literals
 
-        Generics specified between [] will be added as part of the type.
-
-        type : 'null'
-            | identifier
-            | '(' (type)* ')'
-            | '[' type ']'
-            | type -> type
-
-        :return: Type or None if an error occurred
-        """
-
-        t = None
-        if self.peak == Types.type.value.name:  # it's a typedef
-            t = Type(self.peak)
-            self.advance()
-
-        elif self.peak.tt == TT.LITERAL and self.peak.value is None:  # dealing with the null special case
-            t = Type(self.peak)
-            self.advance()
-
-        elif self.peak.tt == TT.IDENTIFIER:     # it's a type
-            name = self.peak
-            if self.preview() == Separators.lbr.value:
-                self.advance(2)
-                generics = []
-                while self.peak != Separators.rpa.value:
-                    t = self.make_type()
-                    if t is None:
-                        return None
-                    generics.append(t)
-                # t = Type(name, generics)  # TODO: remove comment when generics are added
-                t = Type(name)
-            else:
-                t = Type(name)
-            self.advance()
-
-        elif self.peak == Separators.lpa.value:     # tuple
-            self.advance()
-            types: list[Type] = []
-            while self.peak != Separators.rpa.value:
-                t = self.make_type()
-                if t is None:
-                    return None
-                types.append(t)
-            self.advance()
-
-            t = TupleType(types)
-
-        elif self.peak == Separators.lbr.value:     # array also has alternative form
-            self.advance()
-            t = self.make_type()
-            if t is None or self.peak != Separators.rbr.value:
-                return None
-            self.advance()
-            t = ArrayType(t)
-
-        else:
-            return None     # no correct type notation found
-
-        if self.peak == Operators.opt.value:
-            # t = Type(Token(TT.IDENTIFIER, 'Opt', self.peak.start, self.peak.end, self.peak.line), [t]) # TODO: remove comment when generics are added
-            t = Type(Token(TT.IDENTIFIER, 'Opt', self.peak.start, self.peak.end, self.peak.line))
-            self.advance()
-
-        if self.peak == Operators.fn.value:     # function
-            self.advance()
-            ret_type = self.make_type()     # functions are right associative
-            if ret_type is None:
-                return None
-            return FunctionType(t, ret_type)
-
-        return t
-
-    def make_name_define_statement(self) -> Optional[NameDefineNode]:
-        """
-        Parses the next statement (that does not start with a keyword) without knowing what kind of statement it is.
-        The difference is spotted on how the statement goes.
-
-        - It is a func_define if: IDENTIFIER [:] fn Type
-        - It is a type_define if: IDENTIFIER [:] type Type
-        - It is a macro_define if: IDENTIFIER [:] macro
-        - It is a var_define if not the above: IDENTIFIER [:] Type
-
-        :return: var_define_statement | func_define_statement | None if an expression/error occurred
-        """
-
-        name = self.peak
-        if name.tt != TT.IDENTIFIER:
+    def func_literal(self, left) -> Optional[ValueNode]:
+        tok = self.peak
+        right = self.expression()
+        if right is None:
+            self.error(SyntaxError.expression_expected, tok)
             return None
 
-        self.advance()
-
-        if self.peak == Separators.colon.value:
-            self.advance()
-        else:
-            pass  # type inference
-
-        if self.peak == Keywords.fn.value:  # it's a function
-            self.advance()
-            return self.func_define_statement(name)
-
-        elif self.peak == Keywords.type.value:  # it's a typedef
-            self.advance()
-            return self.type_define_statement(name)
-
-        elif self.peak == Keywords.enum.value:  # it's a enum
-            self.advance()
-            return self.enum_define_statement(name)
-
-        elif self.peak == Keywords.macro.value:  # it's a macro
-            self.advance()
-            return self.macro_define_statement(name)
-
-        else:  # it's not using special syntax to define a new name, so it can be any variable type
-            t = self.make_type()
-            if t is None:
-                return None
-
-            return self.var_define_statement(name, t)
-
-    def make_parameter_define(self) -> Optional[VarDefineNode]:
-        name = self.peak
-        if name.tt != TT.IDENTIFIER:
-            return None
-
-        self.advance()
-
-        if self.peak == Separators.colon.value:
-            self.advance()
-        else:
-            pass    # type inference
-
-        t = self.make_type()
-        if t is None:
-            return None
-
-        # return self.var_define_statement(name, t)     # No default value for params
-        return VarDefineNode(name, t, VariableNode(name))
-
-    def var_define_statement(self, name: Token, var_type: Type) -> Optional[VarDefineNode]:
-        """
-        Parses the next variable declaration statement and returns its Node
-
-        var_define_statement : 'var' type identifier
-                             | 'var' type var_assign_statement
-
-        :return: VarAssignNode or None if an error occurred
-        """
-
-        if self.peak != Operators.assign.value:
-            return VarDefineNode(name, var_type, VariableNode(name))
-        else:
-            eq_symbol = self.peak
-            self.advance()
-            value = self.expression()
-
-            if isinstance(value, ExpressionNode):
-                return VarDefineNode(name, var_type, VariableNode(name), value)
-
-            else:
-                self.error(SyntaxError.symbol_expected, eq_symbol, '=')
-        return None
-
-    def var_assign_statement(self, node1, node2, tok) -> Optional[ExpressionNode]:
-        """
-        Parses the next variable assignment and returns its Node.
-        It expands operate and assign operations such as ``+=``.
-
-        var_assign_statement : identifier '=' expression
-
-        :param node1: node containing the variable to be assigned the value to
-        :param node2: node containing the value to be assigned to the variable
-        :param tok: the assign token to be used to construct the resulting Node
-        :return: AssignNode or None if an error occurred
-        """
-        if not isinstance(node1, VariableNode):
-            self.error(SyntaxError.cannot_assign_to_non_var, node1.repr_token, node1.repr_token.value)
-            return None
-
-        if tok.value == '=':
-            return AssignNode(node1, node2)
-        else:
-            tok.value = tok.value[:-1]
-            return AssignNode(node1, BinOpNode(tok, node1, node2))
-
-    def func_define_statement(self, name: Token) -> Optional[FuncDefineNode]:
-        """
-        Parses the next function declaration until its end is found, and returns its Node
-
-        :return: FuncDefineNode or None if an error occurred
-        """
-
-        params: list[NameDefineNode] = []
-
-        if self.peak == Separators.lpa.value:
-            self.advance()
-            while self.peak != Separators.rpa.value:
-                param = self.make_parameter_define()
-                if param is not None:
-                    params.append(param)
-            self.advance()
-
-            if len(params) == 0:
-                param_type = copy(Types.void.value)
-            elif len(params) == 1:
-                param_type = params[0].type
-            else:
-                param_type = TupleType([p.type for p in params])
-
-        elif self.peak == Types.void.value.name:
-            param_type = Type(self.peak) # void
-            self.advance()
-        else:
-            self.error(SyntaxError.type_expected, self.peak)
-            return None
-
-        if self.peak == Operators.fn.value:
-            self.advance()
-        else:
-            self.error(SyntaxError.symbol_expected, self.peak, Operators.fn.value)
-            return None
-
-        index = self.i
-
-        if self.peak == Types.null.value.name:
-            ret_param_type = Type(self.peak) # null
-            self.advance()
-        elif self.peak == Separators.lpa.value and self.preview() == Separators.rpa.value:  # void
-            ret_param_type = copy(Types.void.value)
-            self.advance(2)
-        else:
-            ret_param = self.make_parameter_define()
-
-            if ret_param is None:
-                self.i = index - 1  # rollback to before the ret_type
-                self.advance()
-                return None
-            ret_param_type = ret_param.type
-
-        func_type: FunctionType = FunctionType(param_type, ret_param_type)
-
+        tok = self.peak
         body = self.statement()
         if body is None:
+            self.error(SyntaxError.statement_expected, tok)
             return None
 
-        if isinstance(body, ScopeNode):
-            body = IsolatedScopeNode.new_from_old(body)     # casting down scope node to func body node aka isolated
+        func = FunctionLiteral(left, right, body)
 
-        return FuncDefineNode(VariableNode(name), func_type, tuple(params), ret_param_type, body)
+        return ValueNode(func)
 
-    def type_define_statement(self, name: Token) -> Optional[TypeDefineNode]:
-        """
-        Parses the next type declaration until its end is found, and returns its Node
-        :param name: name of the new type
-        :return: TypeDefineNode or None if an error occurred
-        """
-
-        if self.peak != Operators.assign.value:
-            self.error(SyntaxError.symbol_expected, self.peak, Operators.assign.value)
-            return None
-
-        if self.peak == Separators.lcb.value:   # defined with fields
+    def tuple_literal(self, left) -> Optional[ValueNode]:
+        values = [left]
+        while self.peak.value == Separators.comma.value:
             self.advance()
-            fields = self.repeat_until_symbol(Separators.rcb.value, Parser.make_parameter_define, SyntaxError.declaration_expected)
-            return TypeDefineNode(VariableNode(name), fields)
+            t = self.expression(OPERATOR_PRECENDENCE[Separators.comma.value.value])
+            if t is not None:
+                values.append(t)
 
-        else:   # type alias
-            t = self.make_type()
-            if t is None:
-                return None
+        return ValueNode(TupleLiteral(values))
 
-            return TypeAliasDefineNode(VariableNode(name), t)
-
-    def enum_define_statement(self, name: Token) -> Optional[SumTypeDefineNode]:
-        """
-        Parses the next enum declaration until its end is found, and returns its Node
-        :param name: name of the enum type
-        :return: SumTypeDefineNode or None if an error occurred
-        """
-        if self.peak != Operators.assign.value:
-            self.error(SyntaxError.symbol_expected, self.peak, Operators.assign.value)
-            return None
-
-        self.advance()
-
-        if self.peak != Separators.lcb.value:
-            self.error(SyntaxError.symbol_expected, self.peak, Separators.lcb.value)
-            return None
-
-        self.advance()
-        subtypes = self.repeat_until_symbol(Separators.rcb.value.value, Parser.make_subtype_define, SyntaxError.typedef_expected)
-
-        return SumTypeDefineNode(VariableNode(name), subtypes)
-
-    def make_subtype_define(self) -> Optional[TypeDefineNode]:
-        name = self.peak
-        if name.tt != TT.IDENTIFIER:
-            return None
-
-        self.advance()
-
-        if self.peak != Separators.colon.value:     # enum variant with no data
-            return TypeDefineNode(VariableNode(name), [])
-
-        self.advance()
-        t = self.make_type()
-        if t is None:
-            return None
-
-        return TypeAliasDefineNode(VariableNode(name), t)
-
-    def macro_define_statement(self, name: Token) -> Optional[MacroDefineNode]:
-        """
-        Parses the next macro definition until its end is found, and returns its Node
-        :return: MacroDefineNode or None if an error occurred
-        """
-
-        if self.peak != Operators.assign.value:
-            self.error(SyntaxError.symbol_expected, self.peak, Operators.assign.value)
-            return None
-
-        self.advance()
-
-        value = self.expression()
-
-        if value is None:
-            self.error(SyntaxError.expression_expected, self.peak)
-            return None
-
-        return MacroDefineNode(name, VariableNode(name), value)
-
-    def array_literal(self) -> ValueNode:
+    def array_literal(self) -> Optional[ValueNode]:
         """
         Parses and constructs an Array Literal from the next tokens and returns it.
 
@@ -839,54 +695,13 @@ class Parser:
         :return: ValueNode array literal
         """
 
-        start_tok = self.peak
+        elements = self.repeat_until_symbol(Separators.lbr.value.value, Parser.expression,
+                                            SyntaxError.expression_expected, OPERATOR_PRECENDENCE[Separators.comma.value.value])
         self.advance()
-        elements = self.repeat_until_symbol(']', Parser.expression, SyntaxError.expression_expected)
+        if len(elements) == 0:
+            return None
 
-        return ValueNode(Literal(elements, copy(Types.array.value), start_tok.start, self.peak.end, start_tok.line))
-
-    def dict_set_literal(self) -> ValueNode:
-        """
-        Parses and constructs either a Dict or Set Literal from the next tokens and returns it, correctly identifying
-        which one being defined. Empty set will result in empty dict
-
-        dict : '{' {expression ':' expression} '}'
-
-        set : '{' {expression} '}'
-
-        :return: ValueNode dict or set literal
-        """
-        start_tok = self.peak
-        self.advance()
-        is_dict = True
-
-        rollback_index = self.i
-
-        elements = self.repeat_until_symbol('}', Parser.expression, SyntaxError.expression_expected)
-
-        if len(elements) > 0:   # detecting if its dict or set
-            i = self.i
-            self.i = rollback_index-1   # going 1 extra backwards to do advance afterwards
-            self.advance()  # updates all variables needed
-
-            error_number = len(self.errors)
-            self.expression()       # this might create errors
-            while len(self.errors) > error_number:
-                self.errors.pop()   # this will remove duplicate errors generated
-                self.expression()
-
-            is_dict = self.peak == Separators.colon.value
-
-            self.i = i
-
-        if is_dict:
-            dictionary = {}
-            for key, value in zip(*[iter(elements)] * 2):   # did some magic here I can't explain, stackoverflow can xD
-                dictionary[key] = value
-
-            return ValueNode(Literal(dictionary, copy(Types.dict.value), start_tok.start, self.peak.end, start_tok.line))
-        else:
-            return ValueNode(Literal(set(elements), copy(Types.set.value), start_tok.start, self.peak.end, start_tok.line))
+        return ValueNode(ArrayLiteral(elements))
 
     # utils
 
@@ -944,6 +759,21 @@ class Parser:
             self.peak = self.tokens[self.i]
         else:
             self.peak = Separators.eof.value
+
+    def rollback(self, i=1) -> None:
+        """
+        Moves the index to i tokens behind and updates all state variables
+
+        :param i: number of tokens to rollback
+        """
+        self.i -= i
+        if self.i > 0:
+            self.last = self.tokens[self.i - 1]
+        else:
+            self.last = None
+            self.i = 0
+        self.peak = self.tokens[self.i]
+        return
 
     def preview(self, i=1) -> Token:
         """
