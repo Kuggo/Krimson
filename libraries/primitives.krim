@@ -1,335 +1,181 @@
 // TODO add all the implementation for the methods if necessary
-// TODO remake the file with the new syntax
 
 
-bool: type {}
+bool: type = {}
 
-bool __or__(bool other) {
+__or__: (self: bool, other: bool) -> out: bool
 
-}
+__and__: (self: bool, other: bool) -> out: bool
 
-bool __and__(bool other) {
+__xor__: (self: bool, other: bool) -> out: bool
 
-}
+__not__: (self: bool) -> out: bool
 
-bool __xor__(bool other) {
 
-}
 
-bool __not__() {
+nat: type = {}  // aka uint
 
-}
+__add__: (self: nat, other: nat) -> out: nat
 
-nat {     // aka uint
-    nat _;
+__sub__: (self: nat, other: nat) -> out: nat
 
-    nat __add__(nat other) {
+__shr__: (self: nat, amount: nat) -> out: nat
 
-    }
+__shl__: (self: nat, amount: nat) -> out: nat
 
-    nat __sub__(nat other) {
+__mlt__: (self: nat, other: nat) -> out: nat
 
-    }
+__div__: (self: nat, other: nat) -> out: nat
 
-    int __inc__() {
+__neg__: (self: nat) -> out: nat
 
-    }
+__bor__: (self: nat, other: nat) -> out: nat
 
-    int __dec__() {
+__band__: (self: nat, other: nat) -> out: nat
 
-    }
+__bxor__: (self: nat, other: nat) -> out: nat
 
-    nat __shr__(nat amount) {
+__bnot__: (self: nat) -> out: nat
 
-    }
+__gt__: (self: nat, other: nat) -> out: bool
 
-    nat __shl__(nat amount) {
+__gte__(self: nat, other: nat) -> out: bool
 
-    }
+__lt__(self: nat, other: nat) -> out: bool
 
-    nat __mlt__(nat other) {
+__lte__(self: nat, other: nat) -> out: bool
 
-    }
+__dif__(self: nat, other: nat) -> out: bool
 
-    nat __div__(nat other) {
+__equ__(self: nat, other: nat) -> out: bool
 
-    }
 
-    nat __neg__() {
 
-    }
+int: type = {}
 
-    nat __bor__(nat other) {
+__add__: (self: int, other: int) -> out: int
 
-    }
+__sub__: (self: int, other: int) -> out: int
 
-    nat __band__(nat other) {
+__shr__: (self: int, amount: nat) -> out: int
 
-    }
+__shl__: (self: int, amount: nat) -> out: int
 
-    nat __bxor__(nat other) {
+__mlt__: (self: int, other: int) -> out: int
 
-    }
+__div__: (self: int, other: int) -> out: int
 
-    nat __bnot__() {
+__neg__: (self: int, other: int) -> out: int
 
-    }
+__bor__: (self: int, other: int) -> out: int
 
-    bool __gt__(nat other) {
+__band__: (self: int, other: int) -> out: int
 
-    }
+__bxor__: (self: int, other: int) -> out: int
 
-    bool __gte__(nat other) {
+__bnot__: (self: int, other: int) -> out: int
 
-    }
+__gt__: (self: int, other: int) -> out: bool
 
-    bool __lt__(nat other) {
+__gte__: (self: int, other: int) -> out: bool
 
-    }
+__lt__: (self: int, other: int) -> out: bool
 
-    bool __lte__(nat other) {
+__lte__: (self: int, other: int) -> out: bool
 
-    }
+__dif__: (self: int, other: int) -> out: bool
 
-    bool __dif__(nat other) {
+__equ__: (self: int, other: int) -> out: bool
 
-    }
 
-    bool __equ__(nat other) {
+frac: type = {}    // aka fixed. To be used instead of floats
 
-    }
-}
+__add__: (self: frac, other: frac) -> out: frac
 
-int {
-    int _;
+__sub__: (self: frac, other: frac) -> out: frac
 
-    int __add__(int other) {
+__shr__: (self: frac, amount: nat) -> out: frac
 
-    }
+__shl__: (self: frac, amount: nat) -> out: frac
 
-    int __sub__(int other) {
+__mlt__: (self: frac, other: frac) -> out: frac
 
-    }
+__div__: (self: frac, other: frac) -> out: frac
 
-    int __inc__() {
+__neg__: (self: frac) -> out: frac
 
-    }
+__gt__: (self: frac, other: frac) -> out: bool
 
-    int __dec__() {
+__gte__: (self: frac, other: frac) -> out: bool
 
-    }
+__lt__: (self: frac, other: frac) -> out: bool
 
-    int __shr__(nat amount) {
+__lte__: (self: frac, other: frac) -> out: bool
 
-    }
+__dif__: (self: frac, other: frac) -> out: bool
 
-    int __shl__(nat amount) {
+__equ__: (self: frac, other: frac) -> out: bool
 
-    }
 
-    int __mlt__(int other) {
 
-    }
+char: type = {}
 
-    int __div__(int other) {
+__add__: (self: char, other: char) -> out: str
 
-    }
+__mlt__: (self: char, amount: int) -> out: str
 
-    int __neg__() {
+__gt__: (self: char, other: char) -> out: bool
 
-    }
+__gte__: (self: char, other: char) -> out: bool
 
-    int __bor__(int other) {
+__lt__: (self: char, other: char) -> out: bool
 
-    }
+__lte__: (self: char, other: char) -> out: bool
 
-    int __band__(int other) {
+__dif__: (self: char, other: char) -> out: bool
 
-    }
+__equ__: (self: char, other: char) -> out: bool
 
-    int __bxor__(int other) {
 
-    }
 
-    int __bnot__() {
+array: type = {}
 
-    }
+__add__: (self: array, other: array) -> out: array
 
-    bool __gt__(int other) {
+__add__: (self: array, other: T) -> out: array
 
-    }
+__get__: (nat index) -> out: T
 
-    bool __gte__(int other) {
+__set__: (nat index, T value) -> ()
 
-    }
+__dif__: (self: array, other: array) -> out: bool
 
-    bool __lt__(int other) {
+__equ__: (self: array, other: array) -> out: bool
 
-    }
 
-    bool __lte__(int other) {
 
-    }
-
-    bool __dif__(int other) {
-
-    }
-
-    bool __equ__(int other) {
-
-    }
-}
-
-frac {    // aka fixed. To be used instead of floats
-    frac _;
-
-    frac __add__(frac other) {
-
-    }
-
-    frac __sub__(frac other) {
-
-    }
-
-    int __inc__() {
-
-    }
-
-    int __dec__() {
-
-    }
-
-    frac __shr__(nat amount) {
-
-    }
-
-    frac __shl__(nat amount) {
-
-    }
-
-    frac __mlt__(frac other) {
-
-    }
-
-    frac __div__(frac other) {
-
-    }
-
-    frac __neg__() {
-
-    }
-
-    bool __gt__(frac other) {
-
-    }
-
-    bool __gte__(frac other) {
-
-    }
-
-    bool __lt__(frac other) {
-
-    }
-
-    bool __lte__(frac other) {
-
-    }
-
-    bool __dif__(frac other) {
-
-    }
-
-    bool __equ__(frac other) {
-
-    }
-}
-
-char {
-    char _;
-
-    char __add__(char other) {}
-
-    str __mlt__(cint amount) {}
-
-    bool __gt__(char other) {}
-
-    bool __gte__(char other) {}
-
-    bool __lt__(char other) {}
-
-    bool __lte__(char other) {}
-
-    bool __dif__(char other) {}
-
-    bool __equ__(char other) {}
-}
-
-array[T] {
-    array[T] __add__(array[T] other) {}
-
-    array[T] __add__(T other) {}
-
-    T __get__(nat i) {}
-
-    null __set__(nat i) {}
-
-    bool __dif__(array other) {}
-
-    bool __equ__(array other) {}
-}
-
-str {  // until interfaces and inheritance comes, this will have its own type
-    char __get__(nat index) {}
-
-    str __add__(str other) {}
-
-    str __add__(char other) {}
-
-    str __mlt__(int amount) {}
-
-    bool __gt__(str other) {}
-
-    bool __gte__(str other) {}
-
-    bool __lt__(str other) {}
-
-    bool __lte__(str other) {}
-
-    bool __dif__(str other) {}
-
-    bool __equ__(str other) {}
-}
+str: type = array[char]
 
 /*
-set[T] {
-    set[T] __add__(set[T] other) {}
+__get__: (self: str, index: nat) -> out: char
 
-    set[T] __add__(T other) {}
+__add__: (self: str, c: char) -> out: str
 
-    bool __dif__(set other) {}
+__add__: (self: str, other: str) -> out: str
 
-    bool __equ__(set other) {}
-}
+__mlt__: (self: str, amount: nat) -> out: str
 
-dict[K, V] {
-    dict[T] __add__(dict[T] other) {}
+__gt__: (self: str, other: str) -> out: bool
 
-    T __get__(nat i) {}
+__gte__: (self: str, other: str) -> out: bool
 
-    null __set__(nat i) {}
+__lt__: (self: str, other: str) -> out: bool
 
-    bool __dif__(dict other) {}
+__lte__: (self: str, other: str) -> out: bool
 
-    bool __equ__(dict other) {}
-}
+__dif__: (self: str, other: str) -> out: bool
 
-ref[T] {
-    ref _;
-
-    T __deref__() {
-
-    }
-}
+__equ__: (self: str, other: str) -> out: bool
 */
 
 
