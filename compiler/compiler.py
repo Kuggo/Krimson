@@ -1,6 +1,5 @@
 from sys import argv, stdout, stderr
 import os
-import Constants
 from Lexer import *
 from Parser import *
 
@@ -29,10 +28,10 @@ def main():
     else:
         dest = stdout
 
-    Constants.global_vars.PROGRAM_LINES = source.split('\n')
-    Constants.global_vars.FILE_NAME = src_name
+    global_vars = Globals(src_name, source.split('\n'))
+    # Object that holds the variables related to the input code (to be configurable from other modules when compiling)
 
-    lexer = Lexer(source)
+    lexer = Lexer(source, global_vars)
     lexer.tokenize()
 
     if len(lexer.errors) > 0:
@@ -42,7 +41,7 @@ def main():
 
     print(lexer.tokens, file=dest)
 
-    parser = Parser(lexer.tokens)
+    parser = Parser(lexer.tokens, global_vars)
 
     parser.parse()
 
@@ -51,16 +50,13 @@ def main():
             print(err.__repr__(), file=stderr)
         exit(1)
 
-    print(parser.ast)
+    # print(parser.ast)
 
-    exit(0)
-
-    primitives_ctx = get_primitives()
-    context = Context(primitives_ctx)
+    # primitives_ctx = get_primitives()
+    context = Context(global_vars)  # Context(primitives_ctx)
     context.scope_level = 0
 
     ast = parser.ast.update(context, None)
-    parser.ast.alloc_vars(context)  # top level execution needs this
 
     if len(context.errors) > 0:
         for err in context.errors:
@@ -69,16 +65,87 @@ def main():
 
     print(ast)
 
-    ir: list = ast.gen_ir()
+    return
 
-    print(ir)
+
+def test():
+    """Checks if the compiler is working correctly"""
+
+    src = """
+var: int = 1
+var = 2
+
+inc: fn = (i: nat) -> out: nat {
+    out = i + 1
+}
+
+plus1: nat -> nat = inc
+
+Coord: type = (nat, nat)
+
+XY: type = {
+    x: nat
+    y: nat
+}
+
+AllowedOptions: type = {
+  | NoSizeOption
+  | AliasOption = int
+  | TupleOption = (int, int)
+  | ProductOption = {x: int y: int}
+  | EnumInception = {
+      | A
+      | B
+    }
+}
+"""
+
+    global_vars = Globals('testing', src.split('\n'))
+
+    lexer = Lexer(src, global_vars)
+    lexer.tokenize()
+
+    if len(lexer.errors) > 0:
+        for err in lexer.errors:
+            print(err.__repr__(), file=stderr)
+        exit(1)
+
+    assert lexer.tokens == [
+        Token(TT.IDENTIFIER, 'var'), Token(TT.SEPARATOR, ':'), Token(TT.IDENTIFIER, 'int'), Token(TT.OPERATOR, '='), Token(TT.LITERAL, 1),
+        Token(TT.IDENTIFIER, 'var'), Token(TT.OPERATOR, '='), Token(TT.LITERAL, 2),
+        Token(TT.IDENTIFIER, 'inc'), Token(TT.SEPARATOR, ':'), Token(TT.KEYWORD, 'fn'), Token(TT.OPERATOR, '='),
+        Token(TT.SEPARATOR, '('), Token(TT.IDENTIFIER, 'i'), Token(TT.SEPARATOR, ':'), Token(TT.IDENTIFIER, 'nat'), Token(TT.SEPARATOR, ')'), Token(TT.OPERATOR, '->'), Token(TT.IDENTIFIER, 'out'), Token(TT.SEPARATOR, ':'), Token(TT.IDENTIFIER, 'nat'),
+        Token(TT.SEPARATOR, '{'), Token(TT.IDENTIFIER, 'out'), Token(TT.OPERATOR, '='), Token(TT.IDENTIFIER, 'i'), Token(TT.OPERATOR, '+'), Token(TT.LITERAL, 1), Token(TT.SEPARATOR, '}'),
+        Token(TT.IDENTIFIER, 'plus1'), Token(TT.SEPARATOR, ':'), Token(TT.IDENTIFIER, 'nat'), Token(TT.OPERATOR, '->'), Token(TT.IDENTIFIER, 'nat'), Token(TT.OPERATOR, '='), Token(TT.IDENTIFIER, 'inc'),
+        Token(TT.IDENTIFIER, 'Coord'), Token(TT.SEPARATOR, ':'), Token(TT.KEYWORD, 'type'), Token(TT.OPERATOR, '='), Token(TT.SEPARATOR, '('), Token(TT.IDENTIFIER, 'nat'), Token(TT.SEPARATOR, ','), Token(TT.IDENTIFIER, 'nat'), Token(TT.SEPARATOR, ')'),
+        Token(TT.IDENTIFIER, 'XY'), Token(TT.SEPARATOR, ':'), Token(TT.KEYWORD, 'type'), Token(TT.OPERATOR, '='), Token(TT.SEPARATOR, '{'), Token(TT.IDENTIFIER, 'x'), Token(TT.SEPARATOR, ':'), Token(TT.IDENTIFIER, 'nat'), Token(TT.IDENTIFIER, 'y'), Token(TT.SEPARATOR, ':'), Token(TT.IDENTIFIER, 'nat'), Token(TT.SEPARATOR, '}'),
+        Token(TT.IDENTIFIER, 'AllowedOptions'), Token(TT.SEPARATOR, ':'), Token(TT.KEYWORD, 'type'), Token(TT.OPERATOR, '='), Token(TT.SEPARATOR, '{'), Token(TT.OPERATOR, '|'),
+        Token(TT.IDENTIFIER, 'NoSizeOption'), Token(TT.OPERATOR, '|'),
+        Token(TT.IDENTIFIER, 'AliasOption'), Token(TT.OPERATOR, '='), Token(TT.IDENTIFIER, 'int'), Token(TT.OPERATOR, '|'),
+        Token(TT.IDENTIFIER, 'TupleOption'), Token(TT.OPERATOR, '='), Token(TT.SEPARATOR, '('), Token(TT.IDENTIFIER, 'int'), Token(TT.SEPARATOR, ','), Token(TT.IDENTIFIER, 'int'), Token(TT.SEPARATOR, ')'), Token(TT.OPERATOR, '|'),
+        Token(TT.IDENTIFIER, 'ProductOption'), Token(TT.OPERATOR, '='), Token(TT.SEPARATOR, '{'), Token(TT.IDENTIFIER, 'x'), Token(TT.SEPARATOR, ':'), Token(TT.IDENTIFIER, 'int'), Token(TT.IDENTIFIER, 'y'), Token(TT.SEPARATOR, ':'), Token(TT.IDENTIFIER, 'int'), Token(TT.SEPARATOR, '}'), Token(TT.OPERATOR, '|'),
+        Token(TT.IDENTIFIER, 'EnumInception'), Token(TT.OPERATOR, '='), Token(TT.SEPARATOR, '{'), Token(TT.OPERATOR, '|'), Token(TT.IDENTIFIER, 'A'), Token(TT.OPERATOR, '|'), Token(TT.IDENTIFIER, 'B'), Token(TT.SEPARATOR, '}'), Token(TT.SEPARATOR, '}'),
+    ]
+
+    parser = Parser(lexer.tokens, global_vars)
+
+    parser.parse()
+
+    if len(parser.errors) > 0:
+        for err in parser.errors:
+            print(err.__repr__(), file=stderr)
+        exit(1)
+
 
     return
 
 
 def get_primitives() -> Context:
-    with open('../libraries/primitives.krim', 'r') as f:
-        lexer = Lexer(f.read())
+    file_path = os.path.join(os.path.dirname(__file__), '../libraries/primitives.krim')
+    with open(file_path, 'r') as f:
+        source = f.read()
+        global_vars = Globals(file_path, source.split('\n'))
+        lexer = Lexer(source, global_vars)
         lexer.tokenize()
 
         if len(lexer.errors) > 0:
@@ -86,7 +153,7 @@ def get_primitives() -> Context:
                 print(err.__repr__(), file=stderr)
             exit(1)
 
-        parser = Parser(lexer.tokens)
+        parser = Parser(lexer.tokens, global_vars)
         parser.parse()
 
         if len(parser.errors) > 0:
@@ -94,7 +161,7 @@ def get_primitives() -> Context:
                 print(err.__repr__(), file=stderr)
             exit(1)
 
-        context = Context()
+        context = Context(global_vars)
         parser.ast.process_body(context)    # skipping some parts on self.update()
 
     return context

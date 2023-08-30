@@ -23,7 +23,6 @@ class SyntaxError(Enum):
     not_a_func = 'Cannot call "{}"'
     cannot_index_multiple = "Cannot index with multiple values. ']' expected"
     cannot_assign_to_arg = "Cannot assign values to function argument definitions"
-    # class_body_not_a_scope = "Class body must be defined between curly brackets { }"
     declaration_expected = "Declaration statement expected"
     func_literal_expected = "Function literal expected"
 
@@ -34,9 +33,12 @@ class Parser:
     By convention, each function should take care of its tokens and leave it ready for the next function to start
     reading the next token right away"""
 
-    def __init__(self, tokens: list[Token]):
+    def __init__(self, tokens: list[Token], global_vars: Globals):
         self.tokens: list[Token] = tokens + [Separators.rcb.value, Separators.eof.value]
         """the token collection"""
+
+        self.global_vars: Globals = global_vars
+        """Object that holds the variables related to the input code"""
 
         self.i: int = 0
         """index on the token input of the current token"""
@@ -178,6 +180,8 @@ class Parser:
             values = self.repeat_until_symbol(Separators.rcb.value.value, Parser.expression,
                                               SyntaxError.expression_expected, OPERATOR_PRECENDENCE[Separators.comma.value.value])
             self.advance()
+            if len(values) == 0:
+                return None
             return ValueNode(ProductTypeLiteral(values))
 
         self.rollback()
@@ -409,7 +413,7 @@ class Parser:
         """
 
         if self.peak != Operators.assign.value:
-            return VarDefineNode(var_type, name)
+            return VarDefineNode(name, var_type)
 
         self.advance()
         tok = self.peak
@@ -419,7 +423,7 @@ class Parser:
             self.error(SyntaxError.expression_expected, tok.location)
             return None
 
-        return VarDefineNode(var_type, name, val)
+        return VarDefineNode(name, var_type, val)
 
     def func_define_statement(self, name: VariableNode) -> Optional[FuncDefineNode]:
         """
@@ -498,8 +502,7 @@ class Parser:
         if t is None:
             return None
 
-        # return self.var_define_statement(name, t)     # No default value for params
-        return VarDefineNode(t, VariableNode(name))
+        return VarDefineNode(VariableNode(name), t)
 
     def sum_type(self, name: VariableNode) -> Optional[SumTypeDefineNode]:
         def variant() -> Optional[TypeDefineNode]:
@@ -738,7 +741,7 @@ class Parser:
         :param location: the token where it occurred
         :param args: extra arguments for custom error message formatting
         """
-        self.errors.append(Error(error, location, *args))
+        self.errors.append(Error(error, location, self.global_vars, *args))
 
     def advance(self, i=1) -> None:
         """

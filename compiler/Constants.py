@@ -6,17 +6,13 @@ from typing import Optional
 
 class Globals:
     """Class used to be able to set dependable variables from external modules"""
-    def __init__(self):
-        self.FILE_NAME: str = 'IDE'
+    def __init__(self, file_name = 'IDE', program_lines = None):
+        self.FILE_NAME: str = file_name
         """Name of the input file containing krimson code"""
 
-        self.PROGRAM_LINES: list[str] = []
+        self.PROGRAM_LINES: list[str] = program_lines if program_lines is not None else []
         """list containing the input program split between new line separators ``\\n``"""
         return
-
-
-global_vars = Globals()
-"""Object that holds the variables related to the input code (to be configurable from other modules when compiling)"""
 
 
 # constants
@@ -249,11 +245,14 @@ class Error(Exception):
     file where it was detected and any additional information about it.
 
     It gets formatted in a user-friendly way"""
-    def __init__(self, error: Enum, location: FileRange, *args: str):
+    def __init__(self, error: Enum, location: FileRange, global_vars: Globals, *args: str):
         self.e: Enum = error
         """Error enum (LexicalError | SyntaxError | TypeError) containing the message describing the error"""
 
         self.location: FileRange = location
+        """Location of the error on the source code"""
+
+        self.global_vars: Globals = global_vars
 
         self.code_lines: list[str] = self.get_file_lines()
         """Line containing the input krimson code where the error occurred"""
@@ -268,7 +267,7 @@ class Error(Exception):
     def get_file_lines(self) -> list[str]:
         lines = []
         for i in range(self.location.line_start, self.location.line_end + 1):
-            lines.append(global_vars.PROGRAM_LINES[i - 1])
+            lines.append(self.global_vars.PROGRAM_LINES[i - 1])
 
         return lines
 

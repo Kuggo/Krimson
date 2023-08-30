@@ -19,9 +19,12 @@ class Lexer:
     token
     """
 
-    def __init__(self, input_string) -> None:
+    def __init__(self, input_string: str, global_vars: Globals) -> None:
         self.input_string: str = input_string + '    '
         """the string containing the code"""
+
+        self.global_vars: Globals = global_vars
+        """Object that holds the variables related to the input code"""
 
         self.i: int = 0
         """index on the input string of the current char"""
@@ -425,7 +428,7 @@ class Lexer:
         """
 
         loc = FileRange(start - self.line_offset, self.line, end - self.line_offset, self.line)
-        self.errors.append(Error(error, loc, *args))
+        self.errors.append(Error(error, loc, self.global_vars, *args))
         self.advance()
         return
 
