@@ -515,10 +515,12 @@ class IsolatedScopeNode(ScopeNode):
         return self
 
 
+# Type Nodes
+
 class TypeDefineNode(NameDefineNode):
-    def __init__(self, name: VariableNode, fields: list[NameDefineNode]):
+    def __init__(self, name: VariableNode, generics: Optional[list[VarDefineNode | VariableNode | ValueNode]] = None):
         super().__init__(name)
-        self.fields: list[NameDefineNode] = fields
+        self.generics: Optional[list[VarDefineNode | VariableNode | ValueNode]] = generics if generics is not None else []
         return
 
     @staticmethod
@@ -534,6 +536,16 @@ class TypeDefineNode(NameDefineNode):
 
         return self
 
+    def __repr__(self):
+        return f'type {self.name} {self.type}'
+
+
+class ProductTypeDefineNode(TypeDefineNode):
+    def __init__(self, name: VariableNode, fields: list[NameDefineNode], generics = None):
+        super().__init__(name, generics)
+        self.fields: list[NameDefineNode] = fields
+        return
+
     def get_field(self, field_name: str) -> Optional[NameDefineNode]:
         for field in self.fields:
             if field.name.name == field_name:
@@ -546,8 +558,8 @@ class TypeDefineNode(NameDefineNode):
 
 
 class TypeAliasDefineNode(TypeDefineNode):
-    def __init__(self, name: VariableNode, other_type: Type):
-        super().__init__(name, [])
+    def __init__(self, name: VariableNode, other_type: Type, generics = None):
+        super().__init__(name, generics)
         self.other_type: Type = other_type
         return
 
@@ -556,8 +568,8 @@ class TypeAliasDefineNode(TypeDefineNode):
 
 
 class SumTypeDefineNode(TypeDefineNode):
-    def __init__(self, name: VariableNode, subtypes: list[TypeDefineNode]):
-        super().__init__(name, [])
+    def __init__(self, name: VariableNode, subtypes: list[TypeDefineNode], generics = None):
+        super().__init__(name, generics)
         self.name: VariableNode = name
         self.variants: list[TypeDefineNode] = subtypes
         self.type: Type = self.make_type(name, subtypes)
@@ -576,7 +588,7 @@ class SumTypeDefineNode(TypeDefineNode):
 
 class IfNode(Node):
     def __init__(self, repr_tok: Token, condition: ExpressionNode, body: Node):
-        super().__init__(self.location)
+        super().__init__(repr_tok.location)
         self.condition = condition
         self.body = body
         self.else_statement: Optional[ElseNode] = None
@@ -606,7 +618,7 @@ class IfNode(Node):
 
 class ElseNode(Node):
     def __init__(self, repr_tok: Token, body: Node, if_statement: Optional[IfNode]):
-        super().__init__(self.location)
+        super().__init__(repr_tok.location)
         self.body = body
         self.if_statement: Optional[IfNode] = if_statement
         return
@@ -627,7 +639,7 @@ class ElseNode(Node):
 
 class WhileNode(Node):
     def __init__(self, repr_tok: Token, condition: ExpressionNode, body: Node):
-        super().__init__(self.location)
+        super().__init__(repr_tok.location)
         self.condition = condition
         self.body = body
         return
@@ -657,7 +669,7 @@ class WhileNode(Node):
 
 class LoopModifierNode(Node):
     def __init__(self, repr_tok: Token, value: Optional[Token], error: TypeError):
-        super().__init__(self.location)
+        super().__init__(repr_tok.location)
         self.loop: Optional[WhileNode] = None
         self.error: TypeError = error
         if value is None:

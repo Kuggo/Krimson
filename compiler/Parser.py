@@ -25,6 +25,7 @@ class SyntaxError(Enum):
     cannot_assign_to_arg = "Cannot assign values to function argument definitions"
     declaration_expected = "Declaration statement expected"
     func_literal_expected = "Function literal expected"
+    generic_expected = "Generic type/value expected (Needs to be known at compile-time)"
 
 
 class Parser:
@@ -221,6 +222,7 @@ class Parser:
             return AssignNode(left, right)
 
         elif token.value not in OPERATOR_PRECENDENCE:
+            self.rollback()
             return None
 
         right = self.expression(precedence=OPERATOR_PRECENDENCE[token.value])
@@ -246,7 +248,7 @@ class Parser:
         tok = self.last
 
         index = self.expression()
-
+        self.advance()
         return IndexOperatorNode(tok, left, index)
 
     # types
@@ -397,7 +399,7 @@ class Parser:
             return self.macro_define_statement(name)
 
         # it's not using special syntax to define a new name, so it can be any variable type
-        t = self.type()
+        t = self.type(OPERATOR_PRECENDENCE[Separators.colon.value.value])
         if t is None:
             return None
 
@@ -461,30 +463,40 @@ class Parser:
         if self.peak != Operators.assign.value:
             self.error(SyntaxError.symbol_expected, self.peak.location, Operators.assign.value.value)
             return None
-
         self.advance()
+
+        if isinstance(name, IndexOperatorNode): # it has generics
+            if isinstance(name.index, ValueNode) and isinstance(name.index.value, TupleLiteral):
+                generics = name.index.value.values
+            elif isinstance(name.index, ValueNode) or isinstance(name.index, VariableNode):
+                generics = [name.index]
+            else:
+                self.error(SyntaxError.expression_expected, name.index.location)
+                return None
+        else:
+            generics = None
 
         if self.peak != Separators.lcb.value:  # type alias
             t = self.type()
             if t is None:
                 return None
-            return TypeAliasDefineNode(name, t)
+            return TypeAliasDefineNode(name, t, generics)
 
         self.advance()
         if self.peak == Operators.b_or.value:  # accepting the first one for stylishness
             self.advance()
-            return self.sum_type(name)
+            return self.sum_type(name, generics)
 
         if self.peak.tt != TT.IDENTIFIER:
             self.error(SyntaxError.identifier_expected, self.peak.location)
             return None
 
         if self.preview() != Separators.colon.value or self.preview(2) == Types.type.value.name:  # it's a sum type
-            return self.sum_type(name)
+            return self.sum_type(name, generics)
 
         fields = self.repeat_until_symbol(Separators.rcb.value.value, Parser.field_define, SyntaxError.declaration_expected)
         self.advance()
-        return TypeDefineNode(name, fields)
+        return TypeDefineNode(name, generics)
 
     def field_define(self) -> Optional[VarDefineNode]:
         name = self.peak
@@ -504,7 +516,7 @@ class Parser:
 
         return VarDefineNode(VariableNode(name), t)
 
-    def sum_type(self, name: VariableNode) -> Optional[SumTypeDefineNode]:
+    def sum_type(self, name: VariableNode, generics=None) -> Optional[SumTypeDefineNode]:
         def variant() -> Optional[TypeDefineNode]:
             if self.peak.tt != TT.IDENTIFIER:
                 return None
@@ -515,7 +527,7 @@ class Parser:
                 self.advance(2)
 
             if self.peak == Operators.b_or.value or self.peak == Separators.rcb.value:   # no size variant
-                return TypeDefineNode(variant_name, [])
+                return TypeDefineNode(variant_name)
 
             return self.type_define_statement(variant_name)
 
@@ -529,7 +541,7 @@ class Parser:
                 self.advance()
 
         self.advance()
-        return SumTypeDefineNode(name, variants)
+        return SumTypeDefineNode(name, variants, generics)
 
     def macro_define_statement(self, name: VariableNode) -> Optional[MacroDefineNode]:
         """
@@ -673,6 +685,7 @@ class Parser:
 
     def tuple_literal(self, left: ExpressionNode) -> Optional[ValueNode]:
         values = [left]
+        self.rollback()
         while self.peak == Separators.comma.value and self.preview() != Separators.rbr.value:
             self.advance()
             t = self.expression(OPERATOR_PRECENDENCE[Separators.comma.value.value])
