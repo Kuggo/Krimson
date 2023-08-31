@@ -1,2 +1,14 @@
 
+bool: type = {
+    | True
+    | False
+}
+
+b: bool = True
+
+match b {
+    True -1
+    False 1
+}
+
 

@@ -121,6 +121,8 @@ class Parser:
                 return self.break_statement()
             elif self.peak.value == 'skip':
                 return self.skip_statement()
+            elif self.peak.value == 'match':
+                return self.match_statement()
             else:
                 assert False
 
@@ -536,7 +538,8 @@ class Parser:
             v = variant()
             if v is not None:
                 variants.append(v)
-
+            else:
+                self.advance()
             if self.peak == Operators.b_or.value:
                 self.advance()
 
@@ -663,6 +666,44 @@ class Parser:
             self.advance()
 
         return SkipNode(start, value)
+
+    def match_statement(self) -> Optional[MatchNode]:
+        tok = self.peak
+        self.advance()
+
+        value = self.expression()
+        if value is None:
+            self.error(SyntaxError.expression_expected, tok.location)
+            return None
+
+        if self.peak == Separators.lcb.value:
+            self.advance()
+            cases = self.repeat_until_symbol(Separators.rcb.value.value, Parser.match_case, SyntaxError.statement_expected)
+            self.advance()
+        else:
+            case = self.match_case()
+            if case is None:
+                return None
+            cases = [case]
+
+        return MatchNode(tok, value, cases)
+
+    def match_case(self) -> Optional[CaseNode]:
+        variant = self.peak
+        if variant.tt != TT.IDENTIFIER:
+            self.error(SyntaxError.identifier_expected, variant.location)
+            return None
+        self.advance()
+
+        # do we need any separator?
+        if self.peak == Separators.colon.value or self.peak == Operators.fn.value:  # allowing : and -> atm
+            self.advance()
+
+        body = self.statement()
+        if body is None:
+            return None
+
+        return CaseNode(VariableNode(variant), body)
 
     # literals
 

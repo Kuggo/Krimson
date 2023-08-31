@@ -726,6 +726,32 @@ class SkipNode(LoopModifierNode):
             return f'skip {self.value.value}'
 
 
+class MatchNode(Node):
+    def __init__(self, repr_tok: Token, value: ExpressionNode, cases: list['CaseNode']):
+        assert len(cases) > 0
+        super().__init__(cases[-1].location - repr_tok.location)
+        self.value: ExpressionNode = value
+        self.cases: list['CaseNode'] = cases
+        return
+
+    def __repr__(self):
+        string = f'match {self.value} {{\n'
+        for case in self.cases:
+            string += f'{case}\n'
+        return string + '}'
+
+
+class CaseNode(Node):
+    def __init__(self, variant: VariableNode, body: Node):
+        super().__init__(body.location - variant.location)
+        self.variant: VariableNode = variant
+        self.body: Node = body
+        return
+
+    def __repr__(self):
+        return f'{self.variant} => {self.body}'
+
+
 ### Instruction Nodes (translation process)
 
 

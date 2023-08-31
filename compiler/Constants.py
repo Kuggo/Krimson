@@ -19,7 +19,7 @@ class Globals:
 END_OF_EXPRESSION = {';'}
 """Set of valid characters that end an expression"""
 
-KEYWORDS = {'if', 'else', 'break', 'skip', 'while', 'type', 'macro', 'fn'}
+KEYWORDS = {'if', 'else', 'break', 'skip', 'while', 'match', 'type', 'macro', 'fn'}
 """Set containing all the language's keywords"""
 
 BOOLEANS = ['false', 'true']

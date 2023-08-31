@@ -136,7 +136,7 @@ AllowedOptions: type = {
             print(err.__repr__(), file=stderr)
         exit(1)
 
-
+    print("All tests passed!")
     return
 
 

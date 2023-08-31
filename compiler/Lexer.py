@@ -253,7 +253,7 @@ class Lexer:
                 self.advance()
                 self.symbol(TT.OPERATOR, '->', start)
             else:
-                self.symbol(TT.OPERATOR, '- ', start)
+                self.symbol(TT.OPERATOR, '-', start)
 
         elif self.peak == '*':
             if self.preview() == '=':

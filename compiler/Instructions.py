@@ -134,8 +134,10 @@ opcodes: dict[str, int] = {
 
 opcodes_reverse: dict[int, str] = {}
 """Dict for getting opcode name from opcode value. Used in debugging"""
-for key, value in opcodes.items():
-    opcodes_reverse[value] = key
+for key, v in opcodes.items():
+    opcodes_reverse[v] = key
+
+
 
 # some test
 
