@@ -14,8 +14,8 @@ class TypeError(Enum):
     unk_func = 'Function "{}" not defined or visible in scope'
     undefined_function = 'Undefined function for the given args'
     def_statement_expected = 'Declaration statement expected inside a class body'
-    break_not_in_loop = 'break keyword found outside the specified loop body depth'
-    skip_not_in_loop = 'skip keyword found outside the specified loop body depth'
+    exit_not_in_body = 'exit keyword found outside the specified body depth'
+    skip_not_in_loop = 'skip keyword found outside the specified body depth'
     pos_int_expected = 'Positive integer expected'
 
     # Compile_time detected runtime errors
@@ -110,7 +110,7 @@ class Node:
         return
 
     def update(self, ctx: Context, parent: 'Node') -> Optional['Node']:
-        self.context = ctx.scope_level
+        self.context = ctx
         self.parent = parent
         return self
 
@@ -423,15 +423,6 @@ class FuncCallNode(ExpressionNode):
 
 # Definition Nodes
 
-class MacroDefineNode(NameDefineNode):
-    def __init__(self, name: 'VariableNode', expression: ExpressionNode):
-        super().__init__(name)
-        self.value: ExpressionNode = expression
-
-    def __repr__(self):
-        return f'(macro) {self.name} = {self.value}'
-
-
 class VarDefineNode(NameDefineNode, ExpressionNode):
     def __init__(self, var_name: VariableNode, var_type: Type, value: Optional[ExpressionNode] = None):
         super().__init__(var_name, var_type)
@@ -704,15 +695,15 @@ class LoopModifierNode(Node):
         return self
 
 
-class BreakNode(LoopModifierNode):
+class ExitNode(LoopModifierNode):
     def __init__(self, repr_tok: Token, value: Optional[Token] = None):
-        super().__init__(repr_tok, value, TypeError.break_not_in_loop)
+        super().__init__(repr_tok, value, TypeError.exit_not_in_body)
 
     def __repr__(self):
         if self.value is None:
-            return f'break'
+            return f'exit'
         else:
-            return f'break {self.value.value}'
+            return f'exit {self.value.value}'
 
 
 class SkipNode(LoopModifierNode):

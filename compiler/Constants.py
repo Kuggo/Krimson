@@ -19,7 +19,7 @@ class Globals:
 END_OF_EXPRESSION = {';'}
 """Set of valid characters that end an expression"""
 
-KEYWORDS = {'if', 'else', 'break', 'skip', 'while', 'match', 'type', 'macro', 'fn'}
+KEYWORDS = {'if', 'else', 'exit', 'skip', 'while', 'match', 'type', 'fn'}
 """Set containing all the language's keywords"""
 
 BOOLEANS = ['false', 'true']
@@ -231,13 +231,12 @@ class Keywords(Enum):
     """Enum of all Keywords"""
     if_ = Token(TT.KEYWORD, 'if')
     else_ = Token(TT.KEYWORD, 'else')
-    break_ = Token(TT.KEYWORD, 'break')
+    exit_ = Token(TT.KEYWORD, 'exit')
     skip = Token(TT.KEYWORD, 'skip')
     while_ = Token(TT.KEYWORD, 'while')
-    return_ = Token(TT.KEYWORD, 'return')
     fn = Token(TT.KEYWORD, 'fn')
     type = Token(TT.KEYWORD, 'type')
-    macro = Token(TT.KEYWORD, 'macro')
+    match = Token(TT.KEYWORD, 'match')
 
 
 class Error(Exception):
@@ -417,9 +416,7 @@ class Types(Enum):
 
     void = VoidType()
     type = Type(Token(TT.IDENTIFIER, 'type'))
-    macro = Type(Token(TT.IDENTIFIER, 'macro'))
     fn = Type(Token(TT.IDENTIFIER, 'fn'))
-    null = Type(Token(TT.LITERAL, 'null'))
     bool = Type(Token(TT.IDENTIFIER, 'bool'))
     nat = Type(Token(TT.IDENTIFIER, 'nat'))
     int = Type(Token(TT.IDENTIFIER, 'int'))
@@ -427,5 +424,3 @@ class Types(Enum):
     char = Type(Token(TT.IDENTIFIER, 'char'))
     array = Type(Token(TT.IDENTIFIER, 'array'))
     str = Type(Token(TT.IDENTIFIER, 'str'))
-    dict = Type(Token(TT.IDENTIFIER, 'dict'))
-    set = Type(Token(TT.IDENTIFIER, 'set'))

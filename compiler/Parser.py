@@ -98,7 +98,7 @@ class Parser:
         statement : expression
                   | while_statement
                   | if_statement
-                  | break_statement
+                  | exit_statement
                   | skip_statement
                   | scope_statement
                   | assign_statement
@@ -117,8 +117,8 @@ class Parser:
             elif self.peak.value == 'else':
                 self.error(SyntaxError.if_expected, self.peak.location)
                 return None
-            elif self.peak.value == 'break':
-                return self.break_statement()
+            elif self.peak.value == 'exit':
+                return self.exit_statement()
             elif self.peak.value == 'skip':
                 return self.skip_statement()
             elif self.peak.value == 'match':
@@ -376,7 +376,6 @@ class Parser:
 
         - It is a func_define if: IDENTIFIER [:] fn Type
         - It is a type_define if: IDENTIFIER [:] type Type
-        - It is a macro_define if: IDENTIFIER [:] macro
         - It is a var_define if not the above: IDENTIFIER [:] Type
 
         :return: var_define_statement | func_define_statement | None if an expression/error occurred
@@ -395,10 +394,6 @@ class Parser:
         elif self.peak == Keywords.type.value:  # it's a typedef
             self.advance()
             return self.type_define_statement(name)
-
-        elif self.peak == Keywords.macro.value:  # it's a macro
-            self.advance()
-            return self.macro_define_statement(name)
 
         # it's not using special syntax to define a new name, so it can be any variable type
         t = self.type(OPERATOR_PRECENDENCE[Separators.colon.value.value])
@@ -546,24 +541,6 @@ class Parser:
         self.advance()
         return SumTypeDefineNode(name, variants, generics)
 
-    def macro_define_statement(self, name: VariableNode) -> Optional[MacroDefineNode]:
-        """
-        Parses the next macro definition until its end is found, and returns its Node
-        :return: MacroDefineNode or None if an error occurred
-        """
-
-        if self.peak != Operators.assign.value:
-            self.error(SyntaxError.symbol_expected, self.peak.location, Operators.assign.value.value)
-            return None
-        self.advance()
-
-        expression = self.expression()
-        if expression is None:
-            self.error(SyntaxError.expression_expected, self.peak.location)
-            return None
-
-        return MacroDefineNode(name, expression)
-
     # keywords
 
     def while_statement(self) -> Optional[WhileNode]:
@@ -630,13 +607,13 @@ class Parser:
 
         return else_node
 
-    def break_statement(self) -> BreakNode:
+    def exit_statement(self) -> ExitNode:
         """
-        Parses the break statement until it finds its end.
+        Parses the exit statement until it finds its end.
 
-        break_statement : 'break' [literal]
+        exit_statement : 'exit' [literal]
 
-        :return: BreakNode
+        :return: ExitNode
         """
 
         start = self.peak
@@ -647,11 +624,11 @@ class Parser:
             value = self.peak
             self.advance()
 
-        return BreakNode(start, value)
+        return ExitNode(start, value)
 
     def skip_statement(self) -> SkipNode:
         """
-        Parses the break statement until it finds its end.
+        Parses the skip statement until it finds its end.
 
         skip_statement : 'skip' [literal]
 
