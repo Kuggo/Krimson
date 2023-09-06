@@ -132,11 +132,19 @@ opcodes: dict[str, int] = {
     'out': 3 << minor_opcode_bits,
 }
 
-opcodes_reverse: dict[int, str] = {}
-"""Dict for getting opcode name from opcode value. Used in debugging"""
-for key, v in opcodes.items():
-    opcodes_reverse[v] = key
 
+def inv_opcode() -> dict[int, str]:
+    global opcodes
+
+    opcodes_rev = {}
+    for key, v in opcodes.items():
+        opcodes_rev[v] = key
+
+    return opcodes_rev
+
+
+opcodes_reverse: dict[int, str] = inv_opcode()
+"""Dict for getting opcode name from opcode value. Used in debugging"""
 
 
 # some test

@@ -1,4 +1,5 @@
 
+/*
 bool: type = {
     | True
     | False
@@ -10,5 +11,7 @@ match b {
     True -1
     False 1
 }
+*/
 
+f: fn = (a:int, b:int) -> (out:int) {}
 

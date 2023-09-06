@@ -289,6 +289,9 @@ class Literal(Token):
         """krimson Type of the Literal value of the token"""
         return
 
+    def __repr__(self):
+        return f'<{self.value}: {self.literal_type}>'
+
 
 # Types directly supported by the compiler
 
@@ -424,3 +427,24 @@ class Types(Enum):
     char = Type(Token(TT.IDENTIFIER, 'char'))
     array = Type(Token(TT.IDENTIFIER, 'array'))
     str = Type(Token(TT.IDENTIFIER, 'str'))
+
+
+class PriorityQueue:
+    def __init__(self, num_priorities: int):
+        self.num_priorities: int = num_priorities
+        self.queue: list[list] = [[] for _ in range(num_priorities)]
+        return
+
+    def enqueue(self, item, priority: int):
+        if priority >= self.num_priorities:
+            priority = self.num_priorities - 1
+        elif priority < 0:
+            priority = 0
+        self.queue[priority].append(item)
+        return
+
+    def dequeue(self):
+        for i in range(self.num_priorities):
+            if len(self.queue[i]) > 0:
+                return self.queue[i].pop(0)
+        return None

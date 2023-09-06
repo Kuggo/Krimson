@@ -50,8 +50,6 @@ def main():
             print(err.__repr__(), file=stderr)
         exit(1)
 
-    # print(parser.ast)
-
     # primitives_ctx = get_primitives()
     context = Context(global_vars)  # Context(primitives_ctx)
     context.scope_level = 0

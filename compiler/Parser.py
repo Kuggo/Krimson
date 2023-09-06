@@ -3,9 +3,7 @@ from ASTNodes import *
 # functions
 
 def get_void_value(tok: Token) -> ValueNode:
-    void_value = ValueNode(Token(TT.LITERAL, 'void', tok.location))
-    void_value.type = copy(Types.void.value)
-    return void_value
+    return ValueNode(VoidLiteral(tok.location))
 
 
 class SyntaxError(Enum):
@@ -157,7 +155,7 @@ class Parser:
         token = self.peak
         self.advance()
 
-        if token.tt == TT.LITERAL:
+        if isinstance(token, Literal):
             return ValueNode(token)
 
         elif token.tt == TT.IDENTIFIER:
@@ -170,6 +168,9 @@ class Parser:
             return UnOpNode(token, expression)
 
         elif token == Separators.lpa.value:
+            if self.peak == Separators.rpa.value:
+                self.advance()
+                return get_void_value(self.last)
             expression = self.expression()
             if expression is None:
                 return None
@@ -236,7 +237,7 @@ class Parser:
         args = self.repeat_until_symbol(Separators.rpa.value.value, Parser.expression, SyntaxError.expression_expected,
                                             OPERATOR_PRECENDENCE[Separators.comma.value.value])
         self.advance()
-        return FuncCallNode(function, tuple(args))
+        return FuncCallNode(function, args)
 
     def index(self, left) -> Optional[IndexOperatorNode]:
         """
@@ -292,6 +293,9 @@ class Parser:
             return # We don't have any unary operators for types
 
         elif tok == Separators.lpa.value:
+            if self.peak == Separators.rpa.value:
+                self.advance()
+                return VoidType()
             t = self.type()
             if t is None:
                 return None
@@ -441,14 +445,11 @@ class Parser:
         if func is None:
             return None
 
-        if isinstance(func, ValueNode) and not isinstance(func.value, FunctionLiteral):
+        if not isinstance(func, ValueNode) or not isinstance(func.value, FunctionLiteral):
             self.error(SyntaxError.func_literal_expected, tok.location)
             return None
 
-        if isinstance(func, ScopeNode):
-            func = IsolatedScopeNode.new_from_old(func)     # casting down scope node to func body node aka isolated
-
-        return FuncDefineNode(name, func)
+        return FuncDefineNode(name, func.value)
 
     def type_define_statement(self, name: VariableNode) -> Optional[TypeDefineNode]:
         """
@@ -684,7 +685,12 @@ class Parser:
 
     # literals
 
-    def func_literal(self, left) -> Optional[ValueNode]:
+    def func_literal(self, left: ExpressionNode) -> Optional[ValueNode]:
+        """Parses the next function literal until it finds its end
+
+        func_literal : VarDefineNode '->' VarDefineNode statement
+        """
+
         tok = self.peak
         right = self.expression()
         if right is None:
@@ -698,7 +704,6 @@ class Parser:
             return None
 
         func = FunctionLiteral(left, right, body)
-
         return ValueNode(func)
 
     def tuple_literal(self, left: ExpressionNode) -> Optional[ValueNode]:
