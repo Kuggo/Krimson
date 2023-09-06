@@ -389,26 +389,19 @@ class Parser:
             self.error(SyntaxError.identifier_expected, name.location)
             return None
 
-        # type inference?
-
-        if self.peak == Keywords.fn.value:  # it's a function
-            self.advance()
-            return self.func_define_statement(name)
-
-        elif self.peak == Keywords.type.value:  # it's a typedef
-            self.advance()
-            return self.type_define_statement(name)
-
-        # it's not using special syntax to define a new name, so it can be any variable type
         t = self.type(OPERATOR_PRECENDENCE[Separators.colon.value.value])
         if t is None:
             return None
 
+        if t == Types.type.value:  # it's a typedef
+            return self.type_define_statement(name)
+
+        # it's not using special syntax to define a new name, so it can be any variable type
         return self.var_define_statement(name, t)
 
-    def var_define_statement(self, name: VariableNode, var_type: Type) -> Optional[VarDefineNode]:
+    def var_define_statement(self, name: VariableNode, var_type: Optional[Type]) -> Optional[VarDefineNode]:
         """
-        Parses the next variable declaration statement and returns its Node
+        Parses the next variable declaration statement and returns its Node. if var_type is None then infer its type.
 
         var_define_statement : identifier ":" type [ "=" expression ]
 
@@ -426,30 +419,10 @@ class Parser:
             self.error(SyntaxError.expression_expected, tok.location)
             return None
 
+        if isinstance(val, ValueNode) and isinstance(val.value, FunctionLiteral):
+            return FuncDefineNode(name, val.value)
+
         return VarDefineNode(name, var_type, val)
-
-    def func_define_statement(self, name: VariableNode) -> Optional[FuncDefineNode]:
-        """
-        Parses the next function declaration until its end is found, and returns its Node
-
-        :return: FuncDefineNode or None if an error occurred
-        """
-
-        if self.peak != Operators.assign.value:
-            self.error(SyntaxError.symbol_expected, self.peak.location, Operators.assign.value.value)
-            return None
-
-        self.advance()
-        tok = self.peak
-        func = self.expression()
-        if func is None:
-            return None
-
-        if not isinstance(func, ValueNode) or not isinstance(func.value, FunctionLiteral):
-            self.error(SyntaxError.func_literal_expected, tok.location)
-            return None
-
-        return FuncDefineNode(name, func.value)
 
     def type_define_statement(self, name: VariableNode) -> Optional[TypeDefineNode]:
         """
@@ -465,7 +438,7 @@ class Parser:
 
         if isinstance(name, IndexOperatorNode): # it has generics
             if isinstance(name.index, ValueNode) and isinstance(name.index.value, TupleLiteral):
-                generics = name.index.value.values
+                generics = name.index.value.value
             elif isinstance(name.index, ValueNode) or isinstance(name.index, VariableNode):
                 generics = [name.index]
             else:

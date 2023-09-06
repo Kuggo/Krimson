@@ -19,7 +19,7 @@ class Globals:
 END_OF_EXPRESSION = {';'}
 """Set of valid characters that end an expression"""
 
-KEYWORDS = {'if', 'else', 'exit', 'skip', 'while', 'match', 'type', 'fn'}
+KEYWORDS = {'if', 'else', 'exit', 'skip', 'while', 'match', 'type'}
 """Set containing all the language's keywords"""
 
 BOOLEANS = ['false', 'true']
@@ -323,6 +323,12 @@ class Type:
         return f'{self.name.value}'
 
 
+class AnyType(Type):
+    def __init__(self):
+        super().__init__(Token(TT.IDENTIFIER, '_'))
+        return
+
+
 class TupleType(Type):
     def __init__(self, types: list[Type]):
         super().__init__(Token(TT.IDENTIFIER, 'tuple'))
@@ -417,9 +423,9 @@ class SumType(Type):
 class Types(Enum):
     """Enum containing all primitive types the compiler may need to use at compile-time"""
 
+    infer = AnyType()
     void = VoidType()
     type = Type(Token(TT.IDENTIFIER, 'type'))
-    fn = Type(Token(TT.IDENTIFIER, 'fn'))
     bool = Type(Token(TT.IDENTIFIER, 'bool'))
     nat = Type(Token(TT.IDENTIFIER, 'nat'))
     int = Type(Token(TT.IDENTIFIER, 'int'))

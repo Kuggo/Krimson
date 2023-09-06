@@ -494,9 +494,9 @@ class VarDefineNode(NameDefineNode, ExpressionNode):
             return f'{self.name.var_name.value}: {self.type} = {self.value}'
 
 
-class FuncDefineNode(NameDefineNode):
+class FuncDefineNode(VarDefineNode):
     def __init__(self, func_name: VariableNode, func: 'FunctionLiteral'):
-        super().__init__(func_name)
+        super().__init__(func_name, func.literal_type, ValueNode(func))
         self.func: FunctionLiteral = func
         self.body: Node = func.body
         return
