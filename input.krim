@@ -13,5 +13,5 @@ match b {
 }
 */
 
-f: _ = (a:int, b:int) -> (out:int) {}
+f: _ = void -> (out:int) {out = 1}
 

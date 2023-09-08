@@ -878,7 +878,6 @@ class CaseNode(StatementNode):
 
 dunder_funcs = {
     Operators.not_.value.value: Token(TT.IDENTIFIER, '__not__'),
-    Operators.b_not.value.value: Token(TT.IDENTIFIER, '__bnot__'),
     Operators.neg.value.value: Token(TT.IDENTIFIER, '__neg__'),
     Operators.mlt.value.value: Token(TT.IDENTIFIER, '__mlt__'),
     Operators.div.value.value: Token(TT.IDENTIFIER, '__div__'),
@@ -893,9 +892,7 @@ dunder_funcs = {
     Operators.lte.value.value: Token(TT.IDENTIFIER, '__lte__'),
     Operators.dif.value.value: Token(TT.IDENTIFIER, '__dif__'),
     Operators.equ.value.value: Token(TT.IDENTIFIER, '__equ__'),
-    Operators.b_and.value.value: Token(TT.IDENTIFIER, '__band__'),
-    Operators.b_xor.value.value: Token(TT.IDENTIFIER, '__bxor__'),
-    Operators.b_or.value.value: Token(TT.IDENTIFIER, '__bor__'),
+    Operators.xor.value.value: Token(TT.IDENTIFIER, '__xor__'),
     Operators.and_.value.value: Token(TT.IDENTIFIER, '__and__'),
     Operators.or_.value.value: Token(TT.IDENTIFIER, '__or__'),
     Operators.index.value.value: Token(TT.IDENTIFIER, '__get__'),

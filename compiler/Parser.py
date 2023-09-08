@@ -5,6 +5,12 @@ from ASTNodes import *
 def get_void_value(tok: Token) -> ValueNode:
     return ValueNode(VoidLiteral(tok.location))
 
+def get_assign_operator(tok: Token) -> Token:
+    assert tok.value in ASSIGN_OPERATORS and tok != Operators.assign.value
+    op = tok.value[:-1]
+    loc = FileRange(tok.location.start, tok.location.line_start, tok.location.end - 1, tok.location.line_end)
+    return Token(TT.OPERATOR, op, loc)
+
 
 class SyntaxError(Enum):
     """Enum containing all the custom error messages that the parser may generate."""
@@ -218,11 +224,14 @@ class Parser:
         elif token == Separators.comma.value:   # tuple
             return self.tuple_literal(left)
 
-        elif token == Operators.assign.value:
+        elif token.value in ASSIGN_OPERATORS:
             right = self.expression(precedence=OPERATOR_PRECENDENCE[token.value])
             if right is None:
                 return None
-            return AssignNode(left, right)
+            if token == Operators.assign.value:
+                return AssignNode(left, right)
+            else:
+                return AssignNode(left, BinOpNode(get_assign_operator(token), left, right))
 
         elif token.value not in OPERATOR_PRECENDENCE:
             self.rollback()
@@ -429,7 +438,7 @@ class Parser:
             return TypeAliasDefineNode(name, t, generics)
 
         self.advance()
-        if self.peak == Operators.b_or.value:  # accepting the first one for stylishness
+        if self.peak == Operators.or_.value:  # accepting the first one for stylishness
             self.advance()
             return self.sum_type(name, generics)
 
@@ -472,7 +481,7 @@ class Parser:
             if self.peak == Separators.colon.value and self.preview() == Types.type.value:
                 self.advance(2)
 
-            if self.peak == Operators.b_or.value or self.peak == Separators.rcb.value:   # no size variant
+            if self.peak == Operators.or_.value or self.peak == Separators.rcb.value:   # no size variant
                 return TypeDefineNode(variant_name)
 
             return self.type_define_statement(variant_name)
@@ -484,7 +493,7 @@ class Parser:
                 variants.append(v)
             else:
                 self.advance()
-            if self.peak == Operators.b_or.value:
+            if self.peak == Operators.or_.value:
                 self.advance()
 
         self.advance()

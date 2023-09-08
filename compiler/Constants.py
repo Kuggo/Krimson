@@ -28,14 +28,14 @@ BOOLEANS = ['false', 'true']
 VOID = 'void'
 """Text representation of no value"""
 
-SYMBOLS = {'&', '|', '+', '-', '*', '/', '=', '<', '>', '!', '(', ')', '{', '}', '[', ']', '.', ',', ':', ';', '?'}
+SYMBOLS = {'&', '|', '^', '+', '-', '*', '/', '=', '<', '>', '!', '(', ')', '{', '}', '[', ']', '.', ',', ':', ';', '?'}
 """Set of characters accepted as valid symbols"""
 
-UNARY_OPERATORS = {'!', '-', '~'}
+UNARY_OPERATORS = {'!', '-'}
 """Set of Characters accepted as valid values for unary operators"""
 
 ASSIGN_OPERATORS = {'=', '+=', '-=', '*=', '/=', '%=', '<<=', '>>=', '|=', '&=', '^='}
-"""Set of strings containing all the valid assign&operate operators"""
+"""Dict mapping all the valid assign&operate operators to their operator"""
 
 OPERATOR_PRECENDENCE = {
     # these must end all expressions
@@ -48,18 +48,15 @@ OPERATOR_PRECENDENCE = {
     '=': 1,
     ':': 2,
     '->': 3,
-    '||': 4,
-    '&&': 5,
-    '!': 6,
+    '|': 4,
+    '^': 5,
+    '&': 6,
     '==': 7,
     '!=': 7,
     '<=': 7,
     '>=': 7,
     '>': 7,
     '<': 7,
-    '|': 8,
-    '^': 9,
-    '&': 10,
     '>>': 11,
     '<<': 11,
     '+': 12,
@@ -173,16 +170,12 @@ class Operators(Enum):
     gte = Token(TT.OPERATOR, '>=')
     lte = Token(TT.OPERATOR, '<=')
 
-    and_ = Token(TT.OPERATOR, '&&')
-    or_ = Token(TT.OPERATOR, '||')
-    not_ = Token(TT.OPERATOR, '!')
-
     shl = Token(TT.OPERATOR, '<<')
     shr = Token(TT.OPERATOR, '>>')
-    b_and = Token(TT.OPERATOR, '&')
-    b_or = Token(TT.OPERATOR, '|')
-    b_xor = Token(TT.OPERATOR, '^')
-    b_not = Token(TT.OPERATOR, '~')
+    and_ = Token(TT.OPERATOR, '&')
+    or_ = Token(TT.OPERATOR, '|')
+    xor = Token(TT.OPERATOR, '^')
+    not_ = Token(TT.OPERATOR, '~')
 
     add = Token(TT.OPERATOR, '+')
     sub = Token(TT.OPERATOR, '- ')
@@ -300,6 +293,9 @@ class Literal(Token):
         """Checks if the literal value of the token is of the expected type"""
         pass
 
+    def __str__(self):
+        return f'{self.value}'
+
     def __repr__(self):
         return f'<{self.value}: {self.literal_type}>'
 
@@ -330,8 +326,11 @@ class Type:
         """
         return self.name_tok.value
 
-    def __repr__(self):
+    def __str__(self):
         return f'{self.name_tok.value}'
+
+    def __repr__(self):
+        return f'<{self.name_tok.value}>'
 
 
 class AnyType(Type):
@@ -352,8 +351,11 @@ class TupleType(Type):
     def get_type_label(self) -> str:
         return f'tuple_{"_".join([t.get_type_label() for t in self.types])}'
 
+    def __str__(self):
+        return f'({", ".join([str(t) for t in self.types])})'
+
     def __repr__(self):
-        return f'{self.name_tok.value}({", ".join([str(t) for t in self.types])})'
+        return f'<tuple({", ".join([str(t) for t in self.types])})>'
 
 
 class VoidType(TupleType):
@@ -367,8 +369,11 @@ class VoidType(TupleType):
     def get_type_label(self) -> str:
         return f'{self.name_tok.value}'
 
+    def __str__(self):
+        return f'()'
+
     def __repr__(self):
-        return f'{self.name_tok.value}'
+        return f'<void>'
 
 
 class FunctionType(Type):
@@ -384,8 +389,11 @@ class FunctionType(Type):
     def get_type_label(self) -> str:
         return f'func_{self.arg.get_type_label()}_to_{self.ret.get_type_label()}'
 
+    def __str__(self):
+        return f'({self.arg} -> {self.ret})'
+
     def __repr__(self):
-        return f'{self.name_tok.value}({self.arg} -> {self.ret})'
+        return f'<fn({self.arg} -> {self.ret})>'
 
 
 class ArrayType(Type):
@@ -400,8 +408,11 @@ class ArrayType(Type):
     def get_type_label(self) -> str:
         return f'array_{self.arr_type.get_type_label()}'
 
+    def __str__(self):
+        return f'[{self.arr_type}]'
+
     def __repr__(self):
-        return f'{self.name_tok.value}[{self.arr_type}]'
+        return f'<array[{self.arr_type}]>'
 
 
 class ProductType(Type):
@@ -416,8 +427,11 @@ class ProductType(Type):
     def get_type_label(self) -> str:
         return f'{self.name_tok.value}_{"_".join([f.get_type_label() for f in self.fields])}'
 
+    def __str__(self):
+        return f'{{{", ".join([str(f) for f in self.fields])}}}'
+
     def __repr__(self):
-        return f'{self.name_tok.value}({", ".join([str(f) for f in self.fields])})'
+        return f'<{self.name_tok.value}({", ".join([f"{f.__repr__()}" for f in self.fields])})>'
 
 
 class SumType(Type):
@@ -428,6 +442,12 @@ class SumType(Type):
 
     def __eq__(self, other: 'SumType'):
         return isinstance(other, SumType) and self.types == other.types
+
+    def __str__(self):
+        return f'{{{" | ".join([str(t) for t in self.types])}}}'
+
+    def __repr__(self):
+        return f'<{{{" | ".join([f"{t.__repr__()}" for t in self.types])}}}>'
 
 
 class Types(Enum):

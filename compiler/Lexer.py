@@ -210,22 +210,14 @@ class Lexer:
                 self.symbol(TT.OPERATOR, '!', start)
 
         elif self.peak == '&':
-            if self.preview() == '&':
-                self.advance()
-                self.symbol(TT.OPERATOR, '&&', start)
-
-            elif self.preview() == '=':
+            if self.preview() == '=':
                 self.advance()
                 self.symbol(TT.OPERATOR, '&=', start)
             else:
                 self.symbol(TT.OPERATOR, '&', start)
 
         elif self.peak == '|':
-            if self.preview() == '|':
-                self.advance()
-                self.symbol(TT.OPERATOR, '||', start)
-
-            elif self.preview() == '=':
+            if self.preview() == '=':
                 self.advance()
                 self.symbol(TT.OPERATOR, '|=', start)
             else:
