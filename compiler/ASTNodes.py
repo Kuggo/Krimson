@@ -14,6 +14,17 @@ def tuple_unpacking(ctx: 'Context', node: 'TupleLiteral', looking_for, error) ->
             ctx.error(error, value)
     return nodes
 
+def tuple_type_unpacking(ctx: 'Context', node: 'TupleType', looking_for, error) -> list['Type']:
+    nodes = []
+    for t in node.types:
+        if isinstance(t, TupleType):
+            nodes += tuple_type_unpacking(ctx, t, looking_for, error)
+        elif isinstance(t, looking_for):
+            nodes.append(t)
+        else:
+            ctx.error(error, t)
+    return nodes
+
 
 # Errors
 
@@ -26,6 +37,8 @@ class TypeError(Enum):
     exit_not_in_body = 'exit keyword found outside the specified body depth'
     skip_not_in_loop = 'skip keyword found outside the specified body depth'
     pos_int_expected = 'Positive integer expected'
+    wrong_type = 'Expected type "{}" but got "{}"'
+    wrong_func_type = 'Expected function with input arguments of type "{}" but got "{}"'
 
     # Compile_time detected runtime errors
     out_of_bounds = 'Index is out of bounds'
@@ -40,15 +53,21 @@ class TupleLiteral(Literal):
         super().__init__(values, None, values[-1].location - values[0].location)
         return
 
-    @staticmethod
-    def gen_type(values) -> TupleType:
+    def type_check_literal(self, ctx: 'Context', parent: Optional['Node']) -> None:
         types = []
-        for value in values:
-            types.append(value.type)
-        return TupleType(types)
+        for i, val in enumerate(self.value):
+            self.value[i] = val.type_check(ctx, parent)
+            if self.value[i] is not None:
+                types.append(self.value[i].type)
+
+        self.literal_type = TupleType(types)
+        return
+
+    def __str__(self):
+        return f'({", ".join([str(v) for v in self.value])})'
 
     def __repr__(self):
-        return f'({", ".join([str(v) for v in self.value])})'
+        return f'<({", ".join([f"{v.__repr__()}" for v in self.value])})>'
 
 
 class VoidLiteral(Literal):
@@ -56,19 +75,45 @@ class VoidLiteral(Literal):
         super().__init__('void', VoidType(), location)
         return
 
-    def __repr__(self):
+    def type_check_literal(self, ctx: 'Context', parent: Optional['Node']) -> None:
+        return
+
+    def __str__(self):
         return f'void'
+
+    def __repr__(self):
+        return f'<void>'
 
 
 class ArrayLiteral(Literal):
     def __init__(self, values: list):
         assert len(values) > 0
-        super().__init__([], None, values[-1].location - values[0].location)
-        self.values: list = values
+        super().__init__(values, None, values[-1].location - values[0].location)
         return
 
+    def type_check_literal(self, ctx: 'Context', parent: Optional['Node']) -> None:
+        t = None
+        for i, val in enumerate(self.value):
+            val = val.type_check(ctx, parent)
+            if val is None:
+                continue
+            self.value[i] = val
+
+            if t is None:
+                t = self.value[i].type
+
+            if self.value[i].type != t:
+                ctx.error(TypeError.wrong_type, t, self.value[i].type.name_tok.value, t)
+                continue
+
+        self.literal_type = ArrayType(t)
+        return
+
+    def __str__(self):
+        return f'[{", ".join([str(v) for v in self.value])}]'
+
     def __repr__(self):
-        return f'[{", ".join([str(v) for v in self.values])}]'
+        return f'<[{", ".join([f"{v.__repr__()}" for v in self.value])}]>'
 
 
 class FunctionLiteral(Literal):
@@ -80,7 +125,6 @@ class FunctionLiteral(Literal):
         self.in_param_list: list[NameDefineNode] = []
         self.out_param_list: list[NameDefineNode] = []
         self.body: Node = body
-        # self.literal_type: FunctionType = FunctionType(in_param.type, out_param.type) # TODO this must be done in update phase
         return
 
     def gen_param_list(self, ctx: 'Context', param: 'ExpressionNode') -> list['NameDefineNode']:
@@ -96,16 +140,44 @@ class FunctionLiteral(Literal):
         ctx.error(TypeError.param_def_expected, param)
         return []
 
-    def __repr__(self):
+    def type_check_literal(self, ctx: 'Context', parent: Optional['Node']) -> None:
+        self.in_param = self.in_param.type_check(ctx, parent)
+        self.out_param = self.out_param.type_check(ctx, parent)
+        self.body = self.body.type_check(ctx, parent)
+        if self.in_param is None or self.out_param is None or self.body is None:
+            return
+
+        self.literal_type = FunctionType(self.in_param.type, self.out_param.type)
+        return
+
+    def __str__(self):
         return f'{self.in_param} -> {self.out_param} {self.body}'
+
+    def __repr__(self):
+        return f'<{self.in_param.__repr__()} -> {self.out_param.__repr__()} {self.body.__repr__()}>'
 
 
 class ProductTypeLiteral(Literal):
     def __init__(self, values: list['TypeDefineNode']):
         assert len(values) > 0
-        super().__init__([], None, values[-1].location - values[0].location)
-        self.values: list = values
+        super().__init__(values, None, values[-1].location - values[0].location)
         return
+
+    def type_check_literal(self, ctx: 'Context', parent: Optional['Node']) -> None:
+        types = []
+        for i, val in enumerate(self.value):
+            self.value[i] = val.type_check(ctx, parent)
+            if self.value[i] is not None:
+                types.append(self.value[i].type)
+
+        self.literal_type = ProductType(types)
+        return
+
+    def __str__(self):
+        return f'{{{", ".join([str(v) for v in self.value])}}}'
+
+    def __repr__(self):
+        return f'<{{{", ".join([f"{v.__repr__()}" for v in self.value])}}}>'
 
 
 
@@ -122,18 +194,19 @@ class Context:
             self.namespace: dict[str, NameDefineNode] = {}
             self.scope_namespace: set[str] = set()
             self.types: set[TypeDefineNode] = set()
-            self.funcs: set[FuncDefineNode] = set()
+            self.funcs: set[FunctionLiteral] = set()
             self.errors: list[Error] = []
         else:
             self.scope_level: int = up_scope.scope_level + 1
             self.namespace: dict[str, NameDefineNode] = copy(up_scope.namespace)
             self.scope_namespace: set[str] = set()
             self.types: set[TypeDefineNode] = up_scope.types
-            self.funcs: set[FuncDefineNode] = up_scope.funcs
+            self.funcs: set[FunctionLiteral] = up_scope.funcs
             self.errors: list[Error] = up_scope.errors    # not a copy. All errors will go to the same collection
         return
 
     def get_definition(self, name: str) -> Optional['NameDefineNode']:
+        """Returns the definition of the given name in the current context or None if it is not defined"""
         if name in self.namespace:
             return self.namespace[name]
         else:
@@ -143,7 +216,7 @@ class Context:
         c = Context(self.global_vars, self)
         return c
 
-    def error(self, e: TypeError, node: 'Node', *args) -> None:
+    def error(self, e: TypeError, node: ['Node', 'Type'], *args) -> None:
         self.errors.append(Error(e, node.location, self.global_vars, *args))
         return
 
@@ -160,16 +233,18 @@ class Node:
         self.location: FileRange = location
         return
 
-    def update(self, ctx: Context, parent: 'Node') -> Optional['Node']:
+    def update(self, ctx: Context, parent: 'Node') -> None:
         """Builds up the context of the node, and allows the node to change itself if needed"""
         self.context = ctx
         self.parent = parent
-        return self
+        return
 
-    def type_check(self) -> None:
-        """Recursively calls type_check on all the children nodes and compares its type with them.
+    def type_check(self, ctx: Context, parent: Optional['Node']) -> Optional['Node']:
+        """Updates current node and recursively calls type_check on all the children nodes and compares its type with them.
+        When updating the node may return a different node, so the parent node must update its children with the returned node.
         If there is a type mismatch, it will add an error to the context"""
-        pass
+        self.update(ctx, parent)
+        return self
 
     def error(self, e: TypeError, *args) -> None:
         """Adds an error to the context"""
@@ -198,8 +273,12 @@ class ExpressionNode(StatementNode):
         self.type: Optional[Type] = None
         return
 
+    def get_typedef(self) -> Optional['TypeDefineNode']:
+        """Gets the type definition of the type of the Node"""
+        return self.context.get_definition(self.type.name_tok.value)
+
     def update_type(self, ctx: Context):
-        t = ctx.get_definition(self.type.name.value)
+        t = ctx.get_definition(self.type.name_tok.value)
         if t is not None:
             self.type = t.type
 
@@ -218,22 +297,22 @@ class NameDefineNode(StatementNode):
 
     def get_id(self) -> str:
         """Returns the identifier of the Definition node to be used as key in the dictionary of namespace"""
-        return self.name.var_name.value
+        return self.name.name_tok.value
 
     def add_ctx(self, ctx: Context) -> None:
         """Adds the definition to the current context dict"""
-        if self.name.var_name.value in ctx.scope_namespace:
-            ctx.error(TypeError.shadow_same_scope, self.name.var_name.value)
+        if self.name.name_tok.value in ctx.scope_namespace:
+            ctx.error(TypeError.shadow_same_scope, self.name.name_tok.value)
             return None
         ctx.namespace[self.get_id()] = self
 
         return
 
-    def update(self, ctx: Context, parent: Optional[Node]) -> Optional['NameDefineNode']:
+    def update(self, ctx: Context, parent: 'Node') -> None:
         self.context = ctx
         self.parent = parent
         self.add_ctx(ctx)
-        return self
+        return
 
     def get_size(self):
         return self.type.size
@@ -245,31 +324,43 @@ class ValueNode(ExpressionNode):
     def __init__(self, tok: Literal):
         super().__init__(tok.location)
         self.value: Literal = tok
-        self.type: Type = tok.literal_type
         return
 
-    def __repr__(self):
+    def type_check(self, ctx: Context, parent: Optional[Node]) -> Optional['ValueNode']:
+        self.update(ctx, parent)
+        self.value.type_check_literal(ctx, self)  # mutates itself not returns new node
+        self.type = self.value.literal_type
+        return self
+
+    def __str__(self):
         return f'{self.value}'
+
+    def __repr__(self):
+        return f'<{self.value.__repr__()}>'
 
 
 class VariableNode(ExpressionNode):
     def __init__(self, repr_tok: Token):
         super().__init__(repr_tok.location)
-        self.var_name: Token = repr_tok
+        self.name_tok: Token = repr_tok
         return
 
-    def type_check(self) -> None:
+    def type_check(self, ctx: Context, parent: Optional['Node']) -> Optional['VariableNode']:
         """Recursively calls type_check on all the children nodes and compares its type with them.
         If there is a type mismatch, it will add an error to the context"""
-        var = self.context.get_definition(self.var_name.value)
+        self.update(ctx, parent)
+        var = self.context.get_definition(self.name_tok.value)
         if var is None:
-            self.error(TypeError.unk_var, self.var_name.value)
-            return
+            self.error(TypeError.unk_var, self.name_tok.value)
+            return None
         self.type = var.type
-        return
+        return self
+
+    def __str__(self):
+        return f'{self.name_tok.value}'
 
     def __repr__(self):
-        return f'{self.var_name.value}'
+        return f'<{self.name_tok.value.__repr__()}>'
 
 
 class ScopeNode(StatementNode):
@@ -278,39 +369,33 @@ class ScopeNode(StatementNode):
         self.child_nodes: list[Node] = child_nodes
         return
 
-    def process_body(self, ctx: Context) -> None:
-        for node in self.child_nodes:
-            if isinstance(node, NameDefineNode):
-                node.add_ctx(ctx)
-
+    def process_body(self) -> None:
+        ctx = self.context.clone()
         child_nodes = []
         for node in self.child_nodes:
-            node = node.update(ctx, self.parent)
+            node = node.type_check(ctx, self)
             if node is not None:
                 child_nodes.append(node)
 
         self.child_nodes = child_nodes
         return
 
-    def update(self, ctx: Context, parent: Optional[Node]) -> Optional['ScopeNode']:
-        self.context = ctx
-        self.parent = parent
-        new_ctx = ctx.clone()
-        self.process_body(new_ctx)
-        return self
-
-    def type_check(self) -> None:
+    def type_check(self, ctx: Context, parent: Optional['Node']) -> Optional['ScopeNode']:
         """Recursively calls type_check on all the children nodes and compares its type with them.
         If there is a type mismatch, it will add an error to the context"""
-        for node in self.child_nodes:
-            node.type_check()
-        return
+        self.update(ctx, parent)
+        self.process_body()
+        return self
 
-    def __repr__(self):
+    def __str__(self):
         string = f'\n{self.context.scope_level * "  "}{{\n'
         for node in self.child_nodes:
-            string += f'{node.context.scope_level * "  "}{node.__repr__()}\n'
+            string += f'{node.context.scope_level * "  "}{node}\n'
         return string + f'{self.context.scope_level * "  "}}}'
+
+    def __repr__(self):
+        new_line = '\n'
+        return f'{{\n{new_line.join([f"{node.__repr__()}" for node in self.child_nodes])}\n}}'
 
 
 # Operation Nodes
@@ -322,22 +407,21 @@ class AssignNode(ExpressionNode):
         self.value: ExpressionNode = value
         return
 
-    def update(self, ctx: Context, parent: Optional[Node]) -> Optional['ExpressionNode']:
-        self.context = ctx
-        self.parent = parent
+    def type_check(self, ctx: Context, parent: Optional['Node']) -> Optional[Node]:
+        self.update(ctx, parent)
+        self.var = self.var.type_check(ctx, self)
+        self.value = self.value.type_check(ctx, self)
 
-        self.var = self.var.update(ctx, self)
-        if self.var is None:
-            return None
-
-        self.value = self.value.update(ctx, self)
-        if self.value is None:
+        if self.var is None or self.value is None:
             return None
 
         return self
 
-    def __repr__(self):
+    def __str__(self):
         return f'{self.var} = {self.value}'
+
+    def __repr__(self):
+        return f'<{self.var.__repr__()} = {self.value.__repr__()}>'
 
 
 class UnOpNode(ExpressionNode):
@@ -347,21 +431,21 @@ class UnOpNode(ExpressionNode):
         self.child = child
         return
 
-    def update(self, ctx: Context, parent: Optional[Node]) -> Optional['FuncCallNode']:
-        self.context = ctx
-        self.parent = parent
-        self.child = self.child.update(ctx, self)
+    def type_check(self, ctx: Context, parent: Optional['Node']) -> Optional['FuncCallNode']:
+        self.update(ctx, parent)
+        self.child = self.child.type_check(ctx, self)
         if self.child is None:
             return None
 
-        if self.op.value in dunder_funcs:
-            func_name = dunder_funcs[self.op.value]
-            return FuncCallNode(VariableNode(func_name), [self.child]).update(ctx, self)
-        else:
-            assert False
+        assert self.op.value in dunder_funcs
+        func_name = dunder_funcs[self.op.value]
+        return FuncCallNode(VariableNode(func_name), [self.child]).type_check(ctx, parent)    # TODO: add edge cases for the primitives (they dont need to be converted to function calls)
+
+    def __str__(self):
+        return f'{self.op.value} {self.child}'
 
     def __repr__(self):
-        return f'{self.op.value} {self.child}'
+        return f'<{self.op.value} {self.child.__repr__()}>'
 
 
 class BinOpNode(ExpressionNode):
@@ -372,23 +456,23 @@ class BinOpNode(ExpressionNode):
         self.op = op
         return
 
-    def update(self, ctx: Context, parent: Optional[Node]) -> Optional['FuncCallNode']:
-        self.context = ctx
-        self.parent = parent
-        self.left_child = self.left_child.update(ctx, self)
-        self.right_child = self.right_child.update(ctx, self)
+    def type_check(self, ctx: Context, parent: Optional['Node']) -> Optional['FuncCallNode']:
+        self.update(ctx, parent)
+        self.left_child = self.left_child.type_check(ctx, self)
 
+        self.right_child = self.right_child.type_check(ctx, self)
         if self.left_child is None or self.right_child is None:
             return None
 
-        if self.op.value in dunder_funcs:
-            fn_name = dunder_funcs[self.op.value]
-            return FuncCallNode(VariableNode(fn_name), [self.left_child, self.right_child]).update(ctx, self)
-        else:
-            assert False
+        assert self.op.value in dunder_funcs
+        func_name = dunder_funcs[self.op.value]
+        return FuncCallNode(VariableNode(func_name), [self.left_child, self.right_child]).type_check(ctx, parent)
+
+    def __str__(self):
+        return f'{self.left_child} {self.op.value} {self.right_child}'
 
     def __repr__(self):
-        return f'{self.left_child} {self.op.value} {self.right_child}'
+        return f'<{self.left_child.__repr__()} {self.op.value} {self.right_child.__repr__()}>'
 
 
 class DotOperatorNode(VariableNode):
@@ -396,20 +480,33 @@ class DotOperatorNode(VariableNode):
         super().__init__(repr_tok)
         self.var: ExpressionNode = var
         self.field: VariableNode = field
+        self.attribute: Optional[NameDefineNode] = None
         return
 
-    def update(self, ctx: Context, parent: Optional[Node]) -> Optional['DotOperatorNode']:
-        self.context = ctx
-        self.parent = parent
-
-        self.var = self.var.update(ctx, self)
+    def type_check(self, ctx: Context, parent: Optional['Node']) -> Optional['DotOperatorNode']:
+        self.update(ctx, parent)
+        self.var = self.var.type_check(ctx, self)
         if self.var is None:
             return None
 
+        typedef = self.var.get_typedef()
+        if typedef is None:
+            assert False    # if the type is not visible then it should have been caught in the previous step
+
+        self.attribute = typedef.get_attribute(self.field.name_tok.value)
+        if self.attribute is None:
+            ctx.error(TypeError.no_attribute, typedef.name.name_tok.value, self.field.name_tok.value)
+            return None
+
+        self.type = self.attribute.type
+
         return self
 
+    def __str__(self):
+        return f'{self.var}.{self.field.name_tok.value}'
+
     def __repr__(self):
-        return f'{self.var}.{self.field.var_name.value}'
+        return f'<{self.var.__repr__()}.{self.field.__repr__()}>'
 
 
 class IndexOperatorNode(VariableNode):
@@ -419,120 +516,98 @@ class IndexOperatorNode(VariableNode):
         self.index: ExpressionNode = index
         return
 
-    def update(self, ctx: Context, parent: Optional[Node]) -> Optional['IndexOperatorNode']:
-        self.context = ctx
-        self.parent = parent
-        self.collection = self.collection.update(ctx, self)
-        self.index = self.index.update(ctx, self)
+    def type_check(self, ctx: Context, parent: Optional['Node']) -> Optional['IndexOperatorNode']:
+        self.update(ctx, parent)
+        self.collection = self.collection.type_check(ctx, self)
+        self.index = self.index.type_check(ctx, self)
 
         if self.collection is None or self.index is None:
             return None
 
-        #if use_dunder_func:
-        #    fn_name = dunder_funcs[Operators.index.value.value]
-        #    return FuncCallNode(VariableNode(fn_name), (self.collection, self.index)).update(ctx, self)
+        assert Operators.index.value.value in dunder_funcs
+        fn_name = dunder_funcs[Operators.index.value.value]
+        return FuncCallNode(VariableNode(fn_name), [self.collection, self.index]).type_check(ctx, parent)
 
-        return self
+    def __str__(self):
+        return f'{self.collection}[{self.index}]'
 
     def __repr__(self):
-        return f'{self.collection}[{self.index}]'
+        return f'<{self.collection.__repr__()}[{self.index.__repr__()}]>'
 
 
 class FuncCallNode(ExpressionNode):
-    def __init__(self, func_name: ExpressionNode, args: list[ExpressionNode]):
-        super().__init__(func_name.location)
-        self.func_name: ExpressionNode = func_name
+    def __init__(self, func: ExpressionNode, args: list[ExpressionNode]):
+        super().__init__(func.location)
+        self.func: ExpressionNode = func
         self.args: list[ExpressionNode] = args
-        self.func: Optional[FuncDefineNode] = None
+        self.func_literal: Optional[FunctionLiteral] = None
+        return
 
-    def update(self, ctx: Context, parent: Optional[Node]) -> Optional['FuncCallNode']:
-        self.context = ctx
-        self.parent = parent
-        self.func_name.update(ctx, self)
-        if self.func_name is None:
+    def type_check(self, ctx: Context, parent: Optional['Node']) -> Optional['FuncCallNode']:
+        self.update(ctx, parent)
+        self.func.type_check(ctx, self)
+
+        self.args = [arg.type_check(ctx, self) for arg in self.args]
+        if self.func is None or None in self.args:
             return None
 
-        self.args = [arg.update(ctx, self) for arg in self.args]
-        if None in self.args:
-            return None
+        assert isinstance(self.func.type, FunctionType)
+
+        if isinstance(self.func.type.arg, TupleType):
+            in_type = tuple_type_unpacking(ctx, self.func.type.arg, FunctionType, TypeError.wrong_type)
+        else:
+            in_type = [self.func.type.arg]
+
+        in_func_type = TupleType([arg.type for arg in self.args])
+
+        if in_type != in_func_type.types:
+            ctx.error(TypeError.wrong_func_type, self.func, in_func_type, self.func.type.arg)
 
         return self
 
+    def __str__(self):
+        return f'{self.func}{self.args}'
+
     def __repr__(self):
-        return f'{self.func_name}{self.args}'
+        return f'<{self.func.__repr__()}({", ".join([f"{arg.__repr__()}" for arg in self.args])})>'
 
 
 # Definition Nodes
 
 class VarDefineNode(NameDefineNode, ExpressionNode):
-    def __init__(self, var_name: VariableNode, var_type: Type, value: Optional[ExpressionNode] = None):
+    def __init__(self, var_name: VariableNode, var_type: Type):
         super().__init__(var_name, var_type)
-        self.value: Optional[ExpressionNode] = value
         self.class_def: Optional[TypeDefineNode] = None
         return
 
-    def update(self, ctx: Context, parent: Optional[Node]) -> Optional['VarDefineNode']:
-        self.context = ctx
-        self.parent = parent
+    def type_check(self, ctx: Context, parent: Optional['Node']) -> Optional['VarDefineNode']:
+        self.update(ctx, parent)
 
-        self.add_ctx(ctx)
-        self.name = self.name.update(ctx, self.parent)
+        self.class_def = self.context.get_definition(self.name.name_tok.value)
+        if self.class_def is None:
+            self.error(TypeError.unk_var, self.name.name_tok.value)
+            return None
+
+        self.name = self.name.type_check(ctx, self.parent)
         if self.name is None:
             return None
 
-        if self.value is not None:
-            self.value = self.value.update(ctx, self.parent)
-            if self.value is not None:
-                self.name.type = self.type = self.value.type
-
         return self
 
-    def __repr__(self):
-        if self.value is None:
-            return f'{self.name.var_name.value}: {self.type}'
-        else:
-            return f'{self.name.var_name.value}: {self.type} = {self.value}'
-
-
-class FuncDefineNode(VarDefineNode):
-    def __init__(self, func_name: VariableNode, func: 'FunctionLiteral'):
-        super().__init__(func_name, func.literal_type, ValueNode(func))
-        self.func: FunctionLiteral = func
-        self.body: Node = func.body
-        return
-
-    def add_ctx(self, ctx: Context) -> None:
-        """Adds the definition to the current context dict"""
-        super().add_ctx(ctx)
-        ctx.funcs.add(self)
-        return
-
-    def update(self, ctx: Context, parent: Optional[Node]) -> Optional['FuncDefineNode']:
-        self.context = ctx
-        self.parent = parent
-        self.body = self.body.update(ctx, self)
-        if self.body is None:
-            return None
-        return self
+    def __str__(self):
+        return f'{self.name.name_tok.value}: {self.type}'
 
     def __repr__(self):
-        return f'{self.name}: {self.func.literal_type} = {self.func}'
+        return f'<{self.name.__repr__()}: {self.type.__repr__()}>'
 
 
 # Type Nodes
 
 class TypeDefineNode(NameDefineNode):
     def __init__(self, name: VariableNode, generics: Optional[list[VarDefineNode | VariableNode | ValueNode]] = None):
-        super().__init__(name)
+        super().__init__(name, copy(Types.type.value))
         self.generics: Optional[list[VarDefineNode | VariableNode | ValueNode]] = generics if generics is not None else []
         return
-
-    @staticmethod
-    def make_type(name: Token, fields: list[NameDefineNode]) -> Type:
-        types = []
-        for field in fields:
-            types.append(field.type)
-        return TypeDefType(name, types)
 
     def add_ctx(self, ctx: Context) -> None:
         """Adds the definition to the current context dict"""
@@ -540,11 +615,20 @@ class TypeDefineNode(NameDefineNode):
         ctx.types.add(self)
         return
 
-    def update(self, ctx: Context, parent: Optional[Node]) -> Optional['TypeDefineNode']:
-        self.context = ctx
-        self.parent = parent
+    def get_attribute(self, name: str) -> Optional[NameDefineNode]:
+        """Returns the attribute of the type definition with the given name or None if it is not defined.
+        Attribute can be a field or a variant type"""
+        return None
+
+    def type_check(self, ctx: Context, parent: Optional['Node']) -> Optional['TypeDefineNode']:
+        self.update(ctx, parent)
+
+        self.generics = [g.type_check(ctx, self) for g in self.generics]
+        if None in self.generics:
+            return None
 
         return self
+
 
     def __repr__(self):
         return f'type {self.name} {self.type}'
@@ -553,13 +637,12 @@ class TypeDefineNode(NameDefineNode):
 class ProductTypeDefineNode(TypeDefineNode):
     def __init__(self, name: VariableNode, fields: list[NameDefineNode], generics = None):
         super().__init__(name, generics)
-        self.fields: list[NameDefineNode] = fields
+        self.fields: dict[str, NameDefineNode] = dict(map(lambda e: (e.name.name_tok.value, e), fields))
         return
 
-    def get_field(self, field_name: str) -> Optional[NameDefineNode]:
-        for field in self.fields:
-            if field.name.var_name == field_name:
-                return field
+    def get_attribute(self, name: str) -> Optional[NameDefineNode]:
+        if name in self.fields:
+            return self.fields[name]
         return None
 
     def __repr__(self):
@@ -573,6 +656,12 @@ class TypeAliasDefineNode(TypeDefineNode):
         self.other_type: Type = other_type
         return
 
+    def get_attribute(self, name: str) -> Optional[NameDefineNode]:
+        typedef = self.context.get_definition(self.other_type.name_tok.value)
+        if not isinstance(typedef, TypeDefineNode):
+            return None
+        return typedef.get_attribute(name)
+
     def __repr__(self):
         return f'type {self.name} = {self.other_type}'
 
@@ -581,13 +670,18 @@ class SumTypeDefineNode(TypeDefineNode):
     def __init__(self, name: VariableNode, subtypes: list[TypeDefineNode], generics = None):
         super().__init__(name, generics)
         self.name: VariableNode = name
-        self.variants: list[TypeDefineNode] = subtypes
+        self.variants: dict[str, TypeDefineNode] = dict(map(lambda e: (e.name.name_tok.value, e), subtypes))
         self.type: Type = self.make_type(name, subtypes)
         return
 
     @staticmethod
     def make_type(name: VariableNode, subtypes: list[TypeDefineNode]) -> Type:
-        return SumType(name.var_name, subtypes)
+        return SumType(name.name_tok, subtypes)
+
+    def get_attribute(self, name: str) -> Optional[NameDefineNode]:
+        if name in self.variants:
+            return self.variants[name]
+        return None
 
     def __repr__(self):
         string = ", ".join([f'{subtype}' for subtype in self.variants])

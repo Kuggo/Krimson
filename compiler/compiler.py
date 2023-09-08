@@ -36,7 +36,7 @@ def main():
 
     if len(lexer.errors) > 0:
         for err in lexer.errors:
-            print(err.__repr__(), file=stderr)
+            print(err.__str__(), file=stderr)
         exit(1)
 
     print(lexer.tokens, file=dest)
@@ -47,18 +47,18 @@ def main():
 
     if len(parser.errors) > 0:
         for err in parser.errors:
-            print(err.__repr__(), file=stderr)
+            print(err.__str__(), file=stderr)
         exit(1)
 
     # primitives_ctx = get_primitives()
     context = Context(global_vars)  # Context(primitives_ctx)
     context.scope_level = 0
 
-    ast = parser.ast.update(context, None)
+    ast = parser.ast.type_check(context, None)
 
     if len(context.errors) > 0:
         for err in context.errors:
-            print(err.__repr__(), file=stderr)
+            print(err.__str__(), file=stderr)
         exit(1)
 
     print(ast)
@@ -105,7 +105,7 @@ AllowedOptions: type = {
 
     if len(lexer.errors) > 0:
         for err in lexer.errors:
-            print(err.__repr__(), file=stderr)
+            print(err.__str__(), file=stderr)
         exit(1)
 
     assert lexer.tokens == [
@@ -131,7 +131,7 @@ AllowedOptions: type = {
 
     if len(parser.errors) > 0:
         for err in parser.errors:
-            print(err.__repr__(), file=stderr)
+            print(err.__str__(), file=stderr)
         exit(1)
 
     print("All tests passed!")
@@ -148,7 +148,7 @@ def get_primitives() -> Context:
 
         if len(lexer.errors) > 0:
             for err in lexer.errors:
-                print(err.__repr__(), file=stderr)
+                print(err.__str__(), file=stderr)
             exit(1)
 
         parser = Parser(lexer.tokens, global_vars)
@@ -156,11 +156,12 @@ def get_primitives() -> Context:
 
         if len(parser.errors) > 0:
             for err in parser.errors:
-                print(err.__repr__(), file=stderr)
+                print(err.__str__(), file=stderr)
             exit(1)
 
         context = Context(global_vars)
-        parser.ast.process_body(context)    # skipping some parts on self.update()
+        parser.ast.type_check(context, None)
+        # TODO we dont wan tto typecheck the primitives, cause probably a lot of errors will appear
 
     return context
 

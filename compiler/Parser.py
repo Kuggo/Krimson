@@ -397,32 +397,7 @@ class Parser:
             return self.type_define_statement(name)
 
         # it's not using special syntax to define a new name, so it can be any variable type
-        return self.var_define_statement(name, t)
-
-    def var_define_statement(self, name: VariableNode, var_type: Optional[Type]) -> Optional[VarDefineNode]:
-        """
-        Parses the next variable declaration statement and returns its Node. if var_type is None then infer its type.
-
-        var_define_statement : identifier ":" type [ "=" expression ]
-
-        :return: VarAssignNode or None if an error occurred
-        """
-
-        if self.peak != Operators.assign.value:
-            return VarDefineNode(name, var_type)
-
-        self.advance()
-        tok = self.peak
-        val = self.expression()
-
-        if val is None:
-            self.error(SyntaxError.expression_expected, tok.location)
-            return None
-
-        if isinstance(val, ValueNode) and isinstance(val.value, FunctionLiteral):
-            return FuncDefineNode(name, val.value)
-
-        return VarDefineNode(name, var_type, val)
+        return VarDefineNode(name, t)
 
     def type_define_statement(self, name: VariableNode) -> Optional[TypeDefineNode]:
         """
@@ -462,12 +437,12 @@ class Parser:
             self.error(SyntaxError.identifier_expected, self.peak.location)
             return None
 
-        if self.preview() != Separators.colon.value or self.preview(2) == Types.type.value.name:  # it's a sum type
+        if self.preview() != Separators.colon.value or self.preview(2) == Types.type.value.name_tok:  # it's a sum type
             return self.sum_type(name, generics)
 
         fields = self.repeat_until_symbol(Separators.rcb.value.value, Parser.field_define, SyntaxError.declaration_expected)
         self.advance()
-        return TypeDefineNode(name, generics)
+        return ProductTypeDefineNode(name, fields, generics)
 
     def field_define(self) -> Optional[VarDefineNode]:
         name = self.peak

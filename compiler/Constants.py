@@ -270,11 +270,14 @@ class Error(Exception):
 
         return lines
 
-    def __repr__(self):
+    def __str__(self):
         string = f'{self.file_name}:{self.location.start}:{self.location.line_start}: {self.e.value.format(*self.args)}\n'
         for i, line in enumerate(self.code_lines):
             string += f'{line}\n{" " * (self.location.start - 1)}{"^" * (self.location.end - self.location.start + 1)}'
         return string
+
+    def __repr__(self):
+        return self.__str__()
 
 
 # Literals
@@ -289,6 +292,14 @@ class Literal(Token):
         """krimson Type of the Literal value of the token"""
         return
 
+    def get_type(self):
+        """Generates the krimson type of the literal value of the token"""
+        return self.literal_type
+
+    def type_check_literal(self, context, parent) -> None:
+        """Checks if the literal value of the token is of the expected type"""
+        pass
+
     def __repr__(self):
         return f'<{self.value}: {self.literal_type}>'
 
@@ -298,8 +309,8 @@ class Literal(Token):
 class Type:
     """Class containing all information regarding a type in krimson, such as the name of the type, and extra generic
     types associated with it"""
-    def __init__(self, name: Token):
-        self.name: Token = name
+    def __init__(self, name: Optional[Token] = None):
+        self.name_tok: Token = name if name is not None else Token(TT.IDENTIFIER, '')
         """name of the krimson type"""
 
         self.size = 1
@@ -307,31 +318,31 @@ class Type:
         return
 
     def __eq__(self, other: 'Type'):
-        return other is not None and self.name == other.name
+        return other is not None and self.name_tok == other.name_tok
 
     def __hash__(self):
-        return self.name.value.__hash__()
+        return self.name_tok.value.__hash__()
 
     def get_type_label(self) -> str:
         """
         Generates and returns a string containing a unique label to represent the krimson type.
         :return: a string label of the type
         """
-        return self.name.value
+        return self.name_tok.value
 
     def __repr__(self):
-        return f'{self.name.value}'
+        return f'{self.name_tok.value}'
 
 
 class AnyType(Type):
     def __init__(self):
-        super().__init__(Token(TT.IDENTIFIER, '_'))
+        super().__init__()
         return
 
 
 class TupleType(Type):
     def __init__(self, types: list[Type]):
-        super().__init__(Token(TT.IDENTIFIER, 'tuple'))
+        super().__init__()
         self.types: list[Type] = types
         return
 
@@ -342,28 +353,27 @@ class TupleType(Type):
         return f'tuple_{"_".join([t.get_type_label() for t in self.types])}'
 
     def __repr__(self):
-        return f'{self.name.value}({", ".join([str(t) for t in self.types])})'
+        return f'{self.name_tok.value}({", ".join([str(t) for t in self.types])})'
 
 
 class VoidType(TupleType):
     def __init__(self, ):
         super().__init__([])
-        self.name = Token(TT.IDENTIFIER, 'void')
         return
 
     def __eq__(self, other: 'VoidType'):
         return isinstance(other, VoidType)
 
     def get_type_label(self) -> str:
-        return f'{self.name.value}'
+        return f'{self.name_tok.value}'
 
     def __repr__(self):
-        return f'{self.name.value}'
+        return f'{self.name_tok.value}'
 
 
 class FunctionType(Type):
     def __init__(self, arg: Type, ret: Type):
-        super().__init__(Token(TT.IDENTIFIER, 'fn'))
+        super().__init__()
         self.arg: Type = arg
         self.ret: Type = ret
         return
@@ -375,12 +385,12 @@ class FunctionType(Type):
         return f'func_{self.arg.get_type_label()}_to_{self.ret.get_type_label()}'
 
     def __repr__(self):
-        return f'{self.name.value}({self.arg} -> {self.ret})'
+        return f'{self.name_tok.value}({self.arg} -> {self.ret})'
 
 
 class ArrayType(Type):
     def __init__(self, arr_type: Type):
-        super().__init__(Token(TT.IDENTIFIER, 'array'))
+        super().__init__()
         self.arr_type: Type = arr_type
         return
 
@@ -391,23 +401,23 @@ class ArrayType(Type):
         return f'array_{self.arr_type.get_type_label()}'
 
     def __repr__(self):
-        return f'{self.name.value}[{self.arr_type}]'
+        return f'{self.name_tok.value}[{self.arr_type}]'
 
 
-class TypeDefType(Type):
-    def __init__(self, type_name: Token, fields: list[Type]):
-        super().__init__(type_name)
+class ProductType(Type):
+    def __init__(self, fields: list[Type]):
+        super().__init__()
         self.fields: list[Type] = fields
         return
 
-    def __eq__(self, other: 'TypeDefType'):
-        return isinstance(other, TypeDefType) and self.name == other.name and self.fields == other.fields
+    def __eq__(self, other: 'ProductType'):
+        return isinstance(other, ProductType) and self.name_tok == other.name_tok and self.fields == other.fields
 
     def get_type_label(self) -> str:
-        return f'{self.name.value}_{"_".join([f.get_type_label() for f in self.fields])}'
+        return f'{self.name_tok.value}_{"_".join([f.get_type_label() for f in self.fields])}'
 
     def __repr__(self):
-        return f'{self.name.value}({", ".join([str(f) for f in self.fields])})'
+        return f'{self.name_tok.value}({", ".join([str(f) for f in self.fields])})'
 
 
 class SumType(Type):
@@ -422,7 +432,6 @@ class SumType(Type):
 
 class Types(Enum):
     """Enum containing all primitive types the compiler may need to use at compile-time"""
-
     infer = AnyType()
     void = VoidType()
     type = Type(Token(TT.IDENTIFIER, 'type'))
