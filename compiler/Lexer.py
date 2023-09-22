@@ -107,10 +107,11 @@ class Lexer:
         if name in KEYWORDS:
             token_type = TT.KEYWORD
         elif name in BOOLEANS:
-            self.literal(name, copy(Types.bool.value), start, self.i - 1)
+            self.literal(name, {copy(Types.bool.value)}, start, self.i - 1)
             return
         elif name == VOID:
-            self.literal(name, copy(Types.void.value), start, self.i - 1)
+            lit = VoidLiteral(FileRange(start - self.line_offset, self.line, self.i - 1 - self.line_offset, self.line))
+            self.tokens.append(lit)
             return
         else:
             token_type = TT.IDENTIFIER
@@ -145,16 +146,16 @@ class Lexer:
                 self.error(LexicalError.invalid_num, start, self.i-1)
                 return
             if value < 0:
-                self.literal(value, copy(Types.int.value), start, self.i - 1)
+                self.literal(value, {copy(Types.int.value)}, start, self.i - 1)
             else:
-                self.literal(value, copy(Types.nat.value), start, self.i - 1)
+                self.literal(value, {copy(Types.nat.value), copy(Types.int.value)}, start, self.i - 1)
         else:
             try:
                 value = float(self.input_string[start:self.i])
             except ValueError:
                 self.error(LexicalError.invalid_num, start, self.i-1)
                 return
-            self.literal(value, copy(Types.frac.value), start, self.i - 1)
+            self.literal(value, {copy(Types.frac.value)}, start, self.i - 1)
         return
 
     def make_symbol(self) -> None:
@@ -303,7 +304,7 @@ class Lexer:
 
         t = copy(Types.str.value)
         t.size = len(string)
-        self.literal(string, t, start - 1, self.i)
+        self.literal(string, {t}, start - 1, self.i)
         self.advance()
         return
 
@@ -380,18 +381,18 @@ class Lexer:
         self.tokens.append(tok)
         return tok
 
-    def literal(self, value, literal_type: Type, start, end) -> Token:
+    def literal(self, value, possible_types: set[Type], start, end) -> Token:
         """
         Creates a new Literal Token and adds it to the output collection of tokens ``self.tokens``
 
         :param value: value of the token
-        :param literal_type: type of the literal
+        :param possible_types: type of the literal
         :param start: start index of the token
         :param end: end index of the token
         :return: the recently created token
         """
 
-        tok = Literal(value, literal_type, FileRange(start - self.line_offset, self.line, end - self.line_offset, self.line))
+        tok = Literal(value, possible_types, FileRange(start - self.line_offset, self.line, end - self.line_offset, self.line))
         self.tokens.append(tok)
         return tok
 

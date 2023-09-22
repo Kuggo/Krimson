@@ -19,7 +19,7 @@ class Globals:
 END_OF_EXPRESSION = {';'}
 """Set of valid characters that end an expression"""
 
-KEYWORDS = {'if', 'else', 'exit', 'skip', 'while', 'match', 'type'}
+KEYWORDS = {'if', 'else', 'exit', 'skip', 'while', 'match'}
 """Set containing all the language's keywords"""
 
 BOOLEANS = ['false', 'true']
@@ -278,26 +278,50 @@ class Error(Exception):
 class Literal(Token):
     """Special Case of Token, that has a token type (tt) of ``TT.LITERAL``.
 
-    It contains an extra field ``self.literal_type`` for the krimson type of the literal value"""
-    def __init__(self, value, t: Optional['Type'], location = FileRange(-1, -1, -1, -1)):
+    It contains an extra field ``self.literal_types`` for the krimson type of the literal value"""
+    def __init__(self, value, types: set['Type'], location = FileRange(-1, -1, -1, -1)):
         super().__init__(TT.LITERAL, value, location)
-        self.literal_type: Optional[Type] = t
+        self.possible_types: set['Type'] = types
+
+        (t,) = types if len(types) == 1 else (None,)
+        self.type: Optional[Type] = t
         """krimson Type of the Literal value of the token"""
         return
 
-    def get_type(self):
-        """Generates the krimson type of the literal value of the token"""
-        return self.literal_type
-
-    def type_check_literal(self, context, parent) -> None:
-        """Checks if the literal value of the token is of the expected type"""
+    def update_literal(self, context, parent):
+        """Updates the literal value of the token"""
         pass
+
+    def type_check_literal(self, context, expected_types: Optional[set['Type']] = None) -> None:
+        """Checks if the literal value of the token is of the expected type
+        :param context:
+        :param expected_types:
+        """
+        if expected_types is None:
+            return
+
+        types = self.possible_types.intersection(expected_types)
+        assert len(types) == 1
+        self.type = types.pop()
+        return
 
     def __str__(self):
         return f'{self.value}'
 
     def __repr__(self):
-        return f'<{self.value}: {self.literal_type}>'
+        return f'<{self.value}: {self.type}>'
+
+
+class VoidLiteral(Literal):
+    def __init__(self, location: FileRange):
+        super().__init__('void', {VoidType()}, location)
+        return
+
+    def __str__(self):
+        return f'void'
+
+    def __repr__(self):
+        return f'<void>'
 
 
 # Types directly supported by the compiler
@@ -319,12 +343,20 @@ class Type:
     def __hash__(self):
         return self.name_tok.value.__hash__()
 
-    def get_type_label(self) -> str:
+    def get_id(self) -> str:
         """
-        Generates and returns a string containing a unique label to represent the krimson type.
+        Generates and returns a string containing a unique string to represent the krimson type.
         :return: a string label of the type
         """
-        return self.name_tok.value
+        return f'{self.name_tok.value}'
+
+    def get_attribute(self, name: str):
+        """
+        Returns the type of the attribute with the given name
+        :param name: str of the attribute
+        :return: the type of the attribute
+        """
+        return None
 
     def __str__(self):
         return f'{self.name_tok.value}'
@@ -333,10 +365,16 @@ class Type:
         return f'<{self.name_tok.value}>'
 
 
-class AnyType(Type):
-    def __init__(self):
-        super().__init__()
+class InferType(Type):
+    def __init__(self, tok: Token):
+        super().__init__(tok)
         return
+
+    def __eq__(self, other: 'InferType'):
+        return isinstance(other, InferType)
+
+    def __hash__(self):
+        return super().__hash__()
 
 
 class TupleType(Type):
@@ -348,8 +386,11 @@ class TupleType(Type):
     def __eq__(self, other: 'TupleType'):
         return isinstance(other, TupleType) and self.types == other.types
 
-    def get_type_label(self) -> str:
-        return f'tuple_{"_".join([t.get_type_label() for t in self.types])}'
+    def __hash__(self):
+        return sum([f.__hash__() for f in self.types])
+
+    def get_id(self) -> str:
+        return f'tuple_{"_".join([t.get_id() for t in self.types])}'
 
     def __str__(self):
         return f'({", ".join([str(t) for t in self.types])})'
@@ -359,14 +400,17 @@ class TupleType(Type):
 
 
 class VoidType(TupleType):
-    def __init__(self, ):
+    def __init__(self):
         super().__init__([])
         return
 
     def __eq__(self, other: 'VoidType'):
         return isinstance(other, VoidType)
 
-    def get_type_label(self) -> str:
+    def __hash__(self): # need to redefine this otherwise __eq__ will make the hash be 0
+        return super().__hash__()
+
+    def get_id(self) -> str:
         return f'{self.name_tok.value}'
 
     def __str__(self):
@@ -386,8 +430,11 @@ class FunctionType(Type):
     def __eq__(self, other: 'FunctionType'):
         return isinstance(other, FunctionType) and self.arg == other.arg and self.ret == other.ret
 
-    def get_type_label(self) -> str:
-        return f'func_{self.arg.get_type_label()}_to_{self.ret.get_type_label()}'
+    def __hash__(self):
+        return self.arg.__hash__() ^ self.ret.__hash__()
+
+    def get_id(self) -> str:
+        return f'func_{self.arg.get_id()}_to_{self.ret.get_id()}'
 
     def __str__(self):
         return f'({self.arg} -> {self.ret})'
@@ -405,8 +452,11 @@ class ArrayType(Type):
     def __eq__(self, other: 'ArrayType'):
         return isinstance(other, ArrayType) and self.arr_type == other.arr_type
 
-    def get_type_label(self) -> str:
-        return f'array_{self.arr_type.get_type_label()}'
+    def __hash__(self):
+        return self.arr_type.__hash__() + 1 # just to change from the normal type hash
+
+    def get_id(self) -> str:
+        return f'array_{self.arr_type.get_id()}'
 
     def __str__(self):
         return f'[{self.arr_type}]'
@@ -424,8 +474,11 @@ class ProductType(Type):
     def __eq__(self, other: 'ProductType'):
         return isinstance(other, ProductType) and self.name_tok == other.name_tok and self.fields == other.fields
 
-    def get_type_label(self) -> str:
-        return f'{self.name_tok.value}_{"_".join([f.get_type_label() for f in self.fields])}'
+    def __hash__(self):
+        return sum([f.__hash__() for f in self.fields])
+
+    def get_id(self) -> str:
+        return f'{self.name_tok.value}_{"_".join([f.get_id() for f in self.fields])}'
 
     def __str__(self):
         return f'{{{", ".join([str(f) for f in self.fields])}}}'
@@ -443,6 +496,9 @@ class SumType(Type):
     def __eq__(self, other: 'SumType'):
         return isinstance(other, SumType) and self.types == other.types
 
+    def __hash__(self):
+        return sum([f.__hash__() for f in self.types])
+
     def __str__(self):
         return f'{{{" | ".join([str(t) for t in self.types])}}}'
 
@@ -452,9 +508,9 @@ class SumType(Type):
 
 class Types(Enum):
     """Enum containing all primitive types the compiler may need to use at compile-time"""
-    infer = AnyType()
     void = VoidType()
     type = Type(Token(TT.IDENTIFIER, 'type'))
+    infer = InferType(Token(TT.IDENTIFIER, '_'))
     bool = Type(Token(TT.IDENTIFIER, 'bool'))
     nat = Type(Token(TT.IDENTIFIER, 'nat'))
     int = Type(Token(TT.IDENTIFIER, 'int'))
@@ -466,17 +522,36 @@ class Types(Enum):
 
 class PriorityQueue:
     def __init__(self, num_priorities: int):
+        assert num_priorities > 0
         self.num_priorities: int = num_priorities
         self.queue: list[list] = [[] for _ in range(num_priorities)]
+        self.i: int = 0
+        self.p: int = 0
         return
 
-    def enqueue(self, item, priority: int):
+    def enqueue(self, item, priority: int = 0):
         if priority >= self.num_priorities:
             priority = self.num_priorities - 1
         elif priority < 0:
             priority = 0
         self.queue[priority].append(item)
         return
+
+    def __iter__(self):
+        self.i = 0
+        self.p = 0
+        return self
+
+    def __next__(self):
+        if self.p >= self.num_priorities:
+            raise StopIteration
+        if self.i >= len(self.queue[self.p]):
+            self.p += 1
+            self.i = 0
+            return self.__next__()
+        item = self.queue[self.p][self.i]
+        self.i += 1
+        return item
 
     def dequeue(self):
         for i in range(self.num_priorities):

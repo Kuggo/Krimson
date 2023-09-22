@@ -27,6 +27,7 @@ class SyntaxError(Enum):
     not_a_func = 'Cannot call "{}"'
     cannot_index_multiple = "Cannot index with multiple values. ']' expected"
     cannot_assign_to_arg = "Cannot assign values to function argument definitions"
+    cannot_assign_to_field = "Cannot assign values to field definitions"
     declaration_expected = "Declaration statement expected"
     func_literal_expected = "Function literal expected"
     generic_expected = "Generic type/value expected (Needs to be known at compile-time)"
@@ -137,7 +138,7 @@ class Parser:
         else:
             return self.expression()
 
-    def expression(self, precedence=-1) -> Optional[ExpressionNode]:
+    def expression(self, precedence=-1) -> Optional[Node]:
         left = self.parse_prefix()
         if left is None:
             return None
@@ -157,7 +158,7 @@ class Parser:
 
         return node
 
-    def parse_prefix(self) -> Optional[ExpressionNode]:
+    def parse_prefix(self) -> Optional[Node]:
         token = self.peak
         self.advance()
 
@@ -198,7 +199,7 @@ class Parser:
         self.error(SyntaxError.expression_expected, self.peak.location)
         return None
 
-    def parse_infix(self, left: ExpressionNode) -> Optional[ExpressionNode]:
+    def parse_infix(self, left: Node) -> Optional[Node]:
         token = self.peak
         self.advance()
 
@@ -242,7 +243,7 @@ class Parser:
             return None
         return BinOpNode(token, left, right)
 
-    def make_function_call(self, function: ExpressionNode) -> Optional[FuncCallNode]:
+    def make_function_call(self, function: Node) -> Optional[FuncCallNode]:
         args = self.repeat_until_symbol(Separators.rpa.value.value, Parser.expression, SyntaxError.expression_expected,
                                             OPERATOR_PRECENDENCE[Separators.comma.value.value])
         self.advance()
@@ -254,8 +255,8 @@ class Parser:
 
         If no expression is found, or more than 1 expression is found, then an error is detected.
 
-        :param left: ExpressionNode to be indexed
-        :return: ExpressionNode or None if an error occurred
+        :param left: Node to be indexed
+        :return: Node or None if an error occurred
         """
         tok = self.last
 
@@ -289,11 +290,16 @@ class Parser:
         self.advance()
 
         if tok.tt == TT.LITERAL:
-            assert tok == Types.void.value
+            if tok != Types.void.value:
+                self.error(SyntaxError.type_expected, tok.location)
+                return None
             return VoidType()
 
         elif tok.tt == TT.IDENTIFIER:
-            return Type(tok)
+            if tok == Types.infer.value.name_tok:
+                return InferType(tok)
+            else:
+                return Type(tok)
 
         elif tok.value in UNARY_OPERATORS:
             t = self.type(precedence=OPERATOR_PRECENDENCE[tok.value])
@@ -382,7 +388,7 @@ class Parser:
 
     # defines
 
-    def name_define_statement(self, name: ExpressionNode) -> Optional[NameDefineNode]:
+    def name_define_statement(self, name: Node) -> Optional[NameDefineNode]:
         """
         Parses the next statement (that does not start with a keyword) without knowing what kind of statement it is.
         The difference is spotted on how the statement goes.
@@ -460,14 +466,16 @@ class Parser:
 
         self.advance()
 
-        if self.peak == Separators.colon.value:
-            self.advance()
-        else:
-            pass  # type inference
+        if self.peak != Separators.colon.value:
+            self.error(SyntaxError.symbol_expected, self.peak.location, Separators.colon.value.value)
+        self.advance()
 
         t = self.type()
         if t is None:
             return None
+
+        if self.peak == Operators.assign.value:
+            self.error(SyntaxError.cannot_assign_to_field, self.peak.location)
 
         return VarDefineNode(VariableNode(name), t)
 
@@ -478,7 +486,7 @@ class Parser:
             variant_name = VariableNode(self.peak)
             self.advance()
 
-            if self.peak == Separators.colon.value and self.preview() == Types.type.value:
+            if self.peak == Separators.colon.value and self.preview() == Types.type.value.name_tok:
                 self.advance(2)
 
             if self.peak == Operators.or_.value or self.peak == Separators.rcb.value:   # no size variant
@@ -642,7 +650,7 @@ class Parser:
 
     # literals
 
-    def func_literal(self, left: ExpressionNode) -> Optional[ValueNode]:
+    def func_literal(self, left: Node) -> Optional[ValueNode]:
         """Parses the next function literal until it finds its end
 
         func_literal : VarDefineNode '->' VarDefineNode statement
@@ -663,7 +671,7 @@ class Parser:
         func = FunctionLiteral(left, right, body)
         return ValueNode(func)
 
-    def tuple_literal(self, left: ExpressionNode) -> Optional[ValueNode]:
+    def tuple_literal(self, left: Node) -> Optional[ValueNode]:
         values = [left]
         self.rollback()
         while self.peak == Separators.comma.value and self.preview() != Separators.rbr.value:
