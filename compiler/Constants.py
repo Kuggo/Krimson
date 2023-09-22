@@ -16,6 +16,9 @@ class Globals:
 
 
 # constants
+FILE_EXTENSION = '.krim'
+"""Names terminated with this string are considered to be krimson source code files"""
+
 END_OF_EXPRESSION = {';'}
 """Set of valid characters that end an expression"""
 
@@ -24,9 +27,6 @@ KEYWORDS = {'if', 'else', 'exit', 'skip', 'while', 'match'}
 
 BOOLEANS = ['false', 'true']
 """List of the 2 boolean values"""
-
-VOID = 'void'
-"""Text representation of no value"""
 
 SYMBOLS = {'&', '|', '^', '+', '-', '*', '/', '=', '<', '>', '!', '(', ')', '{', '}', '[', ']', '.', ',', ':', ';', '?'}
 """Set of characters accepted as valid symbols"""
@@ -301,8 +301,10 @@ class Literal(Token):
             return
 
         types = self.possible_types.intersection(expected_types)
-        assert len(types) == 1
-        self.type = types.pop()
+        if len(types) > 0:
+            self.type = types.pop()
+        else:
+            self.type = self.possible_types.pop()
         return
 
     def __str__(self):
@@ -314,11 +316,11 @@ class Literal(Token):
 
 class VoidLiteral(Literal):
     def __init__(self, location: FileRange):
-        super().__init__('void', {VoidType()}, location)
+        super().__init__('()', {VoidType()}, location)
         return
 
     def __str__(self):
-        return f'void'
+        return f'()'
 
     def __repr__(self):
         return f'<void>'
@@ -343,20 +345,23 @@ class Type:
     def __hash__(self):
         return self.name_tok.value.__hash__()
 
-    def get_id(self) -> str:
+    def get_label(self) -> str:
         """
         Generates and returns a string containing a unique string to represent the krimson type.
         :return: a string label of the type
         """
         return f'{self.name_tok.value}'
 
-    def get_attribute(self, name: str):
+    def get_id(self) -> tuple[str, 'Type']:
+        return self.name_tok.value, Types.type.value
+
+    def get_attribute(self, name: str) -> set:
         """
-        Returns the type of the attribute with the given name
+        Returns the typedef of the attribute with the given name
         :param name: str of the attribute
         :return: the type of the attribute
         """
-        return None
+        return set()
 
     def __str__(self):
         return f'{self.name_tok.value}'
@@ -389,8 +394,8 @@ class TupleType(Type):
     def __hash__(self):
         return sum([f.__hash__() for f in self.types])
 
-    def get_id(self) -> str:
-        return f'tuple_{"_".join([t.get_id() for t in self.types])}'
+    def get_label(self) -> str:
+        return f'tuple_{"_".join([t.get_label() for t in self.types])}'
 
     def __str__(self):
         return f'({", ".join([str(t) for t in self.types])})'
@@ -410,7 +415,7 @@ class VoidType(TupleType):
     def __hash__(self): # need to redefine this otherwise __eq__ will make the hash be 0
         return super().__hash__()
 
-    def get_id(self) -> str:
+    def get_label(self) -> str:
         return f'{self.name_tok.value}'
 
     def __str__(self):
@@ -433,8 +438,8 @@ class FunctionType(Type):
     def __hash__(self):
         return self.arg.__hash__() ^ self.ret.__hash__()
 
-    def get_id(self) -> str:
-        return f'func_{self.arg.get_id()}_to_{self.ret.get_id()}'
+    def get_label(self) -> str:
+        return f'func_{self.arg.get_label()}_to_{self.ret.get_label()}'
 
     def __str__(self):
         return f'({self.arg} -> {self.ret})'
@@ -455,8 +460,8 @@ class ArrayType(Type):
     def __hash__(self):
         return self.arr_type.__hash__() + 1 # just to change from the normal type hash
 
-    def get_id(self) -> str:
-        return f'array_{self.arr_type.get_id()}'
+    def get_label(self) -> str:
+        return f'array_{self.arr_type.get_label()}'
 
     def __str__(self):
         return f'[{self.arr_type}]'
@@ -477,8 +482,8 @@ class ProductType(Type):
     def __hash__(self):
         return sum([f.__hash__() for f in self.fields])
 
-    def get_id(self) -> str:
-        return f'{self.name_tok.value}_{"_".join([f.get_id() for f in self.fields])}'
+    def get_label(self) -> str:
+        return f'{self.name_tok.value}_{"_".join([f.get_label() for f in self.fields])}'
 
     def __str__(self):
         return f'{{{", ".join([str(f) for f in self.fields])}}}'

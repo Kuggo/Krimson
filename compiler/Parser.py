@@ -15,16 +15,16 @@ def get_assign_operator(tok: Token) -> Token:
 class SyntaxError(Enum):
     """Enum containing all the custom error messages that the parser may generate."""
     identifier_expected = 'Identifier expected'
-    symbol_expected = "'{}' expected"
-    symbol_expected_before = "'{}' expected before '{}'"
+    symbol_expected = "'{!s}' expected"
+    symbol_expected_before = "'{!s}' expected before '{!s}'"
     expression_expected = 'Expression expected'
     type_expected = 'type expected'
     typedef_expected = 'type declaration expected'
-    cannot_assign_to_non_var = '"{}" is not a variable that can be assigned a value to'
+    cannot_assign_to_non_var = '"{!s}" is not a variable that can be assigned a value to'
     if_expected = 'if keyword expected before else'
     statement_expected = 'Statement expected'
     arg_expected = 'Function argument definition expected'
-    not_a_func = 'Cannot call "{}"'
+    not_a_func = 'Cannot call "{!s}"'
     cannot_index_multiple = "Cannot index with multiple values. ']' expected"
     cannot_assign_to_arg = "Cannot assign values to function argument definitions"
     cannot_assign_to_field = "Cannot assign values to field definitions"
@@ -204,7 +204,9 @@ class Parser:
         self.advance()
 
         if token == Separators.lpa.value: # function call
-            return self.make_function_call(left)
+            self.rollback()
+            arg = self.expression()
+            return FuncCallNode(left, arg)
 
         elif token == Operators.dot.value: # attribute access
             if self.peak.tt != TT.IDENTIFIER:
@@ -242,12 +244,6 @@ class Parser:
         if right is None:
             return None
         return BinOpNode(token, left, right)
-
-    def make_function_call(self, function: Node) -> Optional[FuncCallNode]:
-        args = self.repeat_until_symbol(Separators.rpa.value.value, Parser.expression, SyntaxError.expression_expected,
-                                            OPERATOR_PRECENDENCE[Separators.comma.value.value])
-        self.advance()
-        return FuncCallNode(function, args)
 
     def index(self, left) -> Optional[IndexOperatorNode]:
         """
@@ -289,13 +285,7 @@ class Parser:
         tok = self.peak
         self.advance()
 
-        if tok.tt == TT.LITERAL:
-            if tok != Types.void.value:
-                self.error(SyntaxError.type_expected, tok.location)
-                return None
-            return VoidType()
-
-        elif tok.tt == TT.IDENTIFIER:
+        if tok.tt == TT.IDENTIFIER:
             if tok == Types.infer.value.name_tok:
                 return InferType(tok)
             else:
@@ -357,7 +347,7 @@ class Parser:
             return self.func_type(left)
 
         elif t == Operators.opt.value:
-            pass    # TODO
+            pass    # TODO make optional type builtin
 
         elif t.value not in OPERATOR_PRECENDENCE:
             return None

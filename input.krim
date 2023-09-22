@@ -1,5 +1,5 @@
 
-/*
+
 bool: type = {
     | True
     | False
@@ -11,7 +11,9 @@ match b {
     True -1
     False 1
 }
-*/
 
-f: _ = void -> (out:int) {out = 1}
+
+f: _ = () -> (out:int) {out = 1}
+
+f()
 

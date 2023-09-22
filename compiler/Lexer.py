@@ -5,8 +5,8 @@ from copy import copy
 class LexicalError(Enum):
     """Enum containing all the custom error messages that the lexer may generate when tokenizing."""
     invalid_char = 'Invalid character'
-    miss_close_sym = 'Missing single quote {}'
-    invalid_escape_code = "Invalid escape sequence code '{}'"
+    miss_close_sym = 'Missing single quote {!s}'
+    invalid_escape_code = "Invalid escape sequence code '{!s}'"
     too_many_points = 'Too many radix points in number literal'
     invalid_num = 'Invalid numeric literal'
 
@@ -108,10 +108,6 @@ class Lexer:
             token_type = TT.KEYWORD
         elif name in BOOLEANS:
             self.literal(name, {copy(Types.bool.value)}, start, self.i - 1)
-            return
-        elif name == VOID:
-            lit = VoidLiteral(FileRange(start - self.line_offset, self.line, self.i - 1 - self.line_offset, self.line))
-            self.tokens.append(lit)
             return
         else:
             token_type = TT.IDENTIFIER

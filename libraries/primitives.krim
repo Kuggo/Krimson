@@ -1,181 +1,181 @@
 // TODO add all the implementation for the methods if necessary
 
 
-bool: type = {}
+bool: type = {True | False}
 
-__or__: (self: bool, other: bool) -> out: bool
+__or__: _ = (self: bool, other: bool) -> out: bool {}
 
-__and__: (self: bool, other: bool) -> out: bool
+__and__: _ = (self: bool, other: bool) -> out: bool {}
 
-__xor__: (self: bool, other: bool) -> out: bool
+__xor__: _ = (self: bool, other: bool) -> out: bool {}
 
-__not__: (self: bool) -> out: bool
+__not__: _ = (self: bool) -> out: bool {}
 
 
 
 nat: type = {}  // aka uint
 
-__add__: (self: nat, other: nat) -> out: nat
+__add__: _ = (self: nat, other: nat) -> out: nat {}
 
-__sub__: (self: nat, other: nat) -> out: nat
+__sub__: _ = (self: nat, other: nat) -> out: nat {}
 
-__shr__: (self: nat, amount: nat) -> out: nat
+__shr__: _ = (self: nat, amount: nat) -> out: nat {}
 
-__shl__: (self: nat, amount: nat) -> out: nat
+__shl__: _ = (self: nat, amount: nat) -> out: nat {}
 
-__mlt__: (self: nat, other: nat) -> out: nat
+__mlt__: _ = (self: nat, other: nat) -> out: nat {}
 
-__div__: (self: nat, other: nat) -> out: nat
+__div__: _ = (self: nat, other: nat) -> out: nat {}
 
-__neg__: (self: nat) -> out: nat
+__neg__: _ = (self: nat) -> out: nat {}
 
-__bor__: (self: nat, other: nat) -> out: nat
+__bor__: _ = _ = (self: nat, other: nat) -> out: nat {}
 
-__band__: (self: nat, other: nat) -> out: nat
+__band__: _ = (self: nat, other: nat) -> out: nat {}
 
-__bxor__: (self: nat, other: nat) -> out: nat
+__bxor__: _ = (self: nat, other: nat) -> out: nat {}
 
-__bnot__: (self: nat) -> out: nat
+__bnot__: _ = (self: nat) -> out: nat {}
 
-__gt__: (self: nat, other: nat) -> out: bool
+__gt__: _ = (self: nat, other: nat) -> out: bool {}
 
-__gte__(self: nat, other: nat) -> out: bool
+__gte__: _ = (self: nat, other: nat) -> out: bool {}
 
-__lt__(self: nat, other: nat) -> out: bool
+__lt__: _ = (self: nat, other: nat) -> out: bool {}
 
-__lte__(self: nat, other: nat) -> out: bool
+__lte__: _ = (self: nat, other: nat) -> out: bool {}
 
-__dif__(self: nat, other: nat) -> out: bool
+__dif__: _ = (self: nat, other: nat) -> out: bool {}
 
-__equ__(self: nat, other: nat) -> out: bool
+__equ__: _ = (self: nat, other: nat) -> out: bool {}
 
 
 
 int: type = {}
 
-__add__: (self: int, other: int) -> out: int
+__add__: _ = (self: int, other: int) -> out: int {}
 
-__sub__: (self: int, other: int) -> out: int
+__sub__: _ = (self: int, other: int) -> out: int {}
 
-__shr__: (self: int, amount: nat) -> out: int
+__shr__: _ = (self: int, amount: nat) -> out: int {}
 
-__shl__: (self: int, amount: nat) -> out: int
+__shl__: _ = (self: int, amount: nat) -> out: int {}
 
-__mlt__: (self: int, other: int) -> out: int
+__mlt__: _ = (self: int, other: int) -> out: int {}
 
-__div__: (self: int, other: int) -> out: int
+__div__: _ = (self: int, other: int) -> out: int {}
 
-__neg__: (self: int, other: int) -> out: int
+__neg__: _ = (self: int, other: int) -> out: int {}
 
-__bor__: (self: int, other: int) -> out: int
+__bor__: _ = (self: int, other: int) -> out: int {}
 
-__band__: (self: int, other: int) -> out: int
+__band__: _ = (self: int, other: int) -> out: int {}
 
-__bxor__: (self: int, other: int) -> out: int
+__bxor__: _ = (self: int, other: int) -> out: int {}
 
-__bnot__: (self: int, other: int) -> out: int
+__bnot__: _ = (self: int, other: int) -> out: int {}
 
-__gt__: (self: int, other: int) -> out: bool
+__gt__: _ = (self: int, other: int) -> out: bool {}
 
-__gte__: (self: int, other: int) -> out: bool
+__gte__: _ = (self: int, other: int) -> out: bool {}
 
-__lt__: (self: int, other: int) -> out: bool
+__lt__: _ = (self: int, other: int) -> out: bool {}
 
-__lte__: (self: int, other: int) -> out: bool
+__lte__: _ = (self: int, other: int) -> out: bool {}
 
-__dif__: (self: int, other: int) -> out: bool
+__dif__: _ = (self: int, other: int) -> out: bool {}
 
-__equ__: (self: int, other: int) -> out: bool
+__equ__: _ = (self: int, other: int) -> out: bool {}
 
 
 frac: type = {}    // aka fixed. To be used instead of floats
 
-__add__: (self: frac, other: frac) -> out: frac
+__add__: _ = (self: frac, other: frac) -> out: frac {}
 
-__sub__: (self: frac, other: frac) -> out: frac
+__sub__: _ = (self: frac, other: frac) -> out: frac {}
 
-__shr__: (self: frac, amount: nat) -> out: frac
+__shr__: _ = (self: frac, amount: nat) -> out: frac {}
 
-__shl__: (self: frac, amount: nat) -> out: frac
+__shl__: _ = (self: frac, amount: nat) -> out: frac {}
 
-__mlt__: (self: frac, other: frac) -> out: frac
+__mlt__: _ = (self: frac, other: frac) -> out: frac {}
 
-__div__: (self: frac, other: frac) -> out: frac
+__div__: _ = (self: frac, other: frac) -> out: frac {}
 
-__neg__: (self: frac) -> out: frac
+__neg__: _ = (self: frac) -> out: frac {}
 
-__gt__: (self: frac, other: frac) -> out: bool
+__gt__: _ = (self: frac, other: frac) -> out: bool {}
 
-__gte__: (self: frac, other: frac) -> out: bool
+__gte__: _ = (self: frac, other: frac) -> out: bool {}
 
-__lt__: (self: frac, other: frac) -> out: bool
+__lt__: _ = (self: frac, other: frac) -> out: bool {}
 
-__lte__: (self: frac, other: frac) -> out: bool
+__lte__: _ = (self: frac, other: frac) -> out: bool {}
 
-__dif__: (self: frac, other: frac) -> out: bool
+__dif__: _ = (self: frac, other: frac) -> out: bool {}
 
-__equ__: (self: frac, other: frac) -> out: bool
+__equ__: _ = (self: frac, other: frac) -> out: bool {}
 
 
 
 char: type = {}
 
-__add__: (self: char, other: char) -> out: str
+__add__: _ = (self: char, other: char) -> out: str {}
 
-__mlt__: (self: char, amount: int) -> out: str
+__mlt__: _ = (self: char, amount: int) -> out: str {}
 
-__gt__: (self: char, other: char) -> out: bool
+__gt__: _ = (self: char, other: char) -> out: bool {}
 
-__gte__: (self: char, other: char) -> out: bool
+__gte__: _ = (self: char, other: char) -> out: bool {}
 
-__lt__: (self: char, other: char) -> out: bool
+__lt__: _ = (self: char, other: char) -> out: bool {}
 
-__lte__: (self: char, other: char) -> out: bool
+__lte__: _ = (self: char, other: char) -> out: bool {}
 
-__dif__: (self: char, other: char) -> out: bool
+__dif__: _ = (self: char, other: char) -> out: bool {}
 
-__equ__: (self: char, other: char) -> out: bool
+__equ__: _ = (self: char, other: char) -> out: bool {}
 
 
 
 array: type = {}
 
-__add__: (self: array, other: array) -> out: array
+__add__: _ = (self: array, other: array) -> out: array {}
 
-__add__: (self: array, other: T) -> out: array
+__add__: _ = (self: array, other: T) -> out: array {}
 
-__get__: (nat index) -> out: T
+__get__: _ = (nat index) -> out: T {}
 
-__set__: (nat index, T value) -> ()
+__set__: _ = (nat index, T value) -> () {}
 
-__dif__: (self: array, other: array) -> out: bool
+__dif__: _ = (self: array, other: array) -> out: bool {}
 
-__equ__: (self: array, other: array) -> out: bool
+__equ__: _ = (self: array, other: array) -> out: bool {}
 
 
 
 str: type = array[char]
 
 /*
-__get__: (self: str, index: nat) -> out: char
+__get__: _ = (self: str, index: nat) -> out: char {}
 
-__add__: (self: str, c: char) -> out: str
+__add__: _ = (self: str, c: char) -> out: str {}
 
-__add__: (self: str, other: str) -> out: str
+__add__: _ = (self: str, other: str) -> out: str {}
 
-__mlt__: (self: str, amount: nat) -> out: str
+__mlt__: _ = (self: str, amount: nat) -> out: str {}
 
-__gt__: (self: str, other: str) -> out: bool
+__gt__: _ = (self: str, other: str) -> out: bool {}
 
-__gte__: (self: str, other: str) -> out: bool
+__gte__: _ = (self: str, other: str) -> out: bool {}
 
-__lt__: (self: str, other: str) -> out: bool
+__lt__: _ = (self: str, other: str) -> out: bool {}
 
-__lte__: (self: str, other: str) -> out: bool
+__lte__: _ = (self: str, other: str) -> out: bool {}
 
-__dif__: (self: str, other: str) -> out: bool
+__dif__: _ = (self: str, other: str) -> out: bool {}
 
-__equ__: (self: str, other: str) -> out: bool
+__equ__: _ = (self: str, other: str) -> out: bool {}
 */
 
 

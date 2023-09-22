@@ -35,9 +35,9 @@ Here are some auxiliary definitions to help us define the rest of the syntax (in
 
     separator := "(" | ")" | "{" | "}" | "[" | "]" | "," | ";" | "=" | ":" | "." | "->" | "?"
 
-    number := [0-9]+
+    number := [0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9]+
 
-    comment := "//" [^"\n"]* "\n"
+    comment := "//" [str] "\n"
 
 
     identifier := [a-zA-Z_][a-zA-Z0-9_]*
@@ -136,4 +136,19 @@ function Name: input -> output = expression
 
 The second way is by providing code for the function like so:
 function Name: fn = input -> output statement.
+
+
+
+
+
+### Types
+
+Types are sets of possible values that any value with that type can take.
+
+### Variables
+
+Variables are memory locations that can store values. In krimson variable is uniquely identified with an identifier and a type. 
+
+
+
 
