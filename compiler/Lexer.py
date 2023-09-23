@@ -141,10 +141,7 @@ class Lexer:
             except ValueError:
                 self.error(LexicalError.invalid_num, start, self.i-1)
                 return
-            if value < 0:
-                self.literal(value, {copy(Types.int.value)}, start, self.i - 1)
-            else:
-                self.literal(value, {copy(Types.nat.value), copy(Types.int.value)}, start, self.i - 1)
+            self.literal(value, {copy(Types.nat.value), copy(Types.int.value)}, start, self.i - 1)
         else:
             try:
                 value = float(self.input_string[start:self.i])

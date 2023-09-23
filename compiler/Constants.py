@@ -298,6 +298,9 @@ class Literal(Token):
         :param expected_types:
         """
         if expected_types is None:
+            for t in self.possible_types:
+                self.type = t
+                return
             return
 
         types = self.possible_types.intersection(expected_types)
@@ -442,7 +445,7 @@ class FunctionType(Type):
         return f'func_{self.arg.get_label()}_to_{self.ret.get_label()}'
 
     def __str__(self):
-        return f'({self.arg} -> {self.ret})'
+        return f'{self.arg} -> {self.ret}'
 
     def __repr__(self):
         return f'<fn({self.arg} -> {self.ret})>'

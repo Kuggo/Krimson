@@ -25,6 +25,9 @@ def tuple_type_unpacking(ctx: 'Context', node: 'TupleType', looking_for, error) 
             ctx.error(error, t)
     return nodes
 
+def iterable_str(iterable):
+    return f'{", ".join([str(i) for i in iterable])}'
+
 
 # Errors
 
@@ -39,6 +42,7 @@ class TypeError(Enum):
     wrong_type = 'Expected type "{!s}" but got "{!s}"'
     not_callable = 'Cannot call "{!s}" as it is not a function'
     ambiguous_type = 'Ambiguous name. Multiple variables with possible types "{!s}" could fit. Use `<name>: <type>` to specify which variable to use'
+    no_suitable_var = 'No suitable variable found for name "{!s}". Expected types: {!s}. Possible types: {!s}'
     cannot_infer_type = 'Cannot infer type of variable "{!s}". Possible types: {!s}. \nUse `<name>: <type>` in any usage of the variable to specify its type'
     unk_var = 'No associated type for name of variable "{!s}". \nUse `<name>: <type>` in any usage of the variable to specify its type'
     wrong_func_type = 'Expected function with input argument of type "{!s}" but got "{!s}"'
@@ -408,15 +412,15 @@ class VariableNode(Node):
         return
 
     def get_possible_types(self) -> set[Type]:
-        typedef = self.context.get_definition((self.name_tok.value, Types.infer.value))
-        if typedef is not None:
-            typedef = typedef.type_check()
-            if typedef is None:
-                return set()
-            self.context.namespace[typedef.get_id()] = typedef
+        typedefs = self.context.get_definition((self.name_tok.value, Types.infer.value)) # can only infer type once per name
+        if typedefs is not None:
+            assert isinstance(typedefs, set)
+            for t in typedefs:
+                t = t.type_check()
+                if t is not None:
+                    self.context.namespace[t.get_id()] = t
             self.context.namespace.pop((self.name_tok.value, Types.infer.value))    # remove the old definition
         return self.context.get_possible_types(self.name_tok.value)
-
 
     def type_check(self, expected_types: Optional[set[Type]] = None, *args) -> Optional['VariableNode']:
         """Recursively calls type_check on all the children nodes and compares its type with them.
@@ -427,15 +431,20 @@ class VariableNode(Node):
 
         if expected_types is not None:
             t = types.intersection(expected_types)
-            if len(t) != 0:
-                types = t
+            if len(t) > 1:
+                self.error(TypeError.ambiguous_type, iterable_str(t))
+                return None
+            elif len(t) == 0:
+                self.error(TypeError.no_suitable_var, self.name_tok.value, iterable_str(expected_types), iterable_str(types))
+                return None
+            self.type = t.pop()
 
-        if len(types) == 0:
+        elif len(types) == 0:
             self.error(TypeError.unk_var, self)
             return None
 
-        if len(types) > 1:
-            self.error(TypeError.ambiguous_type, expected_types)
+        elif len(types) > 1:
+            self.error(TypeError.ambiguous_type, iterable_str(expected_types))
 
         self.type = types.pop()     # unpacking the set
         # in case of multiple types, a random one will be selected to try and recover from the error
@@ -445,7 +454,7 @@ class VariableNode(Node):
         return f'{self.name_tok.value}'
 
     def __repr__(self):
-        return f'<{self.name_tok.value.__repr__()}>'
+        return f'<{self.name_tok.value.__repr__()}:{self.type.__repr__()}>'
 
 
 class ScopeNode(Node):
@@ -477,10 +486,10 @@ class ScopeNode(Node):
         return self
 
     def __str__(self):
-        string = f'\n{self.context.scope_level * "  "}{{\n'
+        string = f'\n{max(self.context.scope_level-1, 0) * "  "}{{\n'
         for node in self.child_nodes:
             string += f'{node.context.scope_level * "  "}{node}\n'
-        return string + f'{self.context.scope_level * "  "}}}'
+        return string + f'{max(self.context.scope_level-1, 0) * "  "}}}'
 
     def __repr__(self):
         new_line = '\n'
@@ -552,7 +561,9 @@ class UnOpNode(Node):
         assert self.op.value in dunder_funcs
         func_name = dunder_funcs[self.op.value]
 
-        return FuncCallNode(VariableNode(func_name), ValueNode(TupleLiteral([self.child]))).type_check(expected_types)
+        f = FuncCallNode(VariableNode(func_name), ValueNode(TupleLiteral([self.child])))
+        f.update(self.context, self)
+        return f.type_check(expected_types)
         # TODO: add edge cases for the primitives (they dont need to be converted to function calls)
 
     def __str__(self):
@@ -583,9 +594,9 @@ class BinOpNode(Node):
         assert self.op.value in dunder_funcs
         func_name = dunder_funcs[self.op.value]
 
-        return FuncCallNode(VariableNode(func_name), ValueNode(TupleLiteral([self.left_child, self.right_child]))).type_check()
-
-
+        f = FuncCallNode(VariableNode(func_name), ValueNode(TupleLiteral([self.left_child, self.right_child])))
+        f.update(self.context, self)
+        return f.type_check()
 
     def __str__(self):
         return f'{self.left_child} {self.op.value} {self.right_child}'
@@ -630,7 +641,7 @@ class DotOperatorNode(Node):
 
             elif len(typedefs) > 1:
                 if expected_types is None:
-                    self.error(TypeError.ambiguous_type, self.field.name_tok.value, typedefs)
+                    self.field.error(TypeError.ambiguous_type, iterable_str(typedefs))
                 else:
                     typedefs.intersection_update(expected_types)
 
@@ -664,7 +675,10 @@ class IndexOperatorNode(Node):
     def type_check(self, expected_types: Optional[set[Type]] = None, *args) -> Optional['IndexOperatorNode']:
         assert Operators.index.value.value in dunder_funcs
         fn_name = dunder_funcs[Operators.index.value.value]
-        return FuncCallNode(VariableNode(fn_name), ValueNode(TupleLiteral([self.collection, self.index]))).type_check()
+
+        f = FuncCallNode(VariableNode(fn_name), ValueNode(TupleLiteral([self.collection, self.index])))
+        f.update(self.context, self)
+        return f.type_check()
 
     def __str__(self):
         return f'{self.collection}[{self.index}]'
@@ -694,23 +708,14 @@ class FuncCallNode(Node):
         self.func = self.func.type_check()
         if self.func is None:
             return None
-        self.arg = self.arg.type_check({self.func.type.arg})
-        if self.arg is None:
-            return None
 
         if not isinstance(self.func.type, FunctionType):
             self.error(TypeError.not_callable, self.func)
             return None
 
-        """if isinstance(self.func.type.arg, TupleType):
-            in_type = tuple_type_unpacking(self.context, self.func.type.arg, FunctionType, TypeError.wrong_type)
-        else:
-            in_type = [self.func.type.arg]
-
-        in_func_type = TupleType([arg.type for arg in self.arg])
-
-        if in_type != in_func_type.types:
-            self.error(TypeError.wrong_func_type, self.func, in_func_type, self.func.type.arg)"""
+        self.arg = self.arg.type_check({self.func.type.arg})
+        if self.arg is None:
+            return None
 
         if self.func.type.arg != self.arg.type:
             self.error(TypeError.wrong_func_type, self.func.type.arg, self.arg.type)
@@ -732,6 +737,20 @@ class VarDefineNode(NameDefineNode):
     def __init__(self, var_name: VariableNode, var_type: Type):
         super().__init__(var_name, var_type)
         self.type_def: Optional[TypeDefineNode] = None
+        return
+
+    def add_ctx(self, ctx: Context) -> None:
+        """Adds the definition to the current context dict"""
+        if self.type == Types.infer.value:
+            if self.get_id() in ctx.namespace:
+                ts = ctx.namespace[self.get_id()]
+                assert isinstance(ts, set)
+                ts.add(self)
+            else:
+                ctx.namespace[self.get_id()] = {self}
+
+        else:
+            ctx.namespace[self.get_id()] = self
         return
 
     def update(self, ctx: Context, parent: Optional[Node]) -> None:

@@ -1,19 +1,13 @@
 
+v: _ = ()
 
-bool: type = {
-    | True
-    | False
-}
-
-b: bool = True
-
-match b {
-    True -1
-    False 1
-}
+v: _ = () -> () {}
 
 
-f: _ = () -> (out:int) {out = 1}
+v1: () = ()
+v2: () -> ()
+v3: int -> int
 
-f()
-
+v1 = v
+v2 = v
+v3 = v
