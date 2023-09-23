@@ -21,7 +21,7 @@ R1 as ACC
 R2 as B
 R3 as BP
 
-The ACC will always contain the top of the stack. it's the destination of all operations and the source of all the
+The ACC will always contain the top of the stack. It's the destination of all operations and the source of all the
 operations
 If an operation needs more than 1 operand, the B register will be used as well.
 BP is used as a means to better deal with local vars, and arguments on each function scope.
@@ -30,7 +30,7 @@ BP is used as a means to better deal with local vars, and arguments on each func
 ## Calling convention
 
 1. save (push) BP
-2. push arguments (reverse order) (args_size > index >= 2)
+2. push arguments (args_size > index >= 2)
 3. push output address (index 1)
 4. copy SP into BP
 5. push return address (index 0)
@@ -85,10 +85,17 @@ expressions         <- SP
 
 - push ACC
 - push B
+- push BP
+- top ACC
+- top B
 - pop ACC
 - pop B
-- push BP
 - pop BP
+- move ACC -> B
+- move B -> ACC
+- move BP -> B
+- move SP -> B
+- move SP -> BP
 
 ### Branch
 
@@ -103,3 +110,13 @@ expressions         <- SP
 
 - Input (offset)
 - Output (offset)
+
+## TODO
+
+Features that are to be implemented in the next versions:
+- [ ] Nested comments
+- [ ] Implement sum types (rust enums)
+- [ ] Implement generics
+- [ ] Implement classes
+- [ ] Implement libraries
+- [ ] 

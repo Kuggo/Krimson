@@ -7,10 +7,10 @@ WhileNode: 'while' Expression Statement
 IfNode: 'if' Expression Statement ['else' Statement]
 ReturnNode: 'return'
 ScopeNode: '{' Statement* '}'
-BreakNode: 'break'
+ExitNode: 'break'
 SkipNode: 'skip'
 VarAssignNode: Name '=' Expression
 VarDefineNode: Name [Name]
 FuncDefineNode: Name '(' {VarDefineNode} ')' Statement
 TypeDefineNode: 'type' Name '{' (VarDefineNode)* '}'
-Statement: Expression | WhileNode | IfNode | ReturnNode | BreakNode | SkipNode | ScopeNode | VarAssignNode | VarDefineNode | FuncDefineNode | TypeDefineNode
+Statement: Expression | WhileNode | IfNode | ReturnNode | ExitNode | SkipNode | ScopeNode | VarAssignNode | VarDefineNode | FuncDefineNode | TypeDefineNode

@@ -9,6 +9,7 @@ class Instruction:
         return
 
     def bytecode(self) -> list[int]:
+        assert self.opcode in opcodes
         if self.imm is None:
             return [opcodes[self.opcode] | self.operand]
         else:
@@ -45,13 +46,23 @@ class Operations(Enum):
     lsh = Instruction('lsh')
     rsh = Instruction('rsh')
 
-    push_bp = Instruction('bp')
-    push_sp = Instruction('sp')
-    push_acc = Instruction('acc')
-    push_b = Instruction('b')
-    imm = Instruction('imm')
+    # push_sp = Instruction('sp')
+    push_bp = Instruction('pushBP')
+    pop_bp = Instruction('popBP')
+    push_a = Instruction('pushA')
+    top_a = Instruction('topA')
+    pop_a = Instruction('popA')
+    push_b = Instruction('pushB')
+    top_b = Instruction('topB')
+    pop_b = Instruction('popB')
+    move_ab = Instruction('moveAB')
+    move_ba = Instruction('moveBA')
+
+    imm_a = Instruction('immA')
+    imm_b = Instruction('immB')
 
     call = Instruction('call')
+    ret = Instruction('ret')
     branch = Instruction('branch')
     branch_eq = Instruction('branch', 0)
     branch_dif = Instruction('branch', 1)
@@ -67,11 +78,16 @@ class Operations(Enum):
     print_char = Instruction('out', 2)
     print_bool = Instruction('out', 3)
     print_frac = Instruction('out', 4)
+    input = Instruction('in', 0)
+
+    halt = Instruction('halt')
     
 
 minor_opcode_bits: int = 6
 
 minor_opcodes_bit_mask: int = (1 << minor_opcode_bits) - 1
+
+instruction_size: int = 8
 
 opcodes: dict[str, int] = {
     'add': 0,
@@ -97,16 +113,68 @@ opcodes: dict[str, int] = {
     'immB': 17,
 
     'pushA': 18,
-    'popA': 19,
-    'pushB': 20,
-    'popB': 21,
-    'pushBP': 22,
-    'popBP': 23,
+    'topA': 19,
+    'popA': 20,
+    'pushB': 21,
+    'topB': 22,
+    'popB': 23,
+    'pushBP': 24,
+    'popBP': 25,
+    'moveAB': 26,
+    'moveBA': 27,
 
-    'call': 24,
-    'ret': 25,
+    'call': 28,
+    'ret': 29,
+    'halt': 30,
 
     'branch': 1 << minor_opcode_bits,
     'in': 2 << minor_opcode_bits,
     'out': 3 << minor_opcode_bits,
 }
+
+
+def inv_opcode() -> dict[int, str]:
+    global opcodes
+
+    opcodes_rev = {}
+    for key, v in opcodes.items():
+        opcodes_rev[v] = key
+
+    return opcodes_rev
+
+
+opcodes_reverse: dict[int, str] = inv_opcode()
+"""Dict for getting opcode name from opcode value. Used in debugging"""
+
+
+# some test
+
+
+# programs
+
+fibb = [
+    Instruction('immA', imm=1),
+    Instruction('immB', imm=0),
+    Instruction('pushB'),
+
+    Instruction('moveAB'),
+    Instruction('popA'),
+    Instruction('add'),
+    Instruction('out', 0),
+    Instruction('pushB'),
+
+    Instruction('immB', imm=5),
+    Instruction('branch', 3),
+
+    Instruction('halt'),
+]
+
+count_down = [
+    Instruction('immB', imm=5),
+    Instruction('pushB'),
+    Instruction('immA', imm=10),
+    Instruction('out', 0),
+    Instruction('dec'),
+    Instruction('branch', 1),
+    Instruction('halt')
+]

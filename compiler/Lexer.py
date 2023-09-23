@@ -5,8 +5,8 @@ from copy import copy
 class LexicalError(Enum):
     """Enum containing all the custom error messages that the lexer may generate when tokenizing."""
     invalid_char = 'Invalid character'
-    miss_close_sym = 'Missing single quote {}'
-    invalid_escape_code = "Invalid escape sequence code '{}'"
+    miss_close_sym = 'Missing single quote {!s}'
+    invalid_escape_code = "Invalid escape sequence code '{!s}'"
     too_many_points = 'Too many radix points in number literal'
     invalid_num = 'Invalid numeric literal'
 
@@ -19,9 +19,12 @@ class Lexer:
     token
     """
 
-    def __init__(self, input_string) -> None:
+    def __init__(self, input_string: str, global_vars: Globals) -> None:
         self.input_string: str = input_string + '    '
         """the string containing the code"""
+
+        self.global_vars: Globals = global_vars
+        """Object that holds the variables related to the input code"""
 
         self.i: int = 0
         """index on the input string of the current char"""
@@ -64,7 +67,7 @@ class Lexer:
                     self.multi_line_comment()
 
                 else:
-                    self.token(TT.OPERATOR, self.peak, self.i, self.i)
+                    self.symbol(TT.OPERATOR, self.peak, self.i)
                     self.advance()
 
             elif self.peak in SYMBOLS:
@@ -104,10 +107,7 @@ class Lexer:
         if name in KEYWORDS:
             token_type = TT.KEYWORD
         elif name in BOOLEANS:
-            self.literal(name == BOOLEANS[1], copy(Types.bool.value), start, self.i - 1)
-            return
-        elif name == NULL:
-            self.literal(None, copy(Types.null.value), start, self.i - 1)
+            self.literal(name, {copy(Types.bool.value)}, start, self.i - 1)
             return
         else:
             token_type = TT.IDENTIFIER
@@ -141,17 +141,14 @@ class Lexer:
             except ValueError:
                 self.error(LexicalError.invalid_num, start, self.i-1)
                 return
-            if value < 0:
-                self.literal(value, copy(Types.int.value), start, self.i - 1)
-            else:
-                self.literal(value, copy(Types.nat.value), start, self.i - 1)
+            self.literal(value, {copy(Types.nat.value), copy(Types.int.value)}, start, self.i - 1)
         else:
             try:
                 value = float(self.input_string[start:self.i])
             except ValueError:
                 self.error(LexicalError.invalid_num, start, self.i-1)
                 return
-            self.literal(value, copy(Types.frac.value), start, self.i - 1)
+            self.literal(value, {copy(Types.frac.value)}, start, self.i - 1)
         return
 
     def make_symbol(self) -> None:
@@ -167,117 +164,112 @@ class Lexer:
                 self.advance()
                 if self.preview() == '=':
                     self.advance()
-                    self.token(TT.OPERATOR, '<<=', start, self.i)
+                    self.symbol(TT.OPERATOR, '<<=', start)
                 else:
-                    self.token(TT.OPERATOR, '<<', start, self.i)
+                    self.symbol(TT.OPERATOR, '<<', start)
             elif self.preview() == '=':
                 self.advance()
-                self.token(TT.OPERATOR, '<=', start, self.i)
+                self.symbol(TT.OPERATOR, '<=', start)
 
             else:
-                self.token(TT.OPERATOR, '<', start, self.i)
+                self.symbol(TT.OPERATOR, '<', start)
 
         elif self.peak == '>':
             if self.preview() == '>':
                 self.advance()
                 if self.preview() == '=':
                     self.advance()
-                    self.token(TT.OPERATOR, '>>=', start, self.i)
+                    self.symbol(TT.OPERATOR, '>>=', start)
                 else:
-                    self.token(TT.OPERATOR, '>>', start, self.i)
+                    self.symbol(TT.OPERATOR, '>>', start)
             elif self.preview() == '=':
                 self.advance()
-                self.token(TT.OPERATOR, '>=', start, self.i)
+                self.symbol(TT.OPERATOR, '>=', start)
 
             else:
-                self.token(TT.OPERATOR, '>', start, self.i)
+                self.symbol(TT.OPERATOR, '>', start)
 
         elif self.peak == '=':
             if self.preview() == '=':
                 self.advance()
-                self.token(TT.OPERATOR, '==', start, self.i)
+                self.symbol(TT.OPERATOR, '==', start)
             else:
-                self.token(TT.OPERATOR, '=', start, self.i)
+                self.symbol(TT.OPERATOR, '=', start)
 
         elif self.peak == '!':
             if self.preview() == '=':
                 self.advance()
-                self.token(TT.OPERATOR, '!=', start, self.i)
+                self.symbol(TT.OPERATOR, '!=', start)
             else:
-                self.token(TT.OPERATOR, '!', start, self.i)
+                self.symbol(TT.OPERATOR, '!', start)
 
         elif self.peak == '&':
-            if self.preview() == '&':
+            if self.preview() == '=':
                 self.advance()
-                self.token(TT.OPERATOR, '&&', start, self.i)
-
-            elif self.preview() == '=':
-                self.advance()
-                self.token(TT.OPERATOR, '&=', start, self.i)
+                self.symbol(TT.OPERATOR, '&=', start)
             else:
-                self.token(TT.OPERATOR, '&', start, self.i)
+                self.symbol(TT.OPERATOR, '&', start)
 
         elif self.peak == '|':
-            if self.preview() == '|':
+            if self.preview() == '=':
                 self.advance()
-                self.token(TT.OPERATOR, '||', start, self.i)
-
-            elif self.preview() == '=':
-                self.advance()
-                self.token(TT.OPERATOR, '|=', start, self.i)
+                self.symbol(TT.OPERATOR, '|=', start)
             else:
-                self.token(TT.OPERATOR, '|', start, self.i)
+                self.symbol(TT.OPERATOR, '|', start)
 
         elif self.peak == '^':
             if self.preview() == '=':
                 self.advance()
-                self.token(TT.OPERATOR, '^=', start, self.i)
+                self.symbol(TT.OPERATOR, '^=', start)
             else:
-                self.token(TT.OPERATOR, '^', start, self.i)
+                self.symbol(TT.OPERATOR, '^', start)
 
         elif self.peak == '+':
             if self.preview() == '=':
                 self.advance()
-                self.token(TT.OPERATOR, '+=', start, self.i)
+                self.symbol(TT.OPERATOR, '+=', start)
             else:
-                self.token(TT.OPERATOR, '+', start, self.i)
+                self.symbol(TT.OPERATOR, '+', start)
 
         elif self.peak == '-':
             if self.preview() == '=':
                 self.advance()
-                self.token(TT.OPERATOR, '-=', start, self.i)
+                self.symbol(TT.OPERATOR, '-=', start)
             elif self.preview() == '>':
                 self.advance()
-                self.token(TT.OPERATOR, '->', start, self.i)
+                self.symbol(TT.OPERATOR, '->', start)
             else:
-                self.token(TT.OPERATOR, '- ', start, self.i)
+                self.symbol(TT.OPERATOR, '-', start)
 
         elif self.peak == '*':
             if self.preview() == '=':
                 self.advance()
-                self.token(TT.OPERATOR, '*=', start, self.i)
+                self.symbol(TT.OPERATOR, '*=', start)
             else:
-                self.token(TT.OPERATOR, '*', start, self.i)
+                self.symbol(TT.OPERATOR, '*', start)
 
         elif self.peak == '/':
             if self.preview() == '=':
                 self.advance()
-                self.token(TT.OPERATOR, '/=', start, self.i)
+                self.symbol(TT.OPERATOR, '/=', start)
             else:
-                self.token(TT.OPERATOR, '/', start, self.i)
+                self.symbol(TT.OPERATOR, '/', start)
 
         elif self.peak == '%':
             if self.preview() == '=':
                 self.advance()
-                self.token(TT.OPERATOR, '%=', start, self.i)
+                self.symbol(TT.OPERATOR, '%=', start)
             else:
-                self.token(TT.OPERATOR, '%', start, self.i)
+                self.symbol(TT.OPERATOR, '%', start)
 
         elif self.peak == '.':
-            self.token(TT.OPERATOR, self.peak, start, self.i)
+            self.symbol(TT.OPERATOR, self.peak, start)
+
+        elif self.peak == '?':
+            self.symbol(TT.OPERATOR, self.peak, start)
 
         else:
-            self.token(TT.SEPARATOR, self.peak, self.i, self.i)
+            self.symbol(TT.SEPARATOR, self.peak, self.i)
 
         self.advance()
         return
@@ -305,7 +297,7 @@ class Lexer:
 
         t = copy(Types.str.value)
         t.size = len(string)
-        self.literal(string, t, start - 1, self.i)
+        self.literal(string, {t}, start - 1, self.i)
         self.advance()
         return
 
@@ -347,17 +339,25 @@ class Lexer:
 
     def multi_line_comment(self) -> None:
         """
-        Skips the next group of characters until the end of comment is found '``*/``'.
+        Recursively skips the next group of characters until a ``*/`` is found.
+        Nested comments are allowed
         """
 
         self.advance(2)
+        scope = 0
         while self.has_next(1):
-            if self.peak == '*':
-                self.advance()
-                if self.peak == '/':
-                    self.advance()
-                    return
+            if self.peak == '/' and self.preview() == '*':
+                self.advance(2)
+                scope += 1
+            if self.peak == '*' and self.preview() == '/':
+                self.advance(2)
+                if scope == 0:
+                    break
+                else:
+                    scope -= 1
+
             self.advance()
+        return
 
     def token(self, tt: TT, value, start, end) -> Token:
         """
@@ -370,22 +370,36 @@ class Lexer:
         :return: the recently created token
         """
 
-        tok = Token(tt, value, start - self.line_offset, end - self.line_offset, self.line)
+        tok = Token(tt, value, FileRange(start - self.line_offset, self.line, end - self.line_offset, self.line))
         self.tokens.append(tok)
         return tok
 
-    def literal(self, value, literal_type: Type, start, end) -> Token:
+    def literal(self, value, possible_types: set[Type], start, end) -> Token:
         """
         Creates a new Literal Token and adds it to the output collection of tokens ``self.tokens``
 
         :param value: value of the token
-        :param literal_type: type of the literal
+        :param possible_types: type of the literal
         :param start: start index of the token
         :param end: end index of the token
         :return: the recently created token
         """
 
-        tok = Literal(value, literal_type, start - self.line_offset, end - self.line_offset, self.line)
+        tok = Literal(value, possible_types, FileRange(start - self.line_offset, self.line, end - self.line_offset, self.line))
+        self.tokens.append(tok)
+        return tok
+
+    def symbol(self, tt: TT, value: str, start) -> Token:
+        """
+        Creates a new Symbol Token and adds it to the output collection of tokens ``self.tokens``
+
+        :param tt: value of the token
+        :param value: type of the symbol
+        :param start: start index of the token
+        :return: the recently created token
+        """
+
+        tok = Token(tt, value, FileRange(start - self.line_offset, self.line, start - self.line_offset, self.line))
         self.tokens.append(tok)
         return tok
 
@@ -399,8 +413,8 @@ class Lexer:
         :param args: extra arguments for custom error message formatting
         """
 
-        self.errors.append(Error(error, start - self.line_offset, end - self.line_offset, self.line,
-                                 global_vars.PROGRAM_LINES[self.line - 1], *args))
+        loc = FileRange(start - self.line_offset, self.line, end - self.line_offset, self.line)
+        self.errors.append(Error(error, loc, self.global_vars, *args))
         self.advance()
         return
 
