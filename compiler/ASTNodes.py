@@ -3,13 +3,13 @@ from Instructions import *
 
 
 # helper functions
-def tuple_unpacking(ctx: 'Context', node: 'TupleLiteral', looking_for, error) -> list['VarDefineNode']:
+def tuple_unpacking(ctx: 'Context', node: 'TupleLiteral', error) -> list['VariableNode']:
     nodes = []
     for value in node.value:
         if isinstance(value, TupleLiteral):
-            nodes += tuple_unpacking(ctx, value, looking_for, error)
-        elif isinstance(value, looking_for):
-            nodes.append(VarDefineNode(value, value.type))
+            nodes += tuple_unpacking(ctx, value, error)
+        elif isinstance(value, VariableNode):
+            nodes.append(VariableNode(value.name_tok, value.type))
         else:
             ctx.error(error, value)
     return nodes
@@ -41,11 +41,39 @@ class TypeError(Enum):
     pos_int_expected = 'Positive integer expected'
     wrong_type = 'Expected type "{!s}" but got "{!s}"'
     not_callable = 'Cannot call "{!s}" as it is not a function'
-    ambiguous_type = 'Ambiguous name. Multiple variables with possible types "{!s}" could fit. Use `<name>: <type>` to specify which variable to use'
+    not_assignable = 'Cannot assign values to "{!s}"'
+    ambiguous_name = 'Ambiguous name. Multiple variables with possible types "{!s}" could fit. Use `<name>: <type>` to specify which variable to use'
     no_suitable_var = 'No suitable variable found for name "{!s}". Expected types: {!s}. Possible types: {!s}'
     cannot_infer_type = 'Cannot infer type of variable "{!s}". Possible types: {!s}. \nUse `<name>: <type>` in any usage of the variable to specify its type'
     unk_var = 'No associated type for name of variable "{!s}". \nUse `<name>: <type>` in any usage of the variable to specify its type'
     wrong_func_type = 'Expected function with input argument of type "{!s}" but got "{!s}"'
+    product_type_lit_needs_name = 'Cannot define a value for a field of a product type literal without its id. Use `<id> = <value>` instead'
+    field_name_expected = 'Field name expected, found {!s} instead'
+
+
+# Types directly supported by the compiler (continuation from Constants.py)
+
+class ProductType(Type):
+    def __init__(self, fields: set[tuple[str, Type]]):
+        super().__init__()
+        self.fields: set[tuple[str, Type]] = fields
+        return
+
+    def __eq__(self, other: 'ProductType'):
+        return isinstance(other, ProductType) and self.name_tok == other.name_tok and self.fields == other.fields
+
+    def __hash__(self):
+        return sum([f.__hash__() for f in self.fields])
+
+    def get_label(self) -> str:
+        return f'{self.name_tok.value}_{"_".join([f[1].get_label() for f in self.fields])}'
+
+    def __str__(self):
+        return f'{{{", ".join([iterable_str(f) for f in self.fields])}}}'
+
+    def __repr__(self):
+        return f'<{self.name_tok.value}({", ".join([f"{f.__repr__()}" for f in self.fields])})>'
+
 
 
 # Literals directly supported by compiler
@@ -53,6 +81,7 @@ class TypeError(Enum):
 class TupleLiteral(Literal):
     def __init__(self, values: list['Node']):
         assert len(values) > 0
+        self.value: list[Node] = values
         super().__init__(values, set(), values[-1].location - values[0].location)
         return
 
@@ -93,6 +122,7 @@ class TupleLiteral(Literal):
 class ArrayLiteral(Literal):
     def __init__(self, values: list):
         assert len(values) > 0
+        self.value: list[Node] = values
         super().__init__(values, set(), values[-1].location - values[0].location)
         return
 
@@ -144,20 +174,20 @@ class FunctionLiteral(Literal):
         self.in_param: 'Node' = in_param
         self.out_param: 'Node' = out_param
 
-        self.in_param_list: list[NameDefineNode] = []
-        self.out_param_list: list[NameDefineNode] = []
+        self.in_param_list: list[VariableNode] = []
+        self.out_param_list: list[VariableNode] = []
         self.body: Node = body
         return
 
-    def gen_param_list(self, ctx: 'Context', param: 'Node') -> list['NameDefineNode']:
-        if isinstance(param, VarDefineNode):
+    def gen_param_list(self, ctx: 'Context', param: 'Node') -> list['VariableNode']:
+        if isinstance(param, VariableNode):
             return [param]
 
         if isinstance(param, ValueNode):
             if isinstance(param.value, VoidLiteral):
                 return []
             elif isinstance(param.value, TupleLiteral):
-                return tuple_unpacking(ctx, param.value, VarDefineNode, TypeError.param_def_expected)
+                return tuple_unpacking(ctx, param.value, TypeError.param_def_expected)
 
         ctx.error(TypeError.param_def_expected, param)
         return []
@@ -211,40 +241,59 @@ class FunctionLiteral(Literal):
 
 
 class ProductTypeLiteral(Literal):
-    def __init__(self, values: list['TypeDefineNode']):
+    def __init__(self, values: list['AssignNode'], location: FileRange):
         assert len(values) > 0
-        super().__init__(values, set(), values[-1].location - values[0].location)
+        self.value: list['AssignNode'] = values
+        super().__init__(values, set(), location)
+        self.fields: dict[tuple[str, Type], 'Node'] = {}
         return
 
     def update_literal(self, context, parent) -> None:
+        new_ctx = context.clone()
         for value in self.value:
-            value.update(context, parent)
+            value.update(new_ctx, parent)
         return
 
     def type_check_literal(self, context: 'Context', expected_types=None) -> None:
-        types = []
-        for i, val in enumerate(self.value):
-            self.value[i] = val.type_check(self.possible_types_at(expected_types, i))
-            if self.value[i] is not None:
-                types.append(self.value[i].type)
+        if expected_types is None:
+            pass
+        types = set()
+        for v in self.value:
+            if isinstance(v, AssignNode):
+                if isinstance(v.var, VariableNode):
+                    t = self.possible_types_at(expected_types, v.var.name_tok.value)
+                    v.value = v.value.type_check(t)
+                    if v.value is None:
+                        continue
+
+                    if v.var.type is None or v.var.type == Types.infer.value:
+                        v.var.type = v.value.type
+                    self.fields[v.var.get_id()] = v.value
+                    types.add(v.var.get_id())
+                else:
+                    context.error(TypeError.field_name_expected, v.location)
+                continue
+            context.error(TypeError.product_type_lit_needs_name, v.location)
 
         self.type = ProductType(types)
         return
 
     @staticmethod
-    def possible_types_at(types: Optional[set[Type]], index: int) -> Optional[set[Type]]:
+    def possible_types_at(types: Optional[set[Type]], name: str) -> Optional[set[Type]]:
         if types is None:
             return None
 
         possible_types = set()
         for t in types:
             if isinstance(t, ProductType):
-                possible_types.add(t.fields[index])
+                for k, v in t.fields:
+                    if k[0] == name:
+                        possible_types.add(v)
 
         return possible_types
 
     def __str__(self):
-        return f'{{{", ".join([str(v) for v in self.value])}}}'
+        return f'{{{", ".join([str(v) for v in self.fields.values()])}}}'
 
     def __repr__(self):
         return f'<{{{", ".join([f"{v.__repr__()}" for v in self.value])}}}>'
@@ -261,21 +310,21 @@ class Context:
 
         if up_scope is None:
             self.scope_level: int = 0
-            self.namespace: dict[tuple[str, Type], NameDefineNode] = {}
+            self.namespace: dict[tuple[str, Type], VariableNode] = {}
             self.types: set[TypeDefineNode] = set()
             self.funcs: set[FunctionLiteral] = set()
             self.errors: list[Error] = []
             self.processing_queue: PriorityQueue = PriorityQueue(1)
         else:
             self.scope_level: int = up_scope.scope_level + 1
-            self.namespace: dict[tuple[str, Type], NameDefineNode] = copy(up_scope.namespace)
+            self.namespace: dict[tuple[str, Type], VariableNode] = copy(up_scope.namespace)
             self.types: set[TypeDefineNode] = up_scope.types
             self.funcs: set[FunctionLiteral] = up_scope.funcs
             self.errors: list[Error] = up_scope.errors    # not a copy. All errors will go to the same collection
             self.processing_queue: PriorityQueue = up_scope.processing_queue
         return
 
-    def get_definition(self, key: tuple[str, Type]) -> Optional['NameDefineNode']:
+    def get_definition(self, key: tuple[str, Type]) -> Optional['VariableNode']:
         """Returns the definition of the given name in the current context or None if it is not defined"""
         if key in self.namespace:
             return self.namespace[key]
@@ -297,6 +346,9 @@ class Context:
     def error(self, e: TypeError, node: ['Node', 'Type'], *args) -> None:
         self.errors.append(Error(e, node.location, self.global_vars, *args))
         return
+
+    def __str__(self):
+        return f'vars: {iterable_str(self.namespace)}\nfuncs: {iterable_str(self.funcs)}\ntypes: {iterable_str(self.types)}'
 
     def __repr__(self):
         return f'vars: {self.namespace}\nfuncs: {self.funcs}\ntypes: {self.types}'
@@ -347,34 +399,13 @@ class Node:
 
         return parent
 
+    @staticmethod
+    def assignable() -> bool:
+        """Returns whether the node can be used on the left side of an AssignNode"""
+        return False
+
     def __repr__(self):
         pass
-
-
-class NameDefineNode(Node):
-    def __init__(self, name: 'VariableNode', type: Optional[Type] = None):
-        super().__init__(name.location, type=type)
-        self.name: VariableNode = name
-        return
-
-    def get_id(self) -> tuple[str, Type]:
-        """Returns the identifier of the Definition node to be used as key in the dictionary of namespace"""
-        return self.name.name_tok.value, self.type
-
-    def add_ctx(self, ctx: Context) -> None:
-        """Adds the definition to the current context dict"""
-        ctx.namespace[self.get_id()] = self
-        return
-
-    def update(self, ctx: Context, parent: 'Node') -> None:
-        self.context = ctx
-        self.parent = parent
-        self.add_ctx(ctx)
-        self.name.update(ctx, self)
-        return
-
-    def get_size(self):
-        return self.type.size
 
 
 # Base NODES
@@ -394,7 +425,15 @@ class ValueNode(Node):
         return
 
     def type_check(self, expected_types: Optional[set[Type]] = None, *args) -> Optional['ValueNode']:
-        self.value.type_check_literal(self.context, expected_types)  # mutates itself not returns new node
+        if expected_types is not None:
+            types = set()
+            for t in expected_types:
+                typedef = self.context.get_definition(t.get_id())
+                if typedef is not None and typedef.type == Types.type.value:     # it's an alias
+                    types.add(typedef.type) # TODO finish this
+            self.value.type_check_literal(self.context, types)
+        else:
+            self.value.type_check_literal(self.context, expected_types)
         self.type = self.value.type
         return self
 
@@ -406,10 +445,15 @@ class ValueNode(Node):
 
 
 class VariableNode(Node):
-    def __init__(self, repr_tok: Token):
-        super().__init__(repr_tok.location)
+    def __init__(self, repr_tok: Token, t: Optional[Type] = None):
+        super().__init__(repr_tok.location, type=t)
         self.name_tok: Token = repr_tok
+        self.type_def: Optional[TypeDefineNode] = None
         return
+
+    def get_id(self) -> tuple[str, Type]:
+        """Returns the identifier of the Definition node to be used as key in the dictionary of namespace"""
+        return self.name_tok.value, self.type
 
     def get_possible_types(self) -> set[Type]:
         typedefs = self.context.get_definition((self.name_tok.value, Types.infer.value)) # can only infer type once per name
@@ -422,33 +466,71 @@ class VariableNode(Node):
             self.context.namespace.pop((self.name_tok.value, Types.infer.value))    # remove the old definition
         return self.context.get_possible_types(self.name_tok.value)
 
+    def add_ctx(self, ctx: Context) -> None:
+        """Adds the definition to the current context dict"""
+        if self.type == Types.infer.value:
+            if self.get_id() in ctx.namespace:
+                ts = ctx.namespace[self.get_id()]
+                assert isinstance(ts, set)
+                ts.add(self)
+            else:
+                ctx.namespace[self.get_id()] = {self}
+
+        else:
+            ctx.namespace[self.get_id()] = self
+        return
+
+    def update(self, ctx: Context, parent: Optional[Node]) -> None:
+        self.context = ctx
+        self.parent = parent
+        ctx.processing_queue.enqueue(self)
+        if self.type is not None:
+            self.add_ctx(ctx)
+        return
+
     def type_check(self, expected_types: Optional[set[Type]] = None, *args) -> Optional['VariableNode']:
-        """Recursively calls type_check on all the children nodes and compares its type with them.
-        If there is a type mismatch, it will add an error to the context
-        :param expected_types:
-        :param args: """
-        types = self.get_possible_types()
-
-        if expected_types is not None:
-            t = types.intersection(expected_types)
-            if len(t) > 1:
-                self.error(TypeError.ambiguous_type, iterable_str(t))
+        if self.type == Types.infer.value:
+            if expected_types is None or len(expected_types) == 0:
+                self.error(TypeError.cannot_infer_type, self.name_tok.value, set())
                 return None
-            elif len(t) == 0:
-                self.error(TypeError.no_suitable_var, self.name_tok.value, iterable_str(expected_types), iterable_str(types))
+
+            if len(expected_types) > 1:
+                self.error(TypeError.cannot_infer_type, self.name_tok.value, expected_types)
+                # any it's fine. we just want to recover from the error
+            self.type = expected_types.pop()
+
+        if self.type is None:
+            types = self.get_possible_types()
+
+            if expected_types is not None:
+                t = types.intersection(expected_types)
+                if len(t) > 1:
+                    self.error(TypeError.ambiguous_name, iterable_str(t))
+                    return None
+                elif len(t) == 0:
+                    self.error(TypeError.no_suitable_var, self.name_tok.value, iterable_str(expected_types),
+                               iterable_str(types))
+                    return None
+                self.type = t.pop()
+                return self
+
+            elif len(types) == 0:
+                self.error(TypeError.unk_var, self)
                 return None
-            self.type = t.pop()
 
-        elif len(types) == 0:
-            self.error(TypeError.unk_var, self)
-            return None
+            elif len(types) > 1:
+                self.error(TypeError.ambiguous_name, iterable_str(expected_types))
 
-        elif len(types) > 1:
-            self.error(TypeError.ambiguous_type, iterable_str(expected_types))
+            self.type = types.pop()  # unpacking the set
+            # in case of multiple types, a random one will be selected to try and recover from the error
 
-        self.type = types.pop()     # unpacking the set
-        # in case of multiple types, a random one will be selected to try and recover from the error
+        self.type_def = self.context.get_definition(self.get_id())
         return self
+
+    @staticmethod
+    def assignable() -> bool:
+        """Returns whether the node can be used on the left side of an AssignNode"""
+        return True
 
     def __str__(self):
         return f'{self.name_tok.value}'
@@ -533,6 +615,8 @@ class AssignNode(Node):
             self.error(TypeError.wrong_type, self.var.type, self.value.type)
 
         self.type = self.var.type
+        if not self.var.assignable():
+            self.error(TypeError.not_assignable, self.var)
         return self
 
     def __str__(self):
@@ -610,7 +694,7 @@ class DotOperatorNode(Node):
         super().__init__(repr_tok.location)
         self.var: Node = var
         self.field: VariableNode = field
-        self.attribute: Optional[NameDefineNode] = None
+        self.attribute: Optional[VariableNode] = None
         return
 
     def update(self, ctx: Context, parent: Optional[Node]) -> None:
@@ -626,7 +710,7 @@ class DotOperatorNode(Node):
         if self.var is None:
             return None
 
-        if isinstance(self.field, VarDefineNode):
+        if isinstance(self.field, VariableNode):
             self.field = self.field.type_check(expected_types)
             if self.field is None:
                 return None
@@ -641,7 +725,7 @@ class DotOperatorNode(Node):
 
             elif len(typedefs) > 1:
                 if expected_types is None:
-                    self.field.error(TypeError.ambiguous_type, iterable_str(typedefs))
+                    self.field.error(TypeError.ambiguous_name, iterable_str(typedefs))
                 else:
                     typedefs.intersection_update(expected_types)
 
@@ -733,70 +817,20 @@ class FuncCallNode(Node):
 
 # Definition Nodes
 
-class VarDefineNode(NameDefineNode):
-    def __init__(self, var_name: VariableNode, var_type: Type):
-        super().__init__(var_name, var_type)
-        self.type_def: Optional[TypeDefineNode] = None
+class TypeDefineNode(VariableNode):
+    def __init__(self, name: VariableNode, type: Optional[Type] = None, generics: Optional[list[Node]] = None):
+        super().__init__(name.name_tok, copy(Types.type.value))
+        self.generics: Optional[list[Node]] = generics if generics is not None else []
+        self.type_val: Optional[Type] = type
         return
 
     def add_ctx(self, ctx: Context) -> None:
         """Adds the definition to the current context dict"""
-        if self.type == Types.infer.value:
-            if self.get_id() in ctx.namespace:
-                ts = ctx.namespace[self.get_id()]
-                assert isinstance(ts, set)
-                ts.add(self)
-            else:
-                ctx.namespace[self.get_id()] = {self}
-
-        else:
-            ctx.namespace[self.get_id()] = self
-        return
-
-    def update(self, ctx: Context, parent: Optional[Node]) -> None:
-        self.context = ctx
-        self.parent = parent
-        ctx.processing_queue.enqueue(self)
-        self.add_ctx(ctx)
-        self.name.update(ctx, self)
-        return
-
-    def type_check(self, expected_types: Optional[set[Type]] = None, *args) -> Optional['VarDefineNode']:
-        if self.type == Types.infer.value:
-            if expected_types is None:
-                self.error(TypeError.cannot_infer_type, self.name.name_tok.value, set())
-                return None
-
-            if len(expected_types) != 1:
-                self.error(TypeError.cannot_infer_type, self.name.name_tok.value, expected_types)
-                # any it's fine. we just want to recover from the error
-            self.type = expected_types.pop()
-
-        self.type_def = self.get_typedef()
-        return self
-
-    def __str__(self):
-        return f'{self.name.name_tok.value}: {self.type}'
-
-    def __repr__(self):
-        return f'<{self.name.__repr__()}: {self.type.__repr__()}>'
-
-
-# Type Nodes
-
-class TypeDefineNode(NameDefineNode):
-    def __init__(self, name: VariableNode, generics: Optional[list[VarDefineNode | VariableNode | ValueNode]] = None):
-        super().__init__(name, copy(Types.type.value))
-        self.generics: Optional[list[VarDefineNode | VariableNode | ValueNode]] = generics if generics is not None else []
-        return
-
-    def add_ctx(self, ctx: Context) -> None:
-        """Adds the definition to the current context dict"""
-        super().add_ctx(ctx)
+        ctx.namespace[self.get_id()] = self
         ctx.types.add(self)
         return
 
-    def get_attribute(self, name: str) -> Optional[NameDefineNode]:
+    def get_attribute(self, name: str) -> Optional[VariableNode]:
         """Returns the attribute of the type definition with the given name or None if it is not defined.
         Attribute can be a field or a variant type"""
         return None
@@ -805,8 +839,7 @@ class TypeDefineNode(NameDefineNode):
         self.context = ctx
         self.parent = parent
         ctx.processing_queue.enqueue(self, 0)
-
-        self.name.update(ctx, self)
+        self.add_ctx(ctx)
         return
 
     def type_check(self, expected_types: Optional[set[Type]] = None, *args) -> Optional['TypeDefineNode']:
@@ -817,61 +850,7 @@ class TypeDefineNode(NameDefineNode):
         return self
 
     def __repr__(self):
-        return f'type {self.name} {self.type}'
-
-
-class ProductTypeDefineNode(TypeDefineNode):
-    def __init__(self, name: VariableNode, fields: list[NameDefineNode], generics = None):
-        super().__init__(name, generics)
-        self.fields: dict[str, NameDefineNode] = dict(map(lambda e: (e.name.name_tok.value, e), fields))
-        return
-
-    def get_attribute(self, name: str) -> Optional[NameDefineNode]:
-        if name in self.fields:
-            return self.fields[name]
-        return None
-
-    def __repr__(self):
-        string = "\n".join([f'{field}' for field in self.fields])
-        return f'type {self.name} {self.type} {{\n{string}\n}}'
-
-
-class TypeAliasDefineNode(TypeDefineNode):
-    def __init__(self, name: VariableNode, other_type: Type, generics = None):
-        super().__init__(name, generics)
-        self.other_type: Type = other_type
-        return
-
-    def get_attribute(self, name: str) -> Optional[NameDefineNode]:
-        typedef = self.context.get_definition(self.other_type.get_id())
-        if not isinstance(typedef, TypeDefineNode):
-            return None
-        return typedef.get_attribute(name)
-
-    def __repr__(self):
-        return f'type {self.name} = {self.other_type}'
-
-
-class SumTypeDefineNode(TypeDefineNode):
-    def __init__(self, name: VariableNode, subtypes: list[TypeDefineNode], generics = None):
-        super().__init__(name, generics)
-        self.name: VariableNode = name
-        self.variants: dict[str, TypeDefineNode] = dict(map(lambda e: (e.name.name_tok.value, e), subtypes))
-        self.type: Type = self.make_type(name, subtypes)
-        return
-
-    @staticmethod
-    def make_type(name: VariableNode, subtypes: list[TypeDefineNode]) -> Type:
-        return SumType(name.name_tok, subtypes)
-
-    def get_attribute(self, name: str) -> Optional[NameDefineNode]:
-        if name in self.variants:
-            return self.variants[name]
-        return None
-
-    def __repr__(self):
-        string = ", ".join([f'{subtype}' for subtype in self.variants])
-        return f'type {self.name} = {{{string}}}'
+        return f'type {self.name_tok} {self.type}'
 
 
 # Control Flow

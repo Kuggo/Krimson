@@ -18,6 +18,7 @@ class SyntaxError(Enum):
     symbol_expected = "'{!s}' expected"
     symbol_expected_before = "'{!s}' expected before '{!s}'"
     expression_expected = 'Expression expected'
+    assign_expected = 'Variable assignment expected'
     type_expected = 'type expected'
     typedef_expected = 'type declaration expected'
     cannot_assign_to_non_var = '"{!s}" is not a variable that can be assigned a value to'
@@ -188,12 +189,7 @@ class Parser:
             return self.array_literal()
 
         elif token == Separators.lcb.value:   # product type instance
-            values = self.repeat_until_symbol(Separators.rcb.value.value, Parser.expression,
-                                              SyntaxError.expression_expected, OPERATOR_PRECENDENCE[Separators.comma.value.value])
-            self.advance()
-            if len(values) == 0:
-                return None
-            return ValueNode(ProductTypeLiteral(values))
+            return self.product_type_literal()
 
         self.rollback()
         self.error(SyntaxError.expression_expected, self.peak.location)
@@ -323,6 +319,9 @@ class Parser:
             self.advance()
             return ArrayType(t[0])
 
+        elif tok == Separators.lcb.value:
+            return self.typedef_type()
+
         self.rollback()
         self.error(SyntaxError.type_expected, self.peak.location)
         return None
@@ -376,9 +375,34 @@ class Parser:
 
         return FunctionType(left, right)
 
+    def typedef_type(self) -> Optional[Type]:
+        if self.peak == Operators.or_.value:  # accepting the first one for stylishness
+            self.advance()
+            return self.sum_type()
+
+        if self.peak.tt != TT.IDENTIFIER:
+            self.error(SyntaxError.identifier_expected, self.peak.location)
+            return None
+
+        if (self.preview() == Separators.colon.value and self.preview(2) == Types.type.value.name_tok) or   \
+            self.preview() == Operators.or_.value or self.preview() == Separators.rcb.value:  # it's a sum type
+            return self.sum_type()
+
+        # we are sure that all the cases were discovered and that it is a product type
+        fields = self.repeat_until_symbol(Separators.rcb.value.value, Parser.field_define,
+                                          SyntaxError.declaration_expected)
+        self.advance()
+
+        d = set()
+        for f in fields:
+            assert isinstance(f, VariableNode)
+            d.add(f.get_id())
+
+        return ProductType(d)
+
     # defines
 
-    def name_define_statement(self, name: Node) -> Optional[NameDefineNode]:
+    def name_define_statement(self, name: Node) -> Optional[VariableNode]:
         """
         Parses the next statement (that does not start with a keyword) without knowing what kind of statement it is.
         The difference is spotted on how the statement goes.
@@ -390,103 +414,37 @@ class Parser:
         :return: var_define_statement | func_define_statement | None if an expression/error occurred
         """
 
-        if not isinstance(name, VariableNode):
-            self.error(SyntaxError.identifier_expected, name.location)
-            return None
-
         t = self.type(OPERATOR_PRECENDENCE[Separators.colon.value.value])
         if t is None:
             return None
 
-        if t == Types.type.value:  # it's a typedef
-            return self.type_define_statement(name)
-
         # it's not using special syntax to define a new name, so it can be any variable type
-        return VarDefineNode(name, t)
+        if t != Types.type.value:
+            if isinstance(name, VariableNode):
+                name.type = t
+                return name
 
-    def type_define_statement(self, name: VariableNode) -> Optional[TypeDefineNode]:
-        """
-        Parses the next type declaration until its end is found, and returns its Node
-        :param name: name of the new type
-        :return: TypeDefineNode or None if an error occurred
-        """
+            self.error(SyntaxError.identifier_expected, name.location)
+            return None
 
+        # it's a typedef
         if self.peak != Operators.assign.value:
             self.error(SyntaxError.symbol_expected, self.peak.location, Operators.assign.value.value)
             return None
         self.advance()
 
-        if isinstance(name, IndexOperatorNode): # it has generics
-            if isinstance(name.index, ValueNode) and isinstance(name.index.value, TupleLiteral):
-                generics = name.index.value.value
-            elif isinstance(name.index, ValueNode) or isinstance(name.index, VariableNode):
-                generics = [name.index]
-            else:
-                self.error(SyntaxError.expression_expected, name.index.location)
-                return None
-        else:
-            generics = None
-
-        if self.peak != Separators.lcb.value:  # type alias
-            t = self.type()
-            if t is None:
-                return None
-            return TypeAliasDefineNode(name, t, generics)
-
-        self.advance()
-        if self.peak == Operators.or_.value:  # accepting the first one for stylishness
-            self.advance()
-            return self.sum_type(name, generics)
-
-        if self.peak.tt != TT.IDENTIFIER:
-            self.error(SyntaxError.identifier_expected, self.peak.location)
+        g = self.process_generics(name)
+        if g is None:
             return None
+        var, generics = g
 
-        if self.preview() != Separators.colon.value or self.preview(2) == Types.type.value.name_tok:  # it's a sum type
-            return self.sum_type(name, generics)
+        type_val = self.type_prefix()
+        return TypeDefineNode(var, type_val, generics)
 
-        fields = self.repeat_until_symbol(Separators.rcb.value.value, Parser.field_define, SyntaxError.declaration_expected)
-        self.advance()
-        return ProductTypeDefineNode(name, fields, generics)
-
-    def field_define(self) -> Optional[VarDefineNode]:
-        name = self.peak
-        if name.tt != TT.IDENTIFIER:
-            return None
-
-        self.advance()
-
-        if self.peak != Separators.colon.value:
-            self.error(SyntaxError.symbol_expected, self.peak.location, Separators.colon.value.value)
-        self.advance()
-
-        t = self.type()
-        if t is None:
-            return None
-
-        if self.peak == Operators.assign.value:
-            self.error(SyntaxError.cannot_assign_to_field, self.peak.location)
-
-        return VarDefineNode(VariableNode(name), t)
-
-    def sum_type(self, name: VariableNode, generics=None) -> Optional[SumTypeDefineNode]:
-        def variant() -> Optional[TypeDefineNode]:
-            if self.peak.tt != TT.IDENTIFIER:
-                return None
-            variant_name = VariableNode(self.peak)
-            self.advance()
-
-            if self.peak == Separators.colon.value and self.preview() == Types.type.value.name_tok:
-                self.advance(2)
-
-            if self.peak == Operators.or_.value or self.peak == Separators.rcb.value:   # no size variant
-                return TypeDefineNode(variant_name)
-
-            return self.type_define_statement(variant_name)
-
+    def sum_type(self) -> Optional[SumType]:
         variants = []
         while self.peak != Separators.rcb.value:
-            v = variant()
+            v = self.enum_variant()
             if v is not None:
                 variants.append(v)
             else:
@@ -495,7 +453,71 @@ class Parser:
                 self.advance()
 
         self.advance()
-        return SumTypeDefineNode(name, variants, generics)
+        return SumType(variants)
+
+    def field_define(self) -> Optional[VariableNode]:
+        name = self.peak
+        if name.tt != TT.IDENTIFIER:
+            return None
+
+        self.advance()
+
+        if self.peak != Separators.colon.value:
+            self.error(SyntaxError.symbol_expected, self.peak.location, Separators.colon.value.value)
+            return None
+        self.advance()
+
+        t = self.type(precedence=OPERATOR_PRECENDENCE[Separators.colon.value.value])
+        if t is None:
+            return None
+        if self.peak == Separators.comma.value:
+            self.advance()
+
+        if self.peak == Operators.assign.value:
+            self.error(SyntaxError.cannot_assign_to_field, self.peak.location)
+
+        return VariableNode(name, t)
+
+    def process_generics(self, name: Node) -> Optional[tuple[VariableNode | ValueNode, Optional[list[TypeDefineNode]]]]:
+        if isinstance(name, IndexOperatorNode) and isinstance(name.collection, VariableNode): # it has generics
+            if isinstance(name.index, ValueNode) and isinstance(name.index.value, TupleLiteral):
+                generics = []
+                for g in name.index.value.value:
+                    gen = self.process_generics(g)
+                    if gen is None:
+                        continue
+                    generics.append(TypeDefineNode(gen[0], gen[1]))
+                    return name.collection, generics
+
+            elif isinstance(name.index, ValueNode) or isinstance(name.index, VariableNode):
+                return name.collection, [TypeDefineNode(name.index)]
+            else:
+                self.error(SyntaxError.generic_expected, name.index.location)
+                return None
+        elif isinstance(name, VariableNode) or isinstance(name, ValueNode):
+            return name, None
+
+        return None
+
+    def enum_variant(self) -> Optional[TypeDefineNode]:
+        if self.peak.tt != TT.IDENTIFIER:
+            return None
+        variant_name = VariableNode(self.peak)
+        self.advance()
+
+        if self.peak == Separators.colon.value and self.preview() == Types.type.value.name_tok:
+            self.advance(2)
+
+        if self.peak == Operators.assign.value:
+            self.advance()
+            t = self.type()
+            return TypeDefineNode(variant_name, t)
+
+        elif self.peak == Operators.or_.value or self.peak == Separators.rcb.value:  # no size variant
+            return TypeDefineNode(variant_name)
+
+        self.error(SyntaxError.typedef_expected, self.peak.location)
+        return None
 
     # keywords
 
@@ -611,7 +633,8 @@ class Parser:
 
         if self.peak == Separators.lcb.value:
             self.advance()
-            cases = self.repeat_until_symbol(Separators.rcb.value.value, Parser.match_case, SyntaxError.statement_expected)
+            cases = self.repeat_until_symbol(Separators.rcb.value.value, Parser.match_case,
+                                             SyntaxError.statement_expected)
             self.advance()
         else:
             case = self.match_case()
@@ -682,16 +705,31 @@ class Parser:
         """
 
         elements = self.repeat_until_symbol(Separators.lbr.value.value, Parser.expression,
-                                            SyntaxError.expression_expected, OPERATOR_PRECENDENCE[Separators.comma.value.value])
+                                            SyntaxError.expression_expected,
+                                            OPERATOR_PRECENDENCE[Separators.comma.value.value])
         self.advance()
         if len(elements) == 0:
             return None
 
         return ValueNode(ArrayLiteral(elements))
 
+    def product_type_literal(self) -> Optional[ValueNode]:
+        separators = {Separators.comma.value.value, Separators.semi_col.value.value}
+        precendence = OPERATOR_PRECENDENCE[Separators.comma.value.value]
+        start = self.peak.location
+        values = self.repeat_until_symbol(Separators.rcb.value.value, Parser.expression,
+                                          SyntaxError.expression_expected, separators, precendence)
+
+        end = self.peak.location
+        self.advance()
+        if len(values) == 0:
+            return None
+
+        return ValueNode(ProductTypeLiteral(values, end - start))
+
     # utils
 
-    def repeat_until_symbol(self, end_symbol: str, method, error: Optional[SyntaxError] = None, *args) -> list:
+    def repeat_until_symbol(self, end_symbol: str, method, error: Optional[SyntaxError] = None, separator: set[str] = END_OF_EXPRESSION, *args) -> list:
         """
         Parses an unknown amount of statements/expressions.
 
@@ -699,6 +737,7 @@ class Parser:
         rule specified in the method passed. If error is specified then an error will be generated if the rule was not
         found.
 
+        :param separator:
         :param end_symbol: the separator character the pattern is meant to end at
         :param method: the Parser method that checks/parses the rule.
         :param error: if specified, what error message will be generated by not finding the rule expected
@@ -708,6 +747,7 @@ class Parser:
         output = []
         while self.has_next() and self.peak.value != end_symbol:
             tok = self.peak
+            index = self.i
             element = method(self, *args)
 
             if element is None:
@@ -716,7 +756,9 @@ class Parser:
             else:
                 output.append(element)
 
-            while self.has_next() and self.peak.value in END_OF_EXPRESSION:
+            if index == self.i: # avoids infinite loops
+                self.advance()
+            while self.has_next() and separator is not None and self.peak.value in separator:
                 self.advance()
 
         if not self.has_next():

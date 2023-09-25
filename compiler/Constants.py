@@ -305,6 +305,7 @@ class Literal(Token):
 
         types = self.possible_types.intersection(expected_types)
         if len(types) > 0:
+            # don't need to error, because the typechecker will handle the rest
             self.type = types.pop()
         else:
             self.type = self.possible_types.pop()
@@ -472,32 +473,9 @@ class ArrayType(Type):
     def __repr__(self):
         return f'<array[{self.arr_type}]>'
 
-
-class ProductType(Type):
-    def __init__(self, fields: list[Type]):
-        super().__init__()
-        self.fields: list[Type] = fields
-        return
-
-    def __eq__(self, other: 'ProductType'):
-        return isinstance(other, ProductType) and self.name_tok == other.name_tok and self.fields == other.fields
-
-    def __hash__(self):
-        return sum([f.__hash__() for f in self.fields])
-
-    def get_label(self) -> str:
-        return f'{self.name_tok.value}_{"_".join([f.get_label() for f in self.fields])}'
-
-    def __str__(self):
-        return f'{{{", ".join([str(f) for f in self.fields])}}}'
-
-    def __repr__(self):
-        return f'<{self.name_tok.value}({", ".join([f"{f.__repr__()}" for f in self.fields])})>'
-
-
 class SumType(Type):
-    def __init__(self, name: Token, types: list):
-        super().__init__(name)
+    def __init__(self, types: list):
+        super().__init__()
         self.types: list = types
         return
 

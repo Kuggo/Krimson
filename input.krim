@@ -1,13 +1,24 @@
+/*
+coord: type = {
+    x: nat
+    y: nat
+}
+coord[T]: type = {
+    x: T
+    y: T
+}
 
-v: _ = ()
+AllowedOptions: type = {
+  | NoSizeOption
+  | AliasOption = int
+  | TupleOption = (int, int)
+  | ProductOption = {x: int y: int}
+  | EnumInception = {
+      | A
+      | B
+    }
+}*/
 
-v: _ = () -> () {}
+t: type = {x: nat, x: int}
 
-
-v1: () = ()
-v2: () -> ()
-v3: int -> int
-
-v1 = v
-v2 = v
-v3 = v
+var: t = {x:nat = 0, x:int = 0}
