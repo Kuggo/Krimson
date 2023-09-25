@@ -46,6 +46,7 @@ class TypeError(Enum):
     no_suitable_var = 'No suitable variable found for name "{!s}". Expected types: {!s}. Possible types: {!s}'
     cannot_infer_type = 'Cannot infer type of variable "{!s}". Possible types: {!s}. \nUse `<name>: <type>` in any usage of the variable to specify its type'
     unk_var = 'No associated type for name of variable "{!s}". \nUse `<name>: <type>` in any usage of the variable to specify its type'
+    type_not_found = 'Type "{!s}" was defined using {!s} which is undefined/not visible in the current scope'
     wrong_func_type = 'Expected function with input argument of type "{!s}" but got "{!s}"'
     product_type_lit_needs_name = 'Cannot define a value for a field of a product type literal without its id. Use `<id> = <value>` instead'
     field_name_expected = 'Field name expected, found {!s} instead'
@@ -426,12 +427,14 @@ class ValueNode(Node):
 
     def type_check(self, expected_types: Optional[set[Type]] = None, *args) -> Optional['ValueNode']:
         if expected_types is not None:
-            types = set()
+            types = {}
             for t in expected_types:
                 typedef = self.context.get_definition(t.get_id())
-                if typedef is not None and typedef.type == Types.type.value:     # it's an alias
-                    types.add(typedef.type) # TODO finish this
-            self.value.type_check_literal(self.context, types)
+                if isinstance(typedef, TypeDefineNode):     # it's an alias
+                    types[typedef.type_val] = t
+            self.value.type_check_literal(self.context, set(types.keys()))
+            if self.value.type in types:
+                self.value.type = types[self.value.type]
         else:
             self.value.type_check_literal(self.context, expected_types)
         self.type = self.value.type
@@ -847,6 +850,12 @@ class TypeDefineNode(VariableNode):
         if None in self.generics:
             return None
 
+        if self.type_val is None:
+            return self
+        typedef = self.context.get_definition(self.type_val.get_id())
+        while isinstance(typedef, TypeDefineNode):
+            self.type_val = typedef.type_val
+            typedef = self.context.get_definition(typedef.type_val.get_id())
         return self
 
     def __repr__(self):
