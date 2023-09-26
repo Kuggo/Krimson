@@ -205,11 +205,6 @@ class Parser:
             return FuncCallNode(left, arg)
 
         elif token == Operators.dot.value: # attribute access
-            if self.peak.tt != TT.IDENTIFIER:
-                self.error(SyntaxError.identifier_expected, self.peak.location)
-                return None
-            #right = VariableNode(self.peak)
-            #self.advance()
             right = self.expression(precedence=OPERATOR_PRECENDENCE[Operators.dot.value.value])
             if not isinstance(right, VariableNode):
                 self.error(SyntaxError.identifier_expected, self.peak.location)

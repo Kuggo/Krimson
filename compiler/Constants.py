@@ -356,6 +356,9 @@ class Type:
         """
         return set()
 
+    def builtin_type(self):
+        return self == Types.type.value   # allows 'type' keyword to be a valid built-in type
+
     def __str__(self):
         return f'{self.name_tok.value}'
 
@@ -389,6 +392,9 @@ class TupleType(Type):
 
     def get_label(self) -> str:
         return f'tuple_{"_".join([t.get_label() for t in self.types])}'
+
+    def builtin_type(self):
+        return True
 
     def __str__(self):
         return f'({", ".join([str(t) for t in self.types])})'
@@ -434,6 +440,9 @@ class FunctionType(Type):
     def get_label(self) -> str:
         return f'func_{self.arg.get_label()}_to_{self.ret.get_label()}'
 
+    def builtin_type(self):
+        return True
+
     def __str__(self):
         return f'{self.arg} -> {self.ret}'
 
@@ -455,6 +464,9 @@ class ArrayType(Type):
 
     def get_label(self) -> str:
         return f'array_{self.arr_type.get_label()}'
+
+    def builtin_type(self):
+        return True
 
     def __str__(self):
         return f'[{self.arr_type}]'
