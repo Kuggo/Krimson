@@ -73,6 +73,9 @@ class ProductType(Type):
     def get_label(self) -> str:
         return f'{self.name_tok.value}_{"_".join([f[1].get_label() for f in self.fields])}'
 
+    def builtin_type(self):
+        return True
+
     def __str__(self):
         return f'{{{", ".join([iterable_str(f) for f in self.fields])}}}'
 
@@ -94,6 +97,9 @@ class SumType(Type):
 
     def get_possible_attributes(self, name: str) -> set[Type]:
         return {t for t in self.types if name == t.name_tok.value}
+
+    def builtin_type(self):
+        return True
 
     def __str__(self):
         return f'{{{" | ".join([str(t) for t in self.types])}}}'
@@ -531,7 +537,7 @@ class VariableNode(Node):
             # in case of multiple types, a random one will be selected to try and recover from the error
 
         self.type_def = self.context.get_definition(self.type.get_id())
-        if self.type_def is None:
+        if self.type_def is None and not self.type.builtin_type():
             self.error(TypeError.type_not_found1, self.name_tok.value, self.type.name_tok.value)
             return None
         return self
@@ -583,11 +589,11 @@ class TypeDefineNode(VariableNode):
 
         if self.type_val is None:
             return self
-        typedef = self.context.get_definition(self.type_val.get_id())
-        if typedef is None:
+        if not self.type_val.builtin_type():
             self.error(TypeError.type_not_found0, self.name_tok.value, self.type_val.name_tok.value)
             return self
 
+        typedef = self.context.get_definition(self.type_val.get_id())
         while isinstance(typedef, TypeDefineNode):
             self.type_val = typedef.type_val
             typedef = self.context.get_definition(typedef.type_val.get_id())
@@ -694,7 +700,7 @@ class AssignNode(Node):
         return
 
     def type_check(self, expected_types: Optional[set[Type]] = None, *args) -> Optional[Node]:
-        if self.var.type == Types.infer.value:
+        if isinstance(self.var, VariableNode) and self.var.type == Types.infer.value:
             self.value = self.value.type_check()
             if self.value is None:
                 return None
@@ -703,6 +709,8 @@ class AssignNode(Node):
             self.var = self.var.type_check()
             if self.var is None:
                 return None
+            if isinstance(self.var, FuncCallNode):  # it was an index
+                return self.var
             self.value = self.value.type_check({self.var.type})
 
         if self.var is None or self.value is None:
@@ -861,6 +869,11 @@ class IndexOperatorNode(Node):
         f = FuncCallNode(VariableNode(fn_name), ValueNode(TupleLiteral([self.collection, self.index])))
         f.update(self.context, self)
         return f.type_check()
+
+    @staticmethod
+    def assignable() -> bool:
+        """Returns whether the node can be used on the left side of an AssignNode"""
+        return True
 
     def __str__(self):
         return f'{self.collection}[{self.index}]'
