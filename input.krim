@@ -19,6 +19,10 @@ AllowedOptions: type = {
     }
 }*/
 
+nat: type = ()
+
 t: type = {x: nat, x: int}
 
 var: t = {x:nat = 0, x:int = 0}
+
+e: nat = var.x

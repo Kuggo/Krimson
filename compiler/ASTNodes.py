@@ -46,13 +46,14 @@ class TypeError(Enum):
     no_suitable_var = 'No suitable variable found for name "{!s}". Expected types: {!s}. Possible types: {!s}'
     cannot_infer_type = 'Cannot infer type of variable "{!s}". Possible types: {!s}. \nUse `<name>: <type>` in any usage of the variable to specify its type'
     unk_var = 'No associated type for name of variable "{!s}". \nUse `<name>: <type>` in any usage of the variable to specify its type'
-    type_not_found = 'Type "{!s}" was defined using {!s} which is undefined/not visible in the current scope'
+    type_not_found0 = 'Type "{!s}" was defined using "{!s}" which is undefined/not visible in the current scope'
+    type_not_found1 = 'Variable {!s} was defined as being of type "{!s}" which is undefined/not visible in the current scope'
     wrong_func_type = 'Expected function with input argument of type "{!s}" but got "{!s}"'
     product_type_lit_needs_name = 'Cannot define a value for a field of a product type literal without its id. Use `<id> = <value>` instead'
     field_name_expected = 'Field name expected, found {!s} instead'
 
 
-# Types directly supported by the compiler (continuation from Constants.py)
+# Types directly supported by the compiler
 
 class ProductType(Type):
     def __init__(self, fields: set[tuple[str, Type]]):
@@ -66,6 +67,9 @@ class ProductType(Type):
     def __hash__(self):
         return sum([f.__hash__() for f in self.fields])
 
+    def get_possible_attributes(self, name: str) -> set[Type]:
+        return {t for n, t in self.fields if n == name}
+
     def get_label(self) -> str:
         return f'{self.name_tok.value}_{"_".join([f[1].get_label() for f in self.fields])}'
 
@@ -76,8 +80,42 @@ class ProductType(Type):
         return f'<{self.name_tok.value}({", ".join([f"{f.__repr__()}" for f in self.fields])})>'
 
 
+class SumType(Type):
+    def __init__(self, types: list):
+        super().__init__()
+        self.types: list[Type] = types
+        return
+
+    def __eq__(self, other: 'SumType'):
+        return isinstance(other, SumType) and self.types == other.types
+
+    def __hash__(self):
+        return sum([f.__hash__() for f in self.types])
+
+    def get_possible_attributes(self, name: str) -> set[Type]:
+        return {t for t in self.types if name == t.name_tok.value}
+
+    def __str__(self):
+        return f'{{{" | ".join([str(t) for t in self.types])}}}'
+
+    def __repr__(self):
+        return f'<{{{" | ".join([f"{t.__repr__()}" for t in self.types])}}}>'
+
+
 
 # Literals directly supported by compiler
+
+class VoidLiteral(Literal):
+    def __init__(self, location: FileRange):
+        super().__init__('()', {VoidType()}, location)
+        return
+
+    def __str__(self):
+        return f'()'
+
+    def __repr__(self):
+        return f'<void>'
+
 
 class TupleLiteral(Literal):
     def __init__(self, values: list['Node']):
@@ -355,6 +393,7 @@ class Context:
         return f'vars: {self.namespace}\nfuncs: {self.funcs}\ntypes: {self.types}'
 
 
+
 # Category Nodes (DO NOT construct these nodes directly!)
 
 class Node:
@@ -409,43 +448,7 @@ class Node:
         pass
 
 
-# Base NODES
-
-class ValueNode(Node):
-    def __init__(self, tok: Literal):
-        super().__init__(tok.location)
-        self.value: Literal = tok
-        return
-
-    def update(self, ctx: Context, parent: Optional[Node]) -> None:
-        self.context = ctx
-        self.parent = parent
-        ctx.processing_queue.enqueue(self)
-
-        self.value.update_literal(ctx, self)
-        return
-
-    def type_check(self, expected_types: Optional[set[Type]] = None, *args) -> Optional['ValueNode']:
-        if expected_types is not None:
-            types = {}
-            for t in expected_types:
-                typedef = self.context.get_definition(t.get_id())
-                if isinstance(typedef, TypeDefineNode):     # it's an alias
-                    types[typedef.type_val] = t
-            self.value.type_check_literal(self.context, set(types.keys()))
-            if self.value.type in types:
-                self.value.type = types[self.value.type]
-        else:
-            self.value.type_check_literal(self.context, expected_types)
-        self.type = self.value.type
-        return self
-
-    def __str__(self):
-        return f'{self.value}'
-
-    def __repr__(self):
-        return f'<{self.value.__repr__()}>'
-
+# Definition Nodes
 
 class VariableNode(Node):
     def __init__(self, repr_tok: Token, t: Optional[Type] = None):
@@ -527,7 +530,10 @@ class VariableNode(Node):
             self.type = types.pop()  # unpacking the set
             # in case of multiple types, a random one will be selected to try and recover from the error
 
-        self.type_def = self.context.get_definition(self.get_id())
+        self.type_def = self.context.get_definition(self.type.get_id())
+        if self.type_def is None:
+            self.error(TypeError.type_not_found1, self.name_tok.value, self.type.name_tok.value)
+            return None
         return self
 
     @staticmethod
@@ -540,6 +546,94 @@ class VariableNode(Node):
 
     def __repr__(self):
         return f'<{self.name_tok.value.__repr__()}:{self.type.__repr__()}>'
+
+
+class TypeDefineNode(VariableNode):
+    def __init__(self, name: VariableNode, type: Optional[Type] = None, generics: Optional[list[Node]] = None):
+        super().__init__(name.name_tok, copy(Types.type.value))
+        self.generics: Optional[list[Node]] = generics if generics is not None else []
+        self.type_val: Optional[Type] = type
+        return
+
+    def add_ctx(self, ctx: Context) -> None:
+        """Adds the definition to the current context dict"""
+        ctx.namespace[self.get_id()] = self
+        ctx.types.add(self)
+        return
+
+    def get_possible_attributes(self, name: str) -> set[Type]:
+        """Returns the attribute of the type definition with the given name or None if it is not defined.
+        Attribute can be a field or a variant type"""
+        if self.type_val is None:
+            return set()
+
+        return self.type_val.get_possible_attributes(name)
+
+    def update(self, ctx: Context, parent: Optional[Node]) -> None:
+        self.context = ctx
+        self.parent = parent
+        ctx.processing_queue.enqueue(self, 0)
+        self.add_ctx(ctx)
+        return
+
+    def type_check(self, expected_types: Optional[set[Type]] = None, *args) -> Optional['TypeDefineNode']:
+        self.generics = [g.type_check() for g in self.generics]
+        if None in self.generics:
+            return None
+
+        if self.type_val is None:
+            return self
+        typedef = self.context.get_definition(self.type_val.get_id())
+        if typedef is None:
+            self.error(TypeError.type_not_found0, self.name_tok.value, self.type_val.name_tok.value)
+            return self
+
+        while isinstance(typedef, TypeDefineNode):
+            self.type_val = typedef.type_val
+            typedef = self.context.get_definition(typedef.type_val.get_id())
+
+        return self
+
+    def __repr__(self):
+        return f'type {self.name_tok} {self.type}'
+
+
+# Base NODES
+
+class ValueNode(Node):
+    def __init__(self, tok: Literal):
+        super().__init__(tok.location)
+        self.value: Literal = tok
+        return
+
+    def update(self, ctx: Context, parent: Optional[Node]) -> None:
+        self.context = ctx
+        self.parent = parent
+        ctx.processing_queue.enqueue(self)
+
+        self.value.update_literal(ctx, self)
+        return
+
+    def type_check(self, expected_types: Optional[set[Type]] = None, *args) -> Optional['ValueNode']:
+        if expected_types is not None:
+            types = {}
+            for t in expected_types:
+                typedef = self.context.get_definition(t.get_id())
+                if isinstance(typedef, TypeDefineNode):     # it's an alias
+                    types[typedef.type_val] = t
+            self.value.type_check_literal(self.context, set(types.keys()))
+            if self.value.type in types:
+                self.value.type = types[self.value.type]
+        else:
+            self.value.type_check_literal(self.context, expected_types)
+        self.type = self.value.type
+        return self
+
+    def __str__(self):
+        return f'{self.value}'
+
+    def __repr__(self):
+        return f'<{self.value.__repr__()}>'
 
 
 class ScopeNode(Node):
@@ -697,7 +791,6 @@ class DotOperatorNode(Node):
         super().__init__(repr_tok.location)
         self.var: Node = var
         self.field: VariableNode = field
-        self.attribute: Optional[VariableNode] = None
         return
 
     def update(self, ctx: Context, parent: Optional[Node]) -> None:
@@ -713,27 +806,29 @@ class DotOperatorNode(Node):
         if self.var is None:
             return None
 
-        if isinstance(self.field, VariableNode):
-            self.field = self.field.type_check(expected_types)
-            if self.field is None:
-                return None
-            self.attribute = self.field
-            self.type = self.field.type
+        typedef = self.var.get_typedef()
+        if typedef is None:
+            # no need to throw error here because it will be caught when defining the type itself
+            return None
+        typedef = typedef.type_check()   # just making sure we are going to use the updated version of it
+        possible_types = typedef.get_possible_attributes(self.field.name_tok.value)
 
-        else:
-            typedefs = self.var.type.get_attribute(self.field.name_tok.value)
-            if len(typedefs) == 0:
-                self.error(TypeError.no_attribute, self.var.type.name_tok.value, self.field.name_tok.value)
-                return self.var     # trying to recover from the error
+        if len(possible_types) == 0:
+            self.error(TypeError.no_attribute, self.var.type.name_tok.value, self.field.name_tok.value)
+            return self.var     # trying to recover from the error
 
-            elif len(typedefs) > 1:
-                if expected_types is None:
-                    self.field.error(TypeError.ambiguous_name, iterable_str(typedefs))
-                else:
-                    typedefs.intersection_update(expected_types)
+        elif len(possible_types) > 1:
+            if expected_types is None:
+                self.field.error(TypeError.ambiguous_name, iterable_str(possible_types))
+            else:
+                t = possible_types.intersection(expected_types)
+                if len(t) > 1:
+                    self.field.error(TypeError.ambiguous_name, iterable_str(possible_types))
+                if len(t) >= 1:
+                    possible_types = t
 
-            self.attribute = typedefs.pop()
-            self.type = self.attribute.type
+        self.type = possible_types.pop()
+        self.field.type = self.type
         return self
 
     def __str__(self):
@@ -816,50 +911,6 @@ class FuncCallNode(Node):
 
     def __repr__(self):
         return f'<{self.func.__repr__()} {self.arg}>'
-
-
-# Definition Nodes
-
-class TypeDefineNode(VariableNode):
-    def __init__(self, name: VariableNode, type: Optional[Type] = None, generics: Optional[list[Node]] = None):
-        super().__init__(name.name_tok, copy(Types.type.value))
-        self.generics: Optional[list[Node]] = generics if generics is not None else []
-        self.type_val: Optional[Type] = type
-        return
-
-    def add_ctx(self, ctx: Context) -> None:
-        """Adds the definition to the current context dict"""
-        ctx.namespace[self.get_id()] = self
-        ctx.types.add(self)
-        return
-
-    def get_attribute(self, name: str) -> Optional[VariableNode]:
-        """Returns the attribute of the type definition with the given name or None if it is not defined.
-        Attribute can be a field or a variant type"""
-        return None
-
-    def update(self, ctx: Context, parent: Optional[Node]) -> None:
-        self.context = ctx
-        self.parent = parent
-        ctx.processing_queue.enqueue(self, 0)
-        self.add_ctx(ctx)
-        return
-
-    def type_check(self, expected_types: Optional[set[Type]] = None, *args) -> Optional['TypeDefineNode']:
-        self.generics = [g.type_check() for g in self.generics]
-        if None in self.generics:
-            return None
-
-        if self.type_val is None:
-            return self
-        typedef = self.context.get_definition(self.type_val.get_id())
-        while isinstance(typedef, TypeDefineNode):
-            self.type_val = typedef.type_val
-            typedef = self.context.get_definition(typedef.type_val.get_id())
-        return self
-
-    def __repr__(self):
-        return f'type {self.name_tok} {self.type}'
 
 
 # Control Flow

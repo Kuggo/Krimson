@@ -318,17 +318,6 @@ class Literal(Token):
         return f'<{self.value}: {self.type}>'
 
 
-class VoidLiteral(Literal):
-    def __init__(self, location: FileRange):
-        super().__init__('()', {VoidType()}, location)
-        return
-
-    def __str__(self):
-        return f'()'
-
-    def __repr__(self):
-        return f'<void>'
-
 
 # Types directly supported by the compiler
 
@@ -359,9 +348,9 @@ class Type:
     def get_id(self) -> tuple[str, 'Type']:
         return self.name_tok.value, Types.type.value
 
-    def get_attribute(self, name: str) -> set:
+    def get_possible_attributes(self, name: str) -> set:
         """
-        Returns the typedef of the attribute with the given name
+        Returns the set of the possible types of the attribute with the given name
         :param name: str of the attribute
         :return: the type of the attribute
         """
@@ -473,23 +462,6 @@ class ArrayType(Type):
     def __repr__(self):
         return f'<array[{self.arr_type}]>'
 
-class SumType(Type):
-    def __init__(self, types: list):
-        super().__init__()
-        self.types: list = types
-        return
-
-    def __eq__(self, other: 'SumType'):
-        return isinstance(other, SumType) and self.types == other.types
-
-    def __hash__(self):
-        return sum([f.__hash__() for f in self.types])
-
-    def __str__(self):
-        return f'{{{" | ".join([str(t) for t in self.types])}}}'
-
-    def __repr__(self):
-        return f'<{{{" | ".join([f"{t.__repr__()}" for t in self.types])}}}>'
 
 
 class Types(Enum):
