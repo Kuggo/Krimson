@@ -539,7 +539,7 @@ class VariableNode(Node):
         if self.type.builtin_type():
             return self
         self.type_def = self.context.get_definition(self.type.get_id())
-        if self.type_def is None:
+        if self.type_def is None and not self.type.builtin_type():
             self.error(TypeError.type_not_found1, self.name_tok.value, self.type.name_tok.value)
             return None
         return self
