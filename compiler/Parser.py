@@ -88,11 +88,12 @@ class Parser:
         :return: ScopeNode
         """
 
-        start_tok = self.peak
+        start = self.peak.location
         statements = self.repeat_until_symbol(Separators.rcb.value.value, Parser.statement)
+        end = self.peak.location
         self.advance()
 
-        return ScopeNode(statements, self.peak.location - start_tok.location)
+        return ScopeNode(statements, end - start)
 
     def statement(self) -> Optional[Node]:
         """
@@ -209,7 +210,7 @@ class Parser:
             if not isinstance(right, VariableNode):
                 self.error(SyntaxError.identifier_expected, self.peak.location)
                 return None
-            return DotOperatorNode(token, left, right)
+            return DotOperatorNode(left, right)
 
         elif token == Separators.colon.value: # name define
             return self.name_define_statement(left)
@@ -254,7 +255,7 @@ class Parser:
 
         index = self.expression()
         self.advance()
-        return IndexOperatorNode(tok, left, index)
+        return IndexOperatorNode(left, index)
 
     # types
 
@@ -422,6 +423,7 @@ class Parser:
         if t != Types.type.value:
             if isinstance(name, VariableNode):
                 name.type = t
+                name.location = self.last.location - name.location
                 return name
 
             self.error(SyntaxError.identifier_expected, name.location)
@@ -439,7 +441,7 @@ class Parser:
         var, generics = g
 
         type_val = self.type_prefix()
-        return TypeDefineNode(var, type_val, generics)
+        return TypeDefineNode(var, type_val, generics, location=self.last.location - name.location)
 
     def sum_type(self) -> Optional[SumType]:
         variants = []
@@ -476,7 +478,7 @@ class Parser:
         if self.peak == Operators.assign.value:
             self.error(SyntaxError.cannot_assign_to_field, self.peak.location)
 
-        return VariableNode(name, t)
+        return VariableNode(name, t=t, location = self.last.location - name.location)
 
     def process_generics(self, name: Node) -> Optional[tuple[VariableNode | ValueNode, Optional[list[TypeDefineNode]]]]:
         if isinstance(name, IndexOperatorNode) and isinstance(name.collection, VariableNode): # it has generics
@@ -486,7 +488,7 @@ class Parser:
                     gen = self.process_generics(g)
                     if gen is None:
                         continue
-                    generics.append(TypeDefineNode(gen[0], gen[1]))
+                    generics.append(TypeDefineNode(gen[0], gen[1])) # TODO i dont understand what this whole function does. investigate and document pls
                     return name.collection, generics
 
             elif isinstance(name.index, ValueNode) or isinstance(name.index, VariableNode):
@@ -511,7 +513,7 @@ class Parser:
         if self.peak == Operators.assign.value:
             self.advance()
             t = self.type()
-            return TypeDefineNode(variant_name, t)
+            return TypeDefineNode(variant_name, t, location=self.last.location - variant_name.location)
 
         elif self.peak == Operators.or_.value or self.peak == Separators.rcb.value:  # no size variant
             return TypeDefineNode(variant_name)
@@ -642,7 +644,7 @@ class Parser:
                 return None
             cases = [case]
 
-        return MatchNode(tok, value, cases)
+        return MatchNode(self.peak.location - tok.location, value, cases)
 
     def match_case(self) -> Optional[CaseNode]:
         variant = self.peak
@@ -704,14 +706,16 @@ class Parser:
         :return: ValueNode array literal
         """
 
+        start = self.peak.location
         elements = self.repeat_until_symbol(Separators.lbr.value.value, Parser.expression,
                                             SyntaxError.expression_expected,
                                             OPERATOR_PRECENDENCE[Separators.comma.value.value])
+        end = self.peak.location
         self.advance()
         if len(elements) == 0:
             return None
 
-        return ValueNode(ArrayLiteral(elements))
+        return ValueNode(ArrayLiteral(elements, end - start))
 
     def product_type_literal(self) -> Optional[ValueNode]:
         separators = {Separators.comma.value.value, Separators.semi_col.value.value}

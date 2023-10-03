@@ -126,8 +126,8 @@ class VoidLiteral(Literal):
 class TupleLiteral(Literal):
     def __init__(self, values: list['Node']):
         assert len(values) > 0
-        self.value: list[Node] = values
         super().__init__(values, set(), values[-1].location - values[0].location)
+        self.value: list[Node] = values
         return
 
     def update_literal(self, context, parent) -> None:
@@ -165,10 +165,9 @@ class TupleLiteral(Literal):
 
 
 class ArrayLiteral(Literal):
-    def __init__(self, values: list):
-        assert len(values) > 0
+    def __init__(self, values: list, location: FileRange):
         self.value: list[Node] = values
-        super().__init__(values, set(), values[-1].location - values[0].location)
+        super().__init__(values, set(), location)
         return
 
     def update_literal(self, context, parent) -> None:
@@ -215,7 +214,7 @@ class ArrayLiteral(Literal):
 
 class FunctionLiteral(Literal):
     def __init__(self, in_param: 'Node', out_param: 'Node', body: 'Node'):
-        super().__init__(None, set())
+        super().__init__(None, set(), body.location - in_param.location)
         self.in_param: 'Node' = in_param
         self.out_param: 'Node' = out_param
 
@@ -457,8 +456,8 @@ class Node:
 # Definition Nodes
 
 class VariableNode(Node):
-    def __init__(self, repr_tok: Token, t: Optional[Type] = None):
-        super().__init__(repr_tok.location, type=t)
+    def __init__(self, repr_tok: Token, t: Optional[Type] = None, location: Optional[FileRange] = None):
+        super().__init__(repr_tok.location if location is None else location, type=t)
         self.name_tok: Token = repr_tok
         self.type_def: Optional[TypeDefineNode] = None
         return
@@ -557,8 +556,8 @@ class VariableNode(Node):
 
 
 class TypeDefineNode(VariableNode):
-    def __init__(self, name: VariableNode, type: Optional[Type] = None, generics: Optional[list[Node]] = None):
-        super().__init__(name.name_tok, copy(Types.type.value))
+    def __init__(self, name: VariableNode, type: Optional[Type] = None, generics: Optional[list[Node]] = None, location: Optional[FileRange] = None):
+        super().__init__(name.name_tok, copy(Types.type.value), location=location)
         self.generics: Optional[list[Node]] = generics if generics is not None else []
         self.type_val: Optional[Type] = type
         return
@@ -645,7 +644,7 @@ class ValueNode(Node):
 
 
 class ScopeNode(Node):
-    def __init__(self, child_nodes: list[Node], location):
+    def __init__(self, child_nodes: list[Node], location: FileRange):
         super().__init__(location, type=VoidType())
         self.child_nodes: list[Node] = child_nodes
         return
@@ -687,7 +686,7 @@ class ScopeNode(Node):
 
 class AssignNode(Node):
     def __init__(self, var: Node, value: Node):
-        super().__init__(var.location)
+        super().__init__(location = value.location - var.location)
         self.var: Node = var
         self.value: Node = value
         return
@@ -735,7 +734,7 @@ class AssignNode(Node):
 
 class UnOpNode(Node):
     def __init__(self, op: Token, child: Node):
-        super().__init__(op.location)
+        super().__init__(location = child.location - op.location)
         self.op = op
         self.child = child
         return
@@ -766,7 +765,7 @@ class UnOpNode(Node):
 
 class BinOpNode(Node):
     def __init__(self, op: Token, left: Node, right: Node):
-        super().__init__(op.location)
+        super().__init__(location = right.location - left.location)
         self.left_child = left
         self.right_child = right
         self.op = op
@@ -797,8 +796,8 @@ class BinOpNode(Node):
 
 
 class DotOperatorNode(Node):
-    def __init__(self, repr_tok: Token, var: Node, field: VariableNode):
-        super().__init__(repr_tok.location)
+    def __init__(self, var: Node, field: VariableNode):
+        super().__init__(location = field.location - var.location)
         self.var: Node = var
         self.field: VariableNode = field
         return
@@ -849,8 +848,8 @@ class DotOperatorNode(Node):
 
 
 class IndexOperatorNode(Node):
-    def __init__(self, repr_tok: Token, collection: Node, index: Node):
-        super().__init__(repr_tok.location)
+    def __init__(self, collection: Node, index: Node):
+        super().__init__(location = index.location - collection.location)
         self.collection: Node = collection
         self.index: Node = index
         return
@@ -886,7 +885,7 @@ class IndexOperatorNode(Node):
 
 class FuncCallNode(Node):
     def __init__(self, func: Node, arg: Node):
-        super().__init__(func.location)
+        super().__init__(location = arg.location - func.location)
         self.func: Node = func
         self.arg: Node = arg
         self.func_literal: Optional[FunctionLiteral] = None
@@ -932,7 +931,7 @@ class FuncCallNode(Node):
 
 class IfNode(Node):
     def __init__(self, repr_tok: Token, condition: Node, body: Node):
-        super().__init__(repr_tok.location, type=VoidType())
+        super().__init__(location = body.location - repr_tok.location, type=VoidType())
         self.condition = condition
         self.body = body
         self.else_statement: Optional[ElseNode] = None
@@ -962,7 +961,7 @@ class IfNode(Node):
 
 class ElseNode(Node):
     def __init__(self, repr_tok: Token, body: Node, if_statement: Optional[IfNode]):
-        super().__init__(repr_tok.location, type=VoidType())
+        super().__init__(location = body.location - repr_tok.location, type=VoidType())
         self.body = body
         self.if_statement: Optional[IfNode] = if_statement
         return
@@ -983,7 +982,7 @@ class ElseNode(Node):
 
 class WhileNode(Node):
     def __init__(self, repr_tok: Token, condition: Node, body: Node):
-        super().__init__(repr_tok.location, type=VoidType())
+        super().__init__(location = body.location - repr_tok.location, type=VoidType())
         self.condition = condition
         self.body = body
         return
@@ -1006,7 +1005,8 @@ class WhileNode(Node):
 
 class LoopModifierNode(Node):
     def __init__(self, repr_tok: Token, value: Optional[Token], error: TypeError):
-        super().__init__(repr_tok.location, type=VoidType())
+        loc = repr_tok.location - value.location if value is not None else repr_tok.location
+        super().__init__(location = loc, type=VoidType())
         self.loop: Optional[WhileNode] = None
         self.error: TypeError = error
         if value is None:
@@ -1057,9 +1057,9 @@ class SkipNode(LoopModifierNode):
 
 
 class MatchNode(Node):
-    def __init__(self, repr_tok: Token, value: Node, cases: list['CaseNode']):
+    def __init__(self, location: FileRange, value: Node, cases: list['CaseNode']):
         assert len(cases) > 0
-        super().__init__(cases[-1].location - repr_tok.location, type=VoidType())
+        super().__init__(location, type=VoidType())
         self.value: Node = value
         self.cases: list['CaseNode'] = cases
         return

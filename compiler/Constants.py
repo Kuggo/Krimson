@@ -117,7 +117,14 @@ class FileRange:
         """index of the line of the last character of the range on the source code. (starts at 1)"""
         return
 
+    def valid(self):
+        return self.start > 0 and self.end > 0 and self.line_start > 0 and self.line_end > 0
+
     def __sub__(self, other: 'FileRange'):
+        if not other.valid():
+            return self
+        if not self.valid():
+            return other
         if self.line_start < other.line_start:
             line_start = self.line_start
             start = self.start
@@ -139,6 +146,9 @@ class FileRange:
             end = max(self.end, other.end)
 
         return FileRange(start, line_start, end, line_end)
+
+    def __repr__(self):
+        return f'<{self.line_start}:{self.start}:{self.line_end}:{self.end}>'
 
 
 class Token:
