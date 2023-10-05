@@ -315,9 +315,9 @@ class ProductTypeLiteral(Literal):
                     self.fields[v.var.get_id()] = v.value
                     types.add(v.var.get_id())
                 else:
-                    context.error(TypeError.field_name_expected, v.location)
+                    context.error(TypeError.field_name_expected, v)
                 continue
-            context.error(TypeError.product_type_lit_needs_name, v.location)
+            context.error(TypeError.product_type_lit_needs_name, v)
 
         self.type = ProductType(types)
         return
@@ -399,7 +399,7 @@ class Context:
 
 
 
-# Category Nodes (DO NOT construct these nodes directly!)
+# Abstract Nodes (DO NOT construct these nodes directly!)
 
 class Node:
     def __init__(self, location: FileRange, parent_node: Optional['Node'] = None, type: Optional[Type] = None):
@@ -530,7 +530,7 @@ class VariableNode(Node):
                 return None
 
             elif len(types) > 1:
-                self.error(TypeError.ambiguous_name, iterable_str(expected_types))
+                self.error(TypeError.ambiguous_name, iterable_str(types))
 
             self.type = types.pop()  # unpacking the set
             # in case of multiple types, a random one will be selected to try and recover from the error
@@ -538,7 +538,7 @@ class VariableNode(Node):
         if self.type.builtin_type():
             return self
         self.type_def = self.context.get_definition(self.type.get_id())
-        if self.type_def is None and not self.type.builtin_type():
+        if self.type_def is None:
             self.error(TypeError.type_not_found1, self.name_tok.value, self.type.name_tok.value)
             return None
         return self
@@ -901,7 +901,15 @@ class FuncCallNode(Node):
         return
 
     def type_check(self, expected_types: Optional[set[Type]] = None, *args) -> Optional['FuncCallNode']:
-        self.func = self.func.type_check()
+        if isinstance(self.func, VariableNode) and expected_types is not None:
+            f_expected_types = set()
+            for t in self.func.get_possible_types():
+                if isinstance(t, FunctionType) and t.ret in expected_types:
+                    f_expected_types.add(t)
+
+            self.func = self.func.type_check(f_expected_types)
+        else:
+            self.func = self.func.type_check()
         if self.func is None:
             return None
 

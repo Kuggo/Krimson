@@ -158,7 +158,7 @@ def get_primitives() -> Context:
 
         context = Context(global_vars)
         parser.ast.type_check()
-        # TODO we dont wan tto typecheck the primitives, cause probably a lot of errors will appear
+        # TODO we dont want to typecheck the primitives, cause probably a lot of errors will appear
 
     return context
 

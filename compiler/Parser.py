@@ -440,7 +440,7 @@ class Parser:
             return None
         var, generics = g
 
-        type_val = self.type_prefix()
+        type_val = self.type()
         return TypeDefineNode(var, type_val, generics, location=self.last.location - name.location)
 
     def sum_type(self) -> Optional[SumType]:
@@ -488,8 +488,8 @@ class Parser:
                     gen = self.process_generics(g)
                     if gen is None:
                         continue
-                    generics.append(TypeDefineNode(gen[0], gen[1])) # TODO i dont understand what this whole function does. investigate and document pls
-                    return name.collection, generics
+                    generics.append(TypeDefineNode(gen[0], gen[1]))
+                return name.collection, generics
 
             elif isinstance(name.index, ValueNode) or isinstance(name.index, VariableNode):
                 return name.collection, [TypeDefineNode(name.index)]

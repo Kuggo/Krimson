@@ -19,10 +19,15 @@ AllowedOptions: type = {
     }
 }*/
 
-nat: type = ()
+int: type = ()
 
-t: type = {x: nat, x: int}
+f: int -> int
+f: int -> nat
 
-var: t = {x:nat = 0, x:int = 0}
+var: int = f(1)
+v: _ = 1
 
-e: nat = var.(x:int)
+//var: {True | False | Maybe} = {True | False | Maybe}.Maybe
+// TODO need to fix enum variant construction
+
+//var: {i_c = {x: int, y: int} | f_c = {x: frac, y: frac}} = {x: 1 y: 2}
