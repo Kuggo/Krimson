@@ -20,6 +20,7 @@ AllowedOptions: type = {
 }*/
 
 int: type = ()
+// TODO need to make primitive types work without getting defined
 
 f: int -> int
 f: int -> nat

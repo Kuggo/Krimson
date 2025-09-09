@@ -1,5 +1,5 @@
 from copy import copy, deepcopy
-from Instructions import *
+from Constants import *
 
 
 # helper functions
